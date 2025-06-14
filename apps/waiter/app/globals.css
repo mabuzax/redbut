@@ -1,0 +1,147 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global styles for the Waiter Dashboard */
+@layer base {
+  :root {
+    /* Primary colors (RedBut red) */
+    --color-primary-50: #fff1f1;
+    --color-primary-100: #ffe1e1;
+    --color-primary-200: #ffc7c7;
+    --color-primary-300: #ffa0a0;
+    --color-primary-400: #ff6b6b;
+    --color-primary-500: #ff3b3b; /* Main RedBut color */
+    --color-primary-600: #e61c1c;
+    --color-primary-700: #c31414;
+    --color-primary-800: #a01414;
+    --color-primary-900: #841818;
+    --color-primary-950: #480707;
+
+    /* Secondary colors (gray palette for text/background) */
+    --color-secondary-50: #f8fafc;
+    --color-secondary-100: #f1f5f9;
+    --color-secondary-200: #e2e8f0;
+    --color-secondary-300: #cbd5e1;
+    --color-secondary-400: #94a3b8;
+    --color-secondary-500: #64748b;
+    --color-secondary-600: #475569;
+    --color-secondary-700: #334155;
+    --color-secondary-800: #1e293b;
+    --color-secondary-900: #0f172a;
+    --color-secondary-950: #020617;
+
+    /* Semantic colors */
+    --color-success: #10b981;
+    --color-warning: #f59e0b;
+    --color-error: #ef4444;
+
+    /* Background and foreground for light theme (default) */
+    --background: var(--color-secondary-50);
+    --foreground: var(--color-secondary-900);
+
+    /* Card background and foreground */
+    --card: #ffffff;
+    --card-foreground: var(--color-secondary-900);
+
+    /* Muted text/background */
+    --muted: var(--color-secondary-100);
+    --muted-foreground: var(--color-secondary-500);
+
+    /* Accent colors */
+    --accent: var(--color-primary-100);
+    --accent-foreground: var(--color-primary-900);
+
+    /* Border color */
+    --border: var(--color-secondary-200);
+  }
+
+  /* Dark theme variables */
+  .dark {
+    --background: var(--color-secondary-950);
+    --foreground: var(--color-secondary-50);
+    --card: var(--color-secondary-900);
+    --card-foreground: var(--color-secondary-50);
+    --muted: var(--color-secondary-800);
+    --muted-foreground: var(--color-secondary-400);
+    --accent: var(--color-secondary-800);
+    --accent-foreground: var(--color-secondary-50);
+    --border: var(--color-secondary-700);
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer components {
+  /* General card styling for dashboard elements */
+  .dashboard-card {
+    @apply bg-card text-card-foreground rounded-lg shadow-md p-6 border border-border;
+  }
+
+  /* Table styling */
+  .data-table {
+    @apply w-full text-left border-collapse;
+  }
+
+  .data-table th {
+    @apply py-3 px-4 text-sm font-semibold uppercase text-muted-foreground bg-muted border-b border-border;
+  }
+
+  .data-table td {
+    @apply py-3 px-4 text-sm text-foreground border-b border-border;
+  }
+
+  .data-table tbody tr:hover {
+    @apply bg-muted;
+  }
+
+  /* Overlay/Sheet styling */
+  .overlay-sheet {
+    @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4;
+  }
+
+  .sheet-content {
+    @apply bg-card text-card-foreground rounded-lg shadow-xl max-w-md w-full relative p-6;
+  }
+
+  /* Star rating display */
+  .star-rating {
+    @apply flex;
+  }
+
+  .star-rating svg {
+    @apply w-5 h-5 text-yellow-400;
+  }
+
+  .star-rating svg.empty {
+    @apply text-gray-300;
+  }
+}
+
+@layer utilities {
+  /* Custom scrollbar for better UX */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-secondary-500) var(--color-secondary-100);
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: var(--color-secondary-100);
+    border-radius: 10px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--color-secondary-500);
+    border-radius: 10px;
+    border: 2px solid var(--color-secondary-100);
+  }
+}

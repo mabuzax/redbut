@@ -1,0 +1,158 @@
+// This is the Prisma schema file for RedBut application
+// It defines the database schema for SQLite
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Users table - stores anonymous user information
+model User {
+  id          String   @id @default(uuid())
+  name        String?
+  tableNumber Int      @map("table_number")
+  sessionId   String   @map("session_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  requests     Request[]
+  chatMessages ChatMessage[]
+  reviews      Review[] // New relation
+  waiterMetrics WaiterMetric[] // New relation
+
+  @@index([sessionId])
+  @@map("users")
+}
+
+// Requests table - stores waiter buzz and bill requests
+model Request {
+  id          String        @id @default(uuid())
+  userId      String        @map("user_id")
+  tableNumber Int           @map("table_number")
+  content     String
+  status      RequestStatus @default(New)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([tableNumber, status])
+  @@index([userId])
+  @@map("requests")
+}
+
+// Orders table - stores order items for "My Bill"
+model Order {
+  id          String   @id @default(uuid())
+  tableNumber Int      @map("table_number")
+  sessionId   String   @map("session_id")
+  item        String
+  price       Float    // Changed from Decimal to Float for SQLite compatibility
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([tableNumber, sessionId])
+  @@map("orders")
+}
+
+enum ChatRole {
+  user
+  assistant
+  system
+}
+
+enum RequestStatus {
+  New
+  Acknowledged
+  InProgress
+  Completed
+  OnHold
+  Cancelled
+  Done
+}
+
+// ChatMessages table - stores chat transcripts
+model ChatMessage {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  role      ChatRole
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("chat_messages")
+}
+
+// -------------------------------------------------------------------
+// Menu tables – used by the assistant to answer menu-related queries
+// -------------------------------------------------------------------
+
+// MenuCategory table - stores menu categories (e.g., Starters, Drinks)
+model MenuCategory {
+  id          String      @id @default(uuid()) @map("category_id")
+  description String
+
+  // Relations
+  items MenuItem[]
+
+  @@map("menu_category")
+}
+
+// MenuItem table - stores individual menu items
+model MenuItem {
+  id          String       @id @default(uuid()) @map("item_id")
+  name        String       @map("item_name")
+  description String       @map("item_description")
+  categoryId  String       @map("category_id")
+  price       Float        @map("item_price")
+  status      String       @default("Active")
+
+  // Relations
+  category MenuCategory @relation(fields: [categoryId], references: [id])
+
+  @@index([categoryId])
+  @@map("menu_item")
+}
+
+// -------------------------------------------------------------------
+// Waiter Section Tables
+// -------------------------------------------------------------------
+
+// Reviews table - stores customer reviews
+model Review {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  rating    Int
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("reviews")
+}
+
+// WaiterMetrics table - stores AI analysis of waiter performance
+model WaiterMetric {
+  id              String   @id @default(uuid())
+  waiterId        String   @map("waiter_id")
+  metricDate      DateTime @map("metric_date")
+  openHandled     Int      @map("open_handled")
+  avgResponseTime Float    @map("avg_response_time")
+  ratingAvg       Float    @map("rating_avg")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  // Relations
+  waiter User @relation(fields: [waiterId], references: [id])
+
+  @@index([waiterId])
+  @@map("waiter_metrics")
+}

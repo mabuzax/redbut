@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
+@layer base {
+  body {
+    @apply bg-white text-gray-900;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Splash screen animations */
+@layer components {
+  .splash-container {
+    @apply fixed inset-0 flex items-center justify-center bg-white z-50;
+  }
+
+  .splash-text {
+    @apply text-4xl md:text-6xl font-bold text-primary-500 relative;
+    animation: fly-in 0.8s ease-out forwards;
+  }
+
+  .splash-text::after {
+    content: '';
+    @apply absolute bottom-0 h-1 bg-primary-500;
+    animation: underline 0.8s ease-out 0.8s forwards;
+    width: 0;
+    right: 0;
+  }
+
+  /* Red Button styling */
+  .red-button {
+    @apply bg-primary-500 text-white font-bold py-6 px-6 rounded-full shadow-lg 
+           flex items-center justify-center transition-all duration-300
+           hover:bg-primary-600 active:bg-primary-700 active:shadow-sm
+           focus:outline-none focus:ring-2 focus:ring-primary-300 focus:ring-opacity-50;
+  }
+}
+
+/* Custom animations */
+@keyframes fly-in {
+  0% { 
+    transform: scale(0) translateZ(-200px); 
+    opacity: 0; 
+  }
+  100% { 
+    transform: scale(1) translateZ(0); /* finish zoom */
+    opacity: 1; 
+  }
+}
+
+@keyframes underline {
+  0% { 
+    width: 0%; 
+    left: 100%; 
+  }
+  100% { 
+    width: 100%; 
+    left: 0%; 
+  }
+}
+
+@keyframes shine {
+  0% { 
+    background-position: 200% center; 
+  }
+  100% { 
+    background-position: -200% center; 
+  }
+}
+
+/* -----------------------------------------------------------------------
+   Utilities
+   ---------------------------------------------------------------------*/
+@layer utilities {
+  /* Provide `bg-background` that our React components reference.
+     Currently mapped to white for the light theme. */
+  .bg-background {
+    @apply bg-white;
+  }
+}

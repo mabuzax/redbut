@@ -1,0 +1,176 @@
+import {
+  Controller,
+  Get,
+  Put,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  HttpStatus,
+  ValidationPipe,
+  UsePipes,
+  ParseIntPipe,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiParam,
+  ApiQuery,
+  ApiBearerAuth,
+  ApiBody,
+} from '@nestjs/swagger';
+import { WaiterService } from './waiter.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RequestStatus } from '@prisma/client'; // Import RequestStatus from Prisma client
+
+@ApiTags('waiter')
+@Controller('waiter')
+@ApiBearerAuth() // All endpoints in this controller require JWT authentication
+@UseGuards(JwtAuthGuard) // Apply JWT guard to all routes in this controller
+export class WaiterController {
+  constructor(private readonly waiterService: WaiterService) {}
+
+  @Get('requests/active')
+  @ApiOperation({ summary: 'Get a list of active requests for the waiter dashboard' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Returns an array of active requests',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          tableNumber: { type: 'number' },
+          content: { type: 'string', description: 'First 50 characters of the request content' },
+          status: { type: 'string', enum: Object.values(RequestStatus) },
+          createdAt: { type: 'string', format: 'date-time' },
+        },
+      },
+    },
+  })
+  async getActiveRequests(): Promise<any[]> {
+    return this.waiterService.getActiveRequests();
+  }
+
+  @Put('requests/:id/status')
+  @ApiOperation({ summary: 'Update the status of a specific request' })
+  @ApiParam({ name: 'id', description: 'The ID of the request to update', required: true })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        status: {
+          type: 'string',
+          enum: ['Acknowledged', 'InProgress', 'Completed'],
+          description: 'The new status for the request',
+        },
+      },
+      required: ['status'],
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Request status updated successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        tableNumber: { type: 'number' },
+        content: { type: 'string' },
+        status: { type: 'string', enum: Object.values(RequestStatus) },
+        createdAt: { type: 'string', format: 'date-time' },
+        updatedAt: { type: 'string', format: 'date-time' },
+      },
+    },
+  })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Request not found' })
+  @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Invalid status transition or data' })
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async updateRequestStatus(
+    @Param('id') id: string,
+    @Body('status') newStatus: 'Acknowledged' | 'InProgress' | 'Completed',
+  ): Promise<any> {
+    return this.waiterService.updateRequestStatus(id, newStatus);
+  }
+
+  @Get('requests/summary')
+  @ApiOperation({ summary: 'Get a summary of open and closed requests' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Returns counts of open and closed requests',
+    schema: {
+      type: 'object',
+      properties: {
+        open: { type: 'number', example: 3 },
+        closed: { type: 'number', example: 4 },
+      },
+    },
+  })
+  async getRequestsSummary(): Promise<{ open: number; closed: number }> {
+    return this.waiterService.getRequestsSummary();
+  }
+
+  @Get('reviews/summary')
+  @ApiOperation({ summary: 'Get a summary of reviews (average rating and total count)' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Returns average rating and total reviews',
+    schema: {
+      type: 'object',
+      properties: {
+        averageRating: { type: 'number', format: 'float', example: 4.5 },
+        totalReviews: { type: 'number', example: 552 },
+      },
+    },
+  })
+  async getReviewsSummary(): Promise<{ averageRating: number; totalReviews: number }> {
+    return this.waiterService.getReviewsSummary();
+  }
+
+  @Get('reviews')
+  @ApiOperation({ summary: 'Get a paginated list of reviews' })
+  @ApiQuery({ name: 'page', description: 'Page number', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'pageSize', description: 'Number of reviews per page', required: false, type: Number, example: 10 })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Returns a paginated list of reviews',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          rating: { type: 'number' },
+          content: { type: 'string' },
+          createdAt: { type: 'string', format: 'date-time' },
+        },
+      },
+    },
+  })
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async getPaginatedReviews(
+    @Query('page', new ParseIntPipe({ optional: true })) page?: number,
+    @Query('pageSize', new ParseIntPipe({ optional: true })) pageSize?: number,
+  ): Promise<any[]> {
+    return this.waiterService.getPaginatedReviews(page, pageSize);
+  }
+
+  @Get('ai/performance-today')
+  @ApiOperation({ summary: 'Get AI analysis of waiter performance for today' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Returns AI analysis text',
+    schema: {
+      type: 'object',
+      properties: {
+        analysis: { type: 'string', example: 'Based on current data, your performance today is excellent!' },
+      },
+    },
+  })
+  async getAIAnalysis(): Promise<{ analysis: string }> {
+    const analysis = await this.waiterService.getAIAnalysis();
+    return { analysis };
+  }
+}

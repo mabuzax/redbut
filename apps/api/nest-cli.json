@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "src",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "webpack": false,
+    "tsConfigPath": "tsconfig.json",
+    "assets": [
+      {
+        "include": "**/*.proto",
+        "outDir": "dist"
+      },
+      {
+        "include": "**/*.hbs",
+        "outDir": "dist"
+      },
+      {
+        "include": "**/*.sql",
+        "outDir": "dist"
+      }
+    ],
+    "watchAssets": true
+  },
+  "generateOptions": {
+    "spec": true
+  }
+}
