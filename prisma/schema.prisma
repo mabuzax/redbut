@@ -45,10 +45,31 @@ model Request {
 
   /* relations ------------------------------------------------------------- */
   user        User          @relation(fields: [userId], references: [id])
+  logs        RequestLog[]
 
   @@index([tableNumber, status])
   @@index([userId])
   @@map("requests")
+}
+
+/* -------------------------------------------------------------------------- */
+/*  REQUESTS LOG – audit trail of all request state changes                   */
+/* -------------------------------------------------------------------------- */
+
+model RequestLog {
+  id        String   @id @default(uuid())
+
+  /* parent request ------------------------------------------------------- */
+  requestId String   @map("request_id")
+  request   Request  @relation(fields: [requestId], references: [id])
+
+  /* what happened -------------------------------------------------------- */
+  action    String
+  dateTime  DateTime @default(now()) @map("date_time")
+
+  @@index([requestId])
+  @@index([dateTime])
+  @@map("requests_log")
 }
 
 /* -------------------------------------------------------------------------- */

@@ -126,6 +126,45 @@ export class AdminRequestsController {
     return this.adminRequestsService.getRequestsByTimeRange();
   }
 
+  /* ------------------------------------------------------------------ */
+  /*  Requests Resolution Analytics (<10 / 10-15 / >15 mins)            */
+  /* ------------------------------------------------------------------ */
+
+  @Get('analytics/resolution')
+  @ApiOperation({
+    summary:
+      'Get request-resolution analytics for a specific day (<10, 10-15, >15 mins)',
+  })
+  @ApiQuery({
+    name: 'date',
+    required: true,
+    description: 'Calendar day in YYYY-MM-DD format',
+    type: String,
+    example: '2025-06-15',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description:
+      'Returns an array with request counts bucketed in the three resolution ranges',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          range: { type: 'string', example: '<10mins' },
+          count: { type: 'number', example: 12 },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid date format',
+  })
+  async getResolutionAnalytics(@Query('date') date: string) {
+    return this.adminRequestsService.getRequestsResolutionAnalytics(date);
+  }
+
   @Get()
   @ApiOperation({ summary: 'Get all requests with comprehensive filtering options' })
   @ApiQuery({

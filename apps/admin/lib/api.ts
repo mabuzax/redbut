@@ -64,6 +64,14 @@ export interface AdminRequestSummary {
 }
 
 /**
+ * Bucketed resolution counts for the “Requests Resolution” chart.
+ */
+export interface ResolutionBucket {
+  range: string; // '<10mins' | '10-15mins' | '>15mins'
+  count: number;
+}
+
+/**
  * Rich filters for list / summary queries.
  */
 export interface RequestFilters {
@@ -282,6 +290,24 @@ export const adminApi = {
   ): Promise<AdminRequestSummary> => {
     return callApi<AdminRequestSummary>(
       `/admin/requests/analytics/hourly?date=${date}`,
+      token,
+    );
+  },
+
+  /**
+   * Resolution analytics – bucketed counts of how long it took
+   * for requests created on a given day to reach Completed/Done.
+   * Uses the same bucket format as the old time-range chart.
+   *
+   * @param date YYYY-MM-DD calendar day
+   * @returns Array of { range: '<10mins' | '10-15mins' | '>15mins', count: number }
+   */
+  getRequestsResolutionAnalytics: async (
+    token: string,
+    date: string,
+  ): Promise<ResolutionBucket[]> => {
+    return callApi<ResolutionBucket[]>(
+      `/admin/requests/analytics/resolution?date=${date}`,
       token,
     );
   },

@@ -45,14 +45,24 @@ export class RequestsService {
     this.logger.log(`Creating new request for user ${userId} at table ${tableNumber}`);
     
     try {
-      return await this.prisma.request.create({
-        data: {
-          userId,
-          tableNumber,
-          content,
-          status: RequestStatus.New, // Default status for new requests
-        },
-      });
+      const [request] = await this.prisma.$transaction([
+        this.prisma.request.create({
+          data: {
+            userId,
+            tableNumber,
+            content,
+            status: RequestStatus.New, // Default status for new requests
+          },
+        }),
+        // log row written inside the same transaction
+        this.logRequestAction(null, 'placeholder'), // will be replaced below
+      ]);
+
+      // second call to log action *outside* of transaction since we need request.id
+      // but still awaiting so caller only returns once log saved
+      await this.logRequestAction(request.id, 'New request created');
+
+      return request;
     } catch (error) {
       this.logger.error(`Failed to create request: ${error.message}`);
       throw new BadRequestException(`Failed to create request: ${error.message}`);
@@ -147,16 +157,50 @@ export class RequestsService {
     );
     
     try {
-      return await this.prisma.request.update({
-        where: { id },
-        data: {
-          content: updateRequestDto.content || currentRequest.content,
-          status: newStatus,
-        },
-      });
+      const [updated] = await this.prisma.$transaction([
+        this.prisma.request.update({
+          where: { id },
+          data: {
+            content: updateRequestDto.content || currentRequest.content,
+            status: newStatus,
+          },
+        }),
+        this.logRequestAction(null, 'placeholder'), // dummy, replaced after update
+      ]);
+
+      // Only log if the status has changed
+      if (currentRequest.status !== newStatus) {
+        const action = `Request status changed from ${currentRequest.status} to ${newStatus}`;
+        await this.logRequestAction(updated.id, action);
+      }
+
+      return updated;
     } catch (error) {
       this.logger.error(`Failed to update request: ${error.message}`);
       throw new BadRequestException(`Failed to update request: ${error.message}`);
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Helpers                                                           */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Write an audit-log entry into `requests_log`.
+   * Using its own method keeps logic DRY.
+   */
+  private async logRequestAction(requestId: string | null, action: string) {
+    if (!requestId) return;
+    try {
+      await this.prisma.requestLog.create({
+        data: {
+          requestId,
+          action,
+        },
+      });
+    } catch (err) {
+      // Logging must never crash the main flow – just emit a warning.
+      this.logger.warn(`Failed to write RequestLog for ${requestId}: ${(err as Error).message}`);
     }
   }
 

@@ -228,38 +228,78 @@ export class AdminRequestsService {
    * Used for the bar chart in the admin dashboard
    */
   async getRequestsByTimeRange() {
-    // Get all open (new) requests
-    const openRequests = await this.prisma.request.findMany({
+    // kept for backwards-compat – delegates to new resolution analytics
+    const todayISO = new Date().toISOString().split('T')[0];
+    return this.getRequestsResolutionAnalytics(todayISO);
+  }
+
+  /**
+   * Requests *resolution* analytics – calculate how long each request
+   * took from **first “New request created”** entry to **final
+   * “Completed/Done”** entry and bucket counts into:
+   *   • <10 mins   • 10-15 mins   • >15 mins
+   *
+   * @param dateStr YYYY-MM-DD calendar day to analyse.
+   * @returns Array with 3 bucket objects identical to previous API.
+   */
+  async getRequestsResolutionAnalytics(dateStr: string) {
+    const day = new Date(dateStr);
+    if (isNaN(day.getTime())) throw new Error('Invalid date format. Use YYYY-MM-DD');
+
+    const start = new Date(day); start.setHours(0, 0, 0, 0);
+    const end   = new Date(day); end.setHours(23, 59, 59, 999);
+
+    /* ------------------------------------------------------------------ */
+    /* 1. find all logs that mark completion on the selected calendar day */
+    /* ------------------------------------------------------------------ */
+    const completionLogs = await this.prisma.requestLog.findMany({
       where: {
-        status: 'New',
+        dateTime: { gte: start, lte: end },
+        OR: [
+          { action: { contains: 'Done',       mode: 'insensitive' } },
+          { action: { contains: 'Completed',  mode: 'insensitive' } },
+        ],
       },
-      select: {
-        id: true,
-        createdAt: true,
-      },
+      select: { requestId: true, dateTime: true },
     });
 
-    // Initialize counters for each time range
-    const timeRanges = [
-      { range: '<10mins', count: 0 },
-      { range: '10-15mins', count: 0 },
-      { range: '>15mins', count: 0 },
+    if (completionLogs.length === 0) {
+      return [
+        { range: '<10mins',  count: 0 },
+        { range: '10-15mins', count: 0 },
+        { range: '>15mins',   count: 0 },
+      ];
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* 2. for each completed request fetch the first creation log         */
+    /* ------------------------------------------------------------------ */
+    const bucket = { lt10: 0, _10to15: 0, gt15: 0 };
+
+    for (const comp of completionLogs) {
+      const firstLog = await this.prisma.requestLog.findFirst({
+        where: {
+          requestId: comp.requestId,
+          action:   { contains: 'New request created', mode: 'insensitive' },
+        },
+        orderBy: { dateTime: 'asc' },
+        select: { dateTime: true },
+      });
+
+      if (!firstLog) continue; // skip if malformed
+
+      const mins =
+        (comp.dateTime.getTime() - firstLog.dateTime.getTime()) / (1000 * 60);
+
+      if (mins < 10) bucket.lt10++;
+      else if (mins <= 15) bucket._10to15++;
+      else bucket.gt15++;
+    }
+
+    return [
+      { range: '<10mins',  count: bucket.lt10 },
+      { range: '10-15mins', count: bucket._10to15 },
+      { range: '>15mins',   count: bucket.gt15 },
     ];
-
-    // Calculate time elapsed for each request and increment appropriate counter
-    const now = new Date();
-    openRequests.forEach((request) => {
-      const elapsedMinutes = (now.getTime() - request.createdAt.getTime()) / (1000 * 60);
-      
-      if (elapsedMinutes < 10) {
-        timeRanges[0].count++;
-      } else if (elapsedMinutes >= 10 && elapsedMinutes <= 15) {
-        timeRanges[1].count++;
-      } else {
-        timeRanges[2].count++;
-      }
-    });
-
-    return timeRanges;
   }
 }
