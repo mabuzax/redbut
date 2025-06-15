@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   User,
   BrainCircuit,
@@ -23,10 +23,17 @@ import {
   Eye,
   RefreshCw,
   X,
+  Loader2,
   type LucideIcon
 } from "lucide-react";
 import LoginForm from "../components/auth/LoginForm";
 import TimeAgo from "react-timeago";
+import {
+  adminApi,
+  AdminRequestSummary,
+  RequestFilters,
+  RequestSummary,
+} from "../lib/api";
 
 export default function AdminDashboard() {
   type Stage = "splash" | "login" | "dashboard";
@@ -200,46 +207,97 @@ interface RequestsComponentProps {
 }
 
 const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
-  // State for view mode (dashboard or wall view)
+  const token = localStorage.getItem("redbutToken") || "";
+
+  /* ---------------- dashboard vs wall ---------------- */
   const [viewMode, setViewMode] = useState<"dashboard" | "wall">("dashboard");
-  
-  // State for date filter
-  const [dateFilter, setDateFilter] = useState<number>(7); // Default 7 days
-  
-  // Placeholder data for requests
-  const requestsData = {
-    openRequests: 25,
-    closedRequests: 102,
-    avgResolutionTime: 10, // in minutes
-    newRequestsByTime: [
-      { range: "<10mins", count: 8 },
-      { range: "10-15mins", count: 12 },
-      { range: ">15mins", count: 5 }
-    ],
-    // Daily data for timeline chart
-    timelineData: Array.from({ length: 31 }, (_, i) => ({
-      date: new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      openCount: Math.floor(Math.random() * 30) + 5,
-      closedCount: Math.floor(Math.random() * 40) + 10
-    })).reverse(),
-    // Placeholder for requests list
-    requestsList: Array.from({ length: 20 }, (_, i) => ({
-      id: `req-${i}`,
-      tableNumber: Math.floor(Math.random() * 20) + 1,
-      content: `Request from table ${Math.floor(Math.random() * 20) + 1}: ${
-        ["Need assistance with menu", "Request for bill", "Need extra utensils", "Water refill", "Order inquiry"][Math.floor(Math.random() * 5)]
-      }`,
-      status: ["New", "Acknowledged", "InProgress", "Completed"][Math.floor(Math.random() * 4)],
-      waiterId: `waiter-${Math.floor(Math.random() * 5) + 1}`,
-      waiterName: ["John D.", "Maria S.", "Lebo N.", "Sam T.", "Lisa R."][Math.floor(Math.random() * 5)],
-      createdAt: new Date(Date.now() - Math.floor(Math.random() * 24 * 60 * 60 * 1000)).toISOString(),
-      updatedAt: new Date(Date.now() - Math.floor(Math.random() * 12 * 60 * 60 * 1000)).toISOString(),
-      responseTime: Math.floor(Math.random() * 20) + 1
-    }))
+
+  /* ---------------- header summary ------------------- */
+  const [summary, setSummary] = useState<{ open: number; closed: number; avgResolutionTime: number } | null>(null);
+
+  /* ------------- hourly analytics (line chart) ------- */
+  const todayISO = new Date().toISOString().split("T")[0];
+  const [selectedDate, setSelectedDate] = useState<string>(todayISO);
+  const [hourlyData, setHourlyData] = useState<AdminRequestSummary | null>(null);
+  const [loadingHourly, setLoadingHourly] = useState(false);
+  const [errorHourly, setErrorHourly] = useState<string | null>(null);
+
+  /* ------------- wall-list state & filters ----------- */
+  const [requests, setRequests] = useState<RequestSummary[]>([]);
+  const [loadingList, setLoadingList] = useState(false);
+  const [errorList, setErrorList] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sortOrder, setSortOrder] = useState<"createdAt" | "status" | "tableNumber">("createdAt");
+
+  /* ------------- placeholder data for fallbacks ------ */
+  const placeholderSummary = {
+    open: 25,
+    closed: 102,
+    avgResolutionTime: 10
   };
 
-  // Filter timeline data based on date filter
-  const filteredTimelineData = requestsData.timelineData.slice(0, dateFilter);
+  const placeholderNewRequestsByTime = [
+    { range: "<10mins", count: 8 },
+    { range: "10-15mins", count: 12 },
+    { range: ">15mins", count: 5 }
+  ];
+
+  const placeholderRequests = Array.from({ length: 20 }, (_, i) => ({
+    id: `req-${i}`,
+    tableNumber: Math.floor(Math.random() * 20) + 1,
+    content: `Request from table ${Math.floor(Math.random() * 20) + 1}: ${
+      ["Need assistance with menu", "Request for bill", "Need extra utensils", "Water refill", "Order inquiry"][Math.floor(Math.random() * 5)]
+    }`,
+    status: ["New", "Acknowledged", "InProgress", "Completed"][Math.floor(Math.random() * 4)],
+    waiterId: `waiter-${Math.floor(Math.random() * 5) + 1}`,
+    waiterName: ["John D.", "Maria S.", "Lebo N.", "Sam T.", "Lisa R."][Math.floor(Math.random() * 5)],
+    createdAt: new Date(Date.now() - Math.floor(Math.random() * 24 * 60 * 60 * 1000)).toISOString(),
+    updatedAt: new Date(Date.now() - Math.floor(Math.random() * 12 * 60 * 60 * 1000)).toISOString(),
+    responseTime: Math.floor(Math.random() * 20) + 1
+  }));
+
+  /* ---------------- fetch summary (open/closed) ---------------- */
+  useEffect(() => {
+    let isMounted = true;
+    adminApi.getRequestsSummary(token)
+      .then((data) => { if (isMounted) setSummary(data); })
+      .catch((e) => console.error(e));
+    return () => { isMounted = false; };
+  }, [token]);
+
+  /* ---------------- fetch hourly chart data ------------------- */
+  useEffect(() => {
+    if (!selectedDate) return;
+    setLoadingHourly(true);
+    setErrorHourly(null);
+    adminApi
+      .getHourlyRequestAnalytics(token, selectedDate)
+      .then((d) => setHourlyData(d))
+      .catch((e) => setErrorHourly(e.message))
+      .finally(() => setLoadingHourly(false));
+  }, [token, selectedDate]);
+
+  /* ---------------- fetch list (wall) ------------------------- */
+  const fetchList = useCallback(async () => {
+    setLoadingList(true);
+    setErrorList(null);
+    const filters: RequestFilters = {
+      status: statusFilter === "all" ? undefined : statusFilter,
+      search: searchTerm || undefined,
+      sort: sortOrder,
+    };
+    try {
+      const data = await adminApi.getAllRequests(token, filters);
+      setRequests(data);
+    } catch (e: any) {
+      setErrorList(e.message);
+    } finally {
+      setLoadingList(false);
+    }
+  }, [token, statusFilter, searchTerm, sortOrder]);
+
+  useEffect(() => { fetchList(); }, [fetchList]);
 
   // Function to get status class for coloring
   const getStatusClass = (status: string) => {
@@ -288,7 +346,7 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                   </div>
                   <div>
                     <p className="text-sm text-gray-500">Open Requests</p>
-                    <p className="text-xl font-bold text-gray-900">{requestsData.openRequests}</p>
+                    <p className="text-xl font-bold text-gray-900">{summary?.open || placeholderSummary.open}</p>
                   </div>
                 </div>
                 <div className="flex items-center">
@@ -297,7 +355,7 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                   </div>
                   <div>
                     <p className="text-sm text-gray-500">Closed Requests</p>
-                    <p className="text-xl font-bold text-gray-900">{requestsData.closedRequests}</p>
+                    <p className="text-xl font-bold text-gray-900">{summary?.closed || placeholderSummary.closed}</p>
                   </div>
                 </div>
                 <div className="flex items-center">
@@ -306,11 +364,14 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                   </div>
                   <div>
                     <p className="text-sm text-gray-500">Avg Resolution Time</p>
-                    <p className="text-xl font-bold text-gray-900">{requestsData.avgResolutionTime} mins</p>
+                    <p className="text-xl font-bold text-gray-900">{summary?.avgResolutionTime || placeholderSummary.avgResolutionTime} mins</p>
                   </div>
                 </div>
               </div>
-              <button className="mt-4 w-full py-2 bg-primary-50 text-primary-600 rounded-md hover:bg-primary-100 transition">
+              <button 
+                onClick={() => setViewMode("wall")}
+                className="mt-4 w-full py-2 bg-primary-50 text-primary-600 rounded-md hover:bg-primary-100 transition"
+              >
                 View All Requests
               </button>
             </div>
@@ -321,53 +382,96 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                 <h3 className="font-semibold text-gray-900">Open vs Closed Requests</h3>
                 <div className="flex items-center space-x-2">
                   <Calendar className="h-4 w-4 text-gray-500" />
-                  <select 
-                    value={dateFilter}
-                    onChange={(e) => setDateFilter(Number(e.target.value))}
+                  <select
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
                     className="border-none text-sm text-gray-500 focus:ring-0 cursor-pointer"
                   >
-                    <option value={7}>Last 7 days</option>
-                    <option value={14}>Last 14 days</option>
-                    <option value={31}>Last 31 days</option>
+                    {Array.from({ length: 31 }, (_, i) => {
+                      const date = new Date();
+                      date.setDate(date.getDate() - i);
+                      const iso = date.toISOString().split("T")[0];
+                      const label =
+                        i === 0
+                          ? "Today"
+                          : i === 1
+                          ? "Yesterday"
+                          : `${i} days ago`;
+                      return (
+                        <option key={iso} value={iso}>
+                          {label} ({iso})
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
               </div>
               
-              {/* Timeline Chart (Placeholder) */}
-              <div className="h-64 relative">
-                <div className="absolute inset-0 flex items-end justify-between px-4">
-                  {filteredTimelineData.map((day, i) => (
-                    <div key={i} className="flex flex-col items-center w-full max-w-[30px]">
-                      <div className="w-full flex flex-col items-center">
-                        <div 
-                          className="w-full bg-blue-400 rounded-t-sm" 
-                          style={{ height: `${day.openCount * 2}px` }}
-                          title={`Open: ${day.openCount}`}
-                        ></div>
-                        <div 
-                          className="w-full bg-green-400 rounded-t-sm mt-1" 
-                          style={{ height: `${day.closedCount * 2}px` }}
-                          title={`Closed: ${day.closedCount}`}
-                        ></div>
+              {/* Line Chart */}
+              <div className="h-64 relative flex items-center justify-center">
+                {loadingHourly ? (
+                  <div className="flex items-center">
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                    <p className="text-gray-500">Loading chart…</p>
+                  </div>
+                ) : errorHourly ? (
+                  <p className="text-red-600">{errorHourly}</p>
+                ) : hourlyData ? (
+                  <div className="w-full h-full relative">
+                    <svg viewBox="0 0 620 200" className="w-full h-full">
+                      {/* X-axis (time) labels */}
+                      <text x="10" y="195" className="text-xs fill-gray-500">07:00</text>
+                      <text x="155" y="195" className="text-xs fill-gray-500">12:00</text>
+                      <text x="310" y="195" className="text-xs fill-gray-500">18:00</text>
+                      <text x="465" y="195" className="text-xs fill-gray-500">00:00</text>
+                      <text x="600" y="195" className="text-xs fill-gray-500">02:00</text>
+                      
+                      {/* grid */}
+                      <line x1="0" y1="180" x2="620" y2="180" stroke="#e5e7eb" />
+                      
+                      {/* build polyline points */}
+                      {["open", "closed"].map((key, idx) => {
+                        const points = hourlyData.hourly
+                          .filter((h) => h.hour >= 7 || h.hour <= 2)
+                          .sort((a, b) => a.hour - b.hour)
+                          .map((h, i) => {
+                            const x = (i / 20) * 600 + 10; // 21 points (7–2) -> scale
+                            const max = Math.max(
+                              ...hourlyData.hourly.map((d) => Math.max(d.open, d.closed)),
+                            );
+                            const y =
+                              180 -
+                              ((h[key as "open" | "closed"] || 0) / (max || 1)) * 150;
+                            return `${x},${y}`;
+                          })
+                          .join(" ");
+                        return (
+                          <polyline
+                            key={key}
+                            fill="none"
+                            stroke={key === "open" ? "#dc2626" : "#16a34a"} /* red / green */
+                            strokeWidth="2"
+                            points={points}
+                          />
+                        );
+                      })}
+                    </svg>
+                    
+                    {/* Legend */}
+                    <div className="absolute top-0 right-0 flex items-center space-x-4 bg-white p-1 rounded-md">
+                      <div className="flex items-center">
+                        <div className="w-3 h-3 bg-red-600 rounded-sm mr-1"></div>
+                        <span className="text-xs text-gray-500">Open</span>
                       </div>
-                      <div className="text-xs text-gray-500 mt-2 transform -rotate-45 origin-top-left">
-                        {new Date(day.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                      <div className="flex items-center">
+                        <div className="w-3 h-3 bg-green-600 rounded-sm mr-1"></div>
+                        <span className="text-xs text-gray-500">Closed</span>
                       </div>
                     </div>
-                  ))}
-                </div>
-                
-                {/* Legend */}
-                <div className="absolute top-0 right-0 flex items-center space-x-4">
-                  <div className="flex items-center">
-                    <div className="w-3 h-3 bg-blue-400 rounded-sm mr-1"></div>
-                    <span className="text-xs text-gray-500">Open</span>
                   </div>
-                  <div className="flex items-center">
-                    <div className="w-3 h-3 bg-green-400 rounded-sm mr-1"></div>
-                    <span className="text-xs text-gray-500">Closed</span>
-                  </div>
-                </div>
+                ) : (
+                  <p className="text-gray-500">No data available for selected date</p>
+                )}
               </div>
             </div>
             
@@ -376,7 +480,7 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
               <h3 className="font-semibold text-gray-900 mb-4">New Requests by Time</h3>
               
               <div className="h-48 flex items-end justify-around">
-                {requestsData.newRequestsByTime.map((item, i) => (
+                {placeholderNewRequestsByTime.map((item, i) => (
                   <div key={i} className="flex flex-col items-center">
                     <div 
                       className="w-16 bg-primary-500 rounded-t-sm" 
@@ -398,7 +502,7 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
               
               <div className="mt-4 text-center text-sm text-gray-500">
                 <AlertTriangle className="h-4 w-4 inline-block mr-1 text-yellow-500" />
-                <span>{requestsData.newRequestsByTime[2].count} requests waiting &gt;15 mins</span>
+                <span>{placeholderNewRequestsByTime[2].count} requests waiting &gt;15 mins</span>
               </div>
             </div>
             
@@ -413,7 +517,9 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                     <span className="text-sm">Completion Rate</span>
                   </div>
                   <span className="font-medium">
-                    {Math.round((requestsData.closedRequests / (requestsData.openRequests + requestsData.closedRequests)) * 100)}%
+                    {summary 
+                      ? Math.round((summary.closed / (summary.open + summary.closed)) * 100) 
+                      : Math.round((placeholderSummary.closed / (placeholderSummary.open + placeholderSummary.closed)) * 100)}%
                   </span>
                 </div>
                 
@@ -483,6 +589,7 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                 <ArrowLeft className="h-4 w-4 mr-1" /> Dashboard View
               </button>
               <button 
+                onClick={fetchList}
                 className="inline-flex items-center justify-center px-4 py-2 font-medium text-gray-900 bg-gray-100 rounded-full hover:bg-gray-200 active:bg-gray-300 transition-all"
               >
                 <RefreshCw className="h-4 w-4 mr-1" /> Refresh
@@ -496,59 +603,90 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
               <input
                 type="text"
                 placeholder="Search requests..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full border border-gray-300 rounded-md p-2 pl-8"
               />
               <Filter className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
             </div>
-            <select className="border border-gray-300 rounded-md p-2">
+            <select 
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="border border-gray-300 rounded-md p-2"
+            >
               <option value="all">All Statuses</option>
               <option value="New">New</option>
               <option value="Acknowledged">Acknowledged</option>
               <option value="InProgress">In Progress</option>
               <option value="Completed">Completed</option>
             </select>
-            <select className="border border-gray-300 rounded-md p-2">
+            <select 
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as "createdAt" | "status" | "tableNumber")}
+              className="border border-gray-300 rounded-md p-2"
+            >
               <option value="createdAt">Sort by Time</option>
               <option value="status">Sort by Status</option>
-              <option value="table">Sort by Table</option>
+              <option value="tableNumber">Sort by Table</option>
             </select>
           </div>
           
           {/* Requests list */}
           <div className="space-y-3 mt-4">
-            {requestsData.requestsList.map((request) => (
-              <div
-                key={request.id}
-                className="border border-gray-200 rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition cursor-pointer"
-              >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="flex items-center mb-2">
-                      <span className="font-medium mr-2">Table {request.tableNumber}</span>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusClass(request.status)}`}>
-                        {request.status}
-                      </span>
-                    </div>
-                    <p className="text-gray-900">{request.content}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-gray-500">
-                      <TimeAgo date={request.createdAt} />
-                    </p>
-                    {request.waiterName && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        Assigned to: {request.waiterName}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                {request.responseTime && (
-                  <div className="mt-2 text-xs text-gray-500">
-                    Response time: {request.responseTime} mins
-                  </div>
-                )}
+            {loadingList ? (
+              <div className="flex items-center justify-center h-32">
+                <Loader2 className="h-8 w-8 animate-spin text-primary-500 mr-2" />
+                <p className="text-gray-500">Loading requests...</p>
               </div>
-            ))}
+            ) : errorList ? (
+              <div className="text-center py-8">
+                <p className="text-red-500 mb-2">{errorList}</p>
+                <button 
+                  onClick={fetchList}
+                  className="inline-flex items-center justify-center px-4 py-2 font-medium text-primary-600 bg-primary-50 rounded-full hover:bg-primary-100 transition-all"
+                >
+                  <RefreshCw className="h-4 w-4 mr-1" /> Try Again
+                </button>
+              </div>
+            ) : (requests && requests.length > 0) ? (
+              requests.map((request) => (
+                <div
+                  key={request.id}
+                  className="border border-gray-200 rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition cursor-pointer"
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="flex items-center mb-2">
+                        <span className="font-medium mr-2">Table {request.tableNumber}</span>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusClass(request.status)}`}>
+                          {request.status}
+                        </span>
+                      </div>
+                      <p className="text-gray-900">{request.content}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-500">
+                        <TimeAgo date={request.createdAt} />
+                      </p>
+                      {request.waiterName && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Assigned to: {request.waiterName}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {request.responseTime && (
+                    <div className="mt-2 text-xs text-gray-500">
+                      Response time: {request.responseTime} mins
+                    </div>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-gray-500">No requests found matching your filters</p>
+              </div>
+            )}
           </div>
         </div>
       )}

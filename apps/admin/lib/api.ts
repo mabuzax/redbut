@@ -47,6 +47,37 @@ export interface RequestSummary {
 }
 
 /**
+ * Hour-chunked open/closed counts for a single day.  Used by the line chart.
+ */
+export interface HourlyRequestData {
+  hour: number;   // 0-23
+  open: number;
+  closed: number;
+}
+
+/**
+ * Full daily breakdown (07:00-02:00) returned by the analytics endpoint.
+ */
+export interface AdminRequestSummary {
+  date: string; // YYYY-MM-DD
+  hourly: HourlyRequestData[];
+}
+
+/**
+ * Rich filters for list / summary queries.
+ */
+export interface RequestFilters {
+  status?: string;
+  startDate?: string;
+  endDate?: string;
+  waiterId?: string;
+  search?: string;
+  sort?: 'createdAt' | 'status' | 'tableNumber';
+  page?: number;
+  pageSize?: number;
+}
+
+/**
  * DTO for admin login request.
  */
 export interface LoginRequest {
@@ -203,21 +234,56 @@ export const adminApi = {
    */
   getRequestSummaries: async (
     token: string,
-    filters?: {
-      status?: string;
-      startDate?: string;
-      endDate?: string;
-      waiterId?: string;
-    },
+    filters: RequestFilters = {},
   ): Promise<RequestSummary[]> => {
     const queryParams = new URLSearchParams();
-    if (filters?.status) queryParams.append('status', filters.status);
-    if (filters?.startDate) queryParams.append('startDate', filters.startDate);
-    if (filters?.endDate) queryParams.append('endDate', filters.endDate);
-    if (filters?.waiterId) queryParams.append('waiterId', filters.waiterId);
+    if (filters.status)     queryParams.append('status', filters.status);
+    if (filters.startDate)  queryParams.append('startDate', filters.startDate);
+    if (filters.endDate)    queryParams.append('endDate', filters.endDate);
+    if (filters.waiterId)   queryParams.append('waiterId', filters.waiterId);
+    if (filters.search)     queryParams.append('search', filters.search);
+    if (filters.sort)       queryParams.append('sort', filters.sort);
+    if (filters.page)       queryParams.append('page', String(filters.page));
+    if (filters.pageSize)   queryParams.append('pageSize', String(filters.pageSize));
 
     const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
     return callApi<RequestSummary[]>(`/admin/requests${queryString}`, token);
+  },
+
+  /**
+   * Alias for clarity – fetch paginated / filtered list of requests.
+   */
+  getAllRequests: async (
+    token: string,
+    filters: RequestFilters = {},
+  ): Promise<RequestSummary[]> => {
+    return adminApi.getRequestSummaries(token, filters);
+  },
+
+  /**
+   * Simple counts + average resolution time for dashboard header card.
+   */
+  getRequestsSummary: async (
+    token: string,
+  ): Promise<{ open: number; closed: number; avgResolutionTime: number }> => {
+    return callApi<{ open: number; closed: number; avgResolutionTime: number }>(
+      '/admin/requests/summary',
+      token,
+    );
+  },
+
+  /**
+   * Hourly analytics for a given calendar day (used by line chart).
+   * @param date format YYYY-MM-DD
+   */
+  getHourlyRequestAnalytics: async (
+    token: string,
+    date: string,
+  ): Promise<AdminRequestSummary> => {
+    return callApi<AdminRequestSummary>(
+      `/admin/requests/analytics/hourly?date=${date}`,
+      token,
+    );
   },
 
   /**
