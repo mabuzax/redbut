@@ -93,6 +93,16 @@ enum SortOrder {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  USER TYPES FOR ACCESS USERS                                              */
+/* -------------------------------------------------------------------------- */
+
+enum UserType {
+  admin
+  waiter
+  manager
+}
+
+/* -------------------------------------------------------------------------- */
 /*  CHAT MESSAGES                                                             */
 /* -------------------------------------------------------------------------- */
 
@@ -195,6 +205,9 @@ model AccessUser {
   /* Credentials */
   username String @unique
   password String                      // default handled in application logic
+
+  /* Role of this account (admin / waiter / manager) */
+  userType UserType @default(waiter)
 
   @@map("access_users")
 }

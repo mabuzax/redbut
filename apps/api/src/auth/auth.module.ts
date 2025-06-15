@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { WaiterAuthController } from './waiter-auth.controller';
+import { AdminAuthController } from './admin-auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { PrismaService } from '../common/prisma.service';
 import { UsersService } from '../users/users.service';
@@ -24,7 +25,7 @@ import { RolesGuard } from './guards/role.guard';
       }),
     }),
   ],
-  controllers: [AuthController, WaiterAuthController],
+  controllers: [AuthController, WaiterAuthController, AdminAuthController],
   providers: [
     AuthService,
     JwtStrategy,

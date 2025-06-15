@@ -15,12 +15,12 @@ import { IsEmail, IsNotEmpty, IsString, MinLength, Matches } from 'class-validat
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
-// DTOs for Waiter Authentication
+// DTOs for Admin Authentication
 
 /**
- * DTO for waiter login request.
+ * DTO for admin login request.
  */
-class LoginDto {
+class AdminLoginDto {
   @IsNotEmpty({ message: 'Username (email) is required' })
   @IsEmail({}, { message: 'Invalid email format for username' })
   username!: string;
@@ -32,17 +32,14 @@ class LoginDto {
 }
 
 /**
- * Response DTO for successful waiter login.
+ * Response DTO for successful admin login.
  */
-class LoginResponseDto {
+class AdminLoginResponseDto {
   @IsString()
   userId!: string;
 
   @IsString()
   username!: string;
-
-  @IsString()
-  waiterId!: string;
 
   @IsString()
   name!: string;
@@ -55,9 +52,9 @@ class LoginResponseDto {
 }
 
 /**
- * DTO for changing waiter password.
+ * DTO for changing admin password.
  */
-class ChangePasswordDto {
+class AdminChangePasswordDto {
   @IsNotEmpty({ message: 'User ID is required' })
   @IsString({ message: 'User ID must be a string' })
   userId!: string;
@@ -81,45 +78,40 @@ class ChangePasswordDto {
 }
 
 @ApiTags('auth')
-@Controller('auth/waiter')
-export class WaiterAuthController {
+@Controller('auth/admin')
+export class AdminAuthController {
   constructor(private readonly authService: AuthService) {}
 
   /**
-   * Handles waiter login.
+   * Handles admin login.
    * If login is successful and password is '__new__pass', it signals the frontend
    * to prompt for a password change.
    */
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Authenticate a waiter and return JWT token' })
-  @ApiBody({ type: LoginDto })
+  @ApiOperation({ summary: 'Authenticate an admin and return JWT token' })
+  @ApiBody({ type: AdminLoginDto })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Waiter authenticated successfully',
-    type: LoginResponseDto,
+    description: 'Admin authenticated successfully',
+    type: AdminLoginResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.UNAUTHORIZED,
     description: 'Invalid credentials',
   })
   @UsePipes(new ValidationPipe({ transform: true }))
-  async login(@Body() loginDto: LoginDto): Promise<LoginResponseDto> {
+  async login(@Body() loginDto: AdminLoginDto): Promise<AdminLoginResponseDto> {
     const { username, password } = loginDto;
     try {
-      // Authenticate specifically as a waiter using the unified staff login helper
-      const { waiter, token } = await this.authService.staffLogin(
-        username,
-        password,
-        'waiter',
-      );
+      // Use staffLogin with userType='admin' to ensure only admin users can log in
+      const { waiter, token } = await this.authService.staffLogin(username, password, 'admin');
 
       const requiresPasswordChange = password === '__new__pass';
 
       return {
-        userId: waiter.id, // This is the waiter's ID, used as userId in JWT
+        userId: waiter.id,
         username: waiter.email,
-        waiterId: waiter.id,
         name: `${waiter.name} ${waiter.surname}`,
         token,
         requiresPasswordChange,
@@ -133,7 +125,7 @@ export class WaiterAuthController {
   }
 
   /**
-   * Handles password change for waiters.
+   * Handles password change for admins.
    * Requires authentication and checks if the old password is '__new__pass'
    * or if it matches the current password.
    */
@@ -141,8 +133,8 @@ export class WaiterAuthController {
   @UseGuards(JwtAuthGuard) // Ensure only authenticated users can change password
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Change waiter password' })
-  @ApiBody({ type: ChangePasswordDto })
+  @ApiOperation({ summary: 'Change admin password' })
+  @ApiBody({ type: AdminChangePasswordDto })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Password changed successfully',
@@ -156,7 +148,7 @@ export class WaiterAuthController {
     description: 'Unauthorized access',
   })
   @UsePipes(new ValidationPipe({ transform: true }))
-  async changePassword(@Body() changePasswordDto: ChangePasswordDto, @Req() req: any): Promise<void> {
+  async changePassword(@Body() changePasswordDto: AdminChangePasswordDto, @Req() req: any): Promise<void> {
     const { userId, oldPassword, newPassword, confirmPassword } = changePasswordDto;
 
     if (newPassword !== confirmPassword) {
@@ -166,6 +158,11 @@ export class WaiterAuthController {
     // Ensure the userId in the DTO matches the authenticated user's ID from JWT
     if (userId !== req.user.id) {
       throw new HttpException('Unauthorized: Cannot change password for another user', HttpStatus.UNAUTHORIZED);
+    }
+
+    // Ensure the user has the 'admin' role
+    if (req.user.role !== 'admin') {
+      throw new HttpException('Unauthorized: Only admin users can use this endpoint', HttpStatus.UNAUTHORIZED);
     }
 
     try {

@@ -103,16 +103,37 @@ export class AuthService {
     return password === '__new__pass';
   }
 
-  /**
-   * Authenticate a waiter using the credentials in the `access_users` table.
-   * Returns the waiter record (joined from `waiter` table) and a freshly
-   * issued JWT token on success.
-   */
-  async waiterLogin(username: string, password: string): Promise<{ waiter: any; token: string }> {
-    this.logger.log(`Waiter login attempt for ${username}`);
+  /* ----------------------------------------------------------------------
+   * Generic staff authentication (admin / waiter / manager)
+   * -------------------------------------------------------------------- */
 
-    const accessUser = await this.prisma.accessUser.findUnique({
-      where: { username },
+  /**
+   * Authenticate a **staff** user (waiter / admin / manager) using the
+   * credentials stored in the `access_users` table.
+   *
+   * @param username   Email / username provided by the user.
+   * @param password   Plain-text password entered.
+   * @param userType   The type of user we expect (`'waiter'` | `'admin'` | `'manager'`).
+   *                   Defaults to `'waiter'` for backward-compatibility.
+   *
+   * @returns The related waiter record (or admin waiter-record placeholder)
+   *          **plus** a freshly-issued JWT token whose `role` claim === `userType`.
+   *
+   * @throws  UnauthorizedException if the credentials are invalid.
+   */
+  async staffLogin(
+    username: string,
+    password: string,
+    userType: 'waiter' | 'admin' | 'manager' = 'waiter',
+  ): Promise<{ waiter: any; token: string }> {
+    this.logger.log(`[Auth] ${userType} login attempt for ${username}`);
+
+    // Search by username AND userType to ensure proper account separation
+    const accessUser = await this.prisma.accessUser.findFirst({
+      where: {
+        username,
+        userType,
+      },
       include: { waiter: true },
     });
 
@@ -124,13 +145,21 @@ export class AuthService {
       throw new UnauthorizedException('Invalid username or password');
     }
 
-    // Generate JWT – scope to waiter role
+    // Sign JWT with correct role
     const token = this.jwtService.sign({
       sub: accessUser.userId,
-      role: 'waiter',
+      role: userType,
     });
 
     return { waiter: accessUser.waiter, token };
+  }
+
+  /**
+   * DEPRECATED – kept for backward-compatibility with existing waiter
+   * controllers. Internally forwards to `staffLogin` with `userType="waiter"`.
+   */
+  async waiterLogin(username: string, password: string) {
+    return this.staffLogin(username, password, 'waiter');
   }
 
   /**

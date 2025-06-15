@@ -1,0 +1,229 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global styles for the Admin Dashboard */
+@layer base {
+  :root {
+    /* Primary colors (RedBut red) */
+    --color-primary-50: #fff1f1;
+    --color-primary-100: #ffe1e1;
+    --color-primary-200: #ffc7c7;
+    --color-primary-300: #ffa0a0;
+    --color-primary-400: #ff6b6b;
+    --color-primary-500: #ff3b3b; /* Main RedBut color */
+    --color-primary-600: #e61c1c;
+    --color-primary-700: #c31414;
+    --color-primary-800: #a01414;
+    --color-primary-900: #841818;
+    --color-primary-950: #480707;
+
+    /* Secondary colors (gray palette for text/background) */
+    --color-secondary-50: #f8fafc;
+    --color-secondary-100: #f1f5f9;
+    --color-secondary-200: #e2e8f0;
+    --color-secondary-300: #cbd5e1;
+    --color-secondary-400: #94a3b8;
+    --color-secondary-500: #64748b;
+    --color-secondary-600: #475569;
+    --color-secondary-700: #334155;
+    --color-secondary-800: #1e293b;
+    --color-secondary-900: #0f172a;
+    --color-secondary-950: #020617;
+
+    /* Semantic colors */
+    --color-success: #10b981;
+    --color-warning: #f59e0b;
+    --color-error: #ef4444;
+
+    /* Background and foreground for light theme (default) */
+    --background: var(--color-secondary-50);
+    --foreground: var(--color-secondary-900);
+
+    /* Card background and foreground */
+    --card: #ffffff;
+    --card-foreground: var(--color-secondary-900);
+
+    /* Muted text/background */
+    --muted: var(--color-secondary-100);
+    --muted-foreground: var(--color-secondary-500);
+
+    /* Accent colors */
+    --accent: var(--color-primary-100);
+    --accent-foreground: var(--color-primary-900);
+
+    /* Border color */
+    --border: var(--color-secondary-200);
+  }
+
+  /* Dark theme variables */
+  .dark {
+    --background: var(--color-secondary-950);
+    --foreground: var(--color-secondary-50);
+    --card: var(--color-secondary-900);
+    --card-foreground: var(--color-secondary-50);
+    --muted: var(--color-secondary-800);
+    --muted-foreground: var(--color-secondary-400);
+    --accent: var(--color-secondary-800);
+    --accent-foreground: var(--color-secondary-50);
+    --border: var(--color-secondary-700);
+  }
+
+  body {
+    /* Use design-token variables directly so no special Tailwind utilities
+       are required at build time. */
+    background-color: var(--background);
+    color: var(--foreground);
+    @apply antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer components {
+  /* General card styling for dashboard elements */
+  .dashboard-card {
+    /* Match client (/web) card look: solid white card with subtle shadow */
+    @apply bg-white text-foreground rounded-lg shadow-card p-6 border border-border;
+  }
+
+  /* Table styling */
+  .data-table {
+    @apply w-full text-left border-collapse;
+  }
+
+  .data-table th {
+    @apply py-3 px-4 text-sm font-semibold uppercase text-muted-foreground bg-muted border-b border-border;
+  }
+
+  .data-table td {
+    @apply py-3 px-4 text-sm text-foreground border-b border-border;
+  }
+
+  .data-table tbody tr:hover {
+    @apply bg-muted/70;
+    transition: background 0.25s ease;
+  }
+
+  /* Primary button */
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-4 py-2
+      font-medium text-white bg-primary-500 rounded-full shadow
+      hover:bg-primary-600 active:bg-primary-700 transition-all;
+  }
+
+  /* Subtle button (for sheets / cards) */
+  .btn-subtle {
+    @apply inline-flex items-center justify-center px-4 py-2
+      font-medium text-foreground bg-muted rounded-full
+      hover:bg-muted-foreground/10 active:bg-muted-foreground/20
+      transition-all;
+  }
+
+  /* Section header text */
+  .section-title {
+    @apply text-xl font-semibold tracking-tight text-foreground/90 mb-4;
+  }
+
+  /* Overlay/Sheet styling */
+  .overlay-sheet {
+    @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4;
+  }
+
+  .sheet-content {
+    @apply bg-card text-card-foreground rounded-lg shadow-xl max-w-md w-full relative p-6;
+  }
+
+  /* Splash screen styles */
+  .splash-container {
+    @apply fixed inset-0 flex items-center justify-center bg-white z-50;
+  }
+
+  .splash-text {
+    @apply text-4xl md:text-6xl font-bold text-primary-500 relative;
+    animation: fly-in 0.8s ease-out forwards;
+  }
+
+  .splash-text::after {
+    content: '';
+    @apply absolute bottom-0 h-1 bg-primary-500;
+    animation: underline 0.8s ease-out 0.8s forwards;
+    width: 0;
+    right: 0;
+  }
+
+  /* Red Button styling */
+  .red-button {
+    @apply bg-primary-500 text-white font-bold py-6 px-6 rounded-full shadow-lg 
+           flex items-center justify-center transition-all duration-300
+           hover:bg-primary-600 active:bg-primary-700 active:shadow-sm
+           focus:outline-none focus:ring-2 focus:ring-primary-300 focus:ring-opacity-50;
+  }
+}
+
+@layer utilities {
+  /* ------------------------------------------------------------------ */
+  /* Utility classes backed by CSS variables so Tailwind recognises them */
+  /* ------------------------------------------------------------------ */
+  .bg-background          { background-color: var(--background); }
+  .text-foreground        { color: var(--foreground); }
+  .bg-card                { background-color: var(--card); }
+  .text-card-foreground   { color: var(--card-foreground); }
+  .bg-muted               { background-color: var(--muted); }
+  .text-muted-foreground  { color: var(--muted-foreground); }
+  .border-border          { border-color: var(--border); }
+
+  /* Custom scrollbar for better UX */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-secondary-500) var(--color-secondary-100);
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: var(--color-secondary-100);
+    border-radius: 10px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--color-secondary-500);
+    border-radius: 10px;
+    border: 2px solid var(--color-secondary-100);
+  }
+}
+
+/* Custom animations */
+@keyframes fly-in {
+  0% { 
+    transform: scale(0) translateZ(-200px); 
+    opacity: 0; 
+  }
+  100% { 
+    transform: scale(1) translateZ(0); /* finish zoom */
+    opacity: 1; 
+  }
+}
+
+@keyframes underline {
+  0% { 
+    width: 0%; 
+    left: 100%; 
+  }
+  100% { 
+    width: 100%; 
+    left: 0%; 
+  }
+}
+
+@keyframes shine {
+  0% { 
+    background-position: 200% center; 
+  }
+  100% { 
+    background-position: -200% center; 
+  }
+}
