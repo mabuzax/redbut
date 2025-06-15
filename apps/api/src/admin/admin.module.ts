@@ -6,10 +6,11 @@ import { AdminService } from './admin.service';
 import { PrismaService } from '../common/prisma.service';
 import { AdminRequestsController } from './admin-requests.controller';
 import { AdminRequestsService } from './admin-requests.service';
-import { JwtStrategy } from '../auth/strategies/jwt.strategy';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
+    AuthModule,
     // Re-use JWT module configuration from auth module
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -30,7 +31,6 @@ import { JwtStrategy } from '../auth/strategies/jwt.strategy';
     AdminService,
     AdminRequestsService, // Dedicated service for request operations
     PrismaService,
-    JwtStrategy, // For JWT authentication
   ],
   exports: [
     AdminService,
