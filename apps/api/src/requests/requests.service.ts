@@ -1,7 +1,6 @@
 import { Injectable, Logger, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
-import { Request } from '@prisma/client';
-import { RequestStatus } from '../common/types';
+import { Request, RequestStatus, Prisma } from '@prisma/client'; // Updated import
 import { CreateRequestDto } from './dto/create-request.dto';
 import { UpdateRequestDto } from './dto/update-request.dto';
 
@@ -28,10 +27,7 @@ export class RequestsService {
       const existingRequest = await this.prisma.request.findFirst({
         where: {
           tableNumber,
-          // SQLite doesn't support the `mode` field; perform a simple
-          // substring match instead. All comparisons are done on a
-          // lower-cased version of the original content above.
-          content: { contains: 'ready to pay' },
+          content: { contains: 'ready to pay', mode: 'insensitive' }, // Case-insensitive search
           status: { in: [RequestStatus.New, RequestStatus.OnHold] },
         },
       });
@@ -45,24 +41,25 @@ export class RequestsService {
     this.logger.log(`Creating new request for user ${userId} at table ${tableNumber}`);
     
     try {
-      const [request] = await this.prisma.$transaction([
-        this.prisma.request.create({
+      return await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        const request = await tx.request.create({
           data: {
             userId,
             tableNumber,
             content,
             status: RequestStatus.New, // Default status for new requests
           },
-        }),
-        // log row written inside the same transaction
-        this.logRequestAction(null, 'placeholder'), // will be replaced below
-      ]);
+        });
 
-      // second call to log action *outside* of transaction since we need request.id
-      // but still awaiting so caller only returns once log saved
-      await this.logRequestAction(request.id, 'New request created');
-
-      return request;
+        await tx.requestLog.create({
+          data: {
+            requestId: request.id,
+            action: 'New request created',
+          },
+        });
+        
+        return request;
+      });
     } catch (error) {
       this.logger.error(`Failed to create request: ${error.message}`);
       throw new BadRequestException(`Failed to create request: ${error.message}`);
@@ -147,60 +144,38 @@ export class RequestsService {
   async update(id: string, updateRequestDto: UpdateRequestDto): Promise<Request> {
     this.logger.log(`Updating request ${id} with data: ${JSON.stringify(updateRequestDto)}`);
     
-    // Find the current request
     const currentRequest = await this.findOne(id);
     
-    // Apply status management rules
     const newStatus = this.validateStatusTransition(
       currentRequest.status,
       updateRequestDto.status,
     );
     
     try {
-      const [updated] = await this.prisma.$transaction([
-        this.prisma.request.update({
+      return await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        const updatedRequest = await tx.request.update({
           where: { id },
           data: {
             content: updateRequestDto.content || currentRequest.content,
             status: newStatus,
           },
-        }),
-        this.logRequestAction(null, 'placeholder'), // dummy, replaced after update
-      ]);
+        });
 
-      // Only log if the status has changed
-      if (currentRequest.status !== newStatus) {
-        const action = `Request status changed from ${currentRequest.status} to ${newStatus}`;
-        await this.logRequestAction(updated.id, action);
-      }
-
-      return updated;
+        if (currentRequest.status !== newStatus) {
+          const action = `Request status changed from ${currentRequest.status} to ${newStatus}`;
+          await tx.requestLog.create({
+            data: {
+              requestId: updatedRequest.id,
+              action,
+            },
+          });
+        }
+        
+        return updatedRequest;
+      });
     } catch (error) {
       this.logger.error(`Failed to update request: ${error.message}`);
       throw new BadRequestException(`Failed to update request: ${error.message}`);
-    }
-  }
-
-  /* ------------------------------------------------------------------ */
-  /*  Helpers                                                           */
-  /* ------------------------------------------------------------------ */
-
-  /**
-   * Write an audit-log entry into `requests_log`.
-   * Using its own method keeps logic DRY.
-   */
-  private async logRequestAction(requestId: string | null, action: string) {
-    if (!requestId) return;
-    try {
-      await this.prisma.requestLog.create({
-        data: {
-          requestId,
-          action,
-        },
-      });
-    } catch (err) {
-      // Logging must never crash the main flow – just emit a warning.
-      this.logger.warn(`Failed to write RequestLog for ${requestId}: ${(err as Error).message}`);
     }
   }
 
@@ -212,60 +187,56 @@ export class RequestsService {
    * @throws BadRequestException for invalid status transitions
    */
   private validateStatusTransition(
-    currentStatus: RequestStatus | string,
-    newStatus?: RequestStatus,
+    currentStatus: RequestStatus, // Changed to use enum from @prisma/client
+    newStatus?: RequestStatus,   // Changed to use enum from @prisma/client
   ): RequestStatus {
-    // If no new status provided, keep current
     if (!newStatus || newStatus === currentStatus) {
-      return currentStatus as RequestStatus;
+      return currentStatus;
     }
 
-    // Status transition rules based on requirements
     switch (currentStatus) {
       case RequestStatus.OnHold:
-      // If on hold, can only activate (New) or cancel
-      if (newStatus === RequestStatus.New || newStatus === RequestStatus.Cancelled) {
-        return newStatus;
-      }
-      throw new BadRequestException(
-        `Invalid status transition from ${currentStatus} to ${newStatus}. Only 'New' or 'Cancelled' allowed.`,
-      );
+        if (newStatus === RequestStatus.New || newStatus === RequestStatus.Cancelled) {
+          return newStatus;
+        }
+        throw new BadRequestException(
+          `Invalid status transition from ${currentStatus} to ${newStatus}. Only 'New' or 'Cancelled' allowed.`,
+        );
 
       case RequestStatus.Done:
       case RequestStatus.Cancelled:
       case RequestStatus.Completed:
-      throw new BadRequestException(
-        `Cannot change status from ${currentStatus}. Request is already in a final state.`,
-      );
+        throw new BadRequestException(
+          `Cannot change status from ${currentStatus}. Request is already in a final state.`,
+        );
 
       case RequestStatus.New:
-      if (
-        newStatus === RequestStatus.Acknowledged ||
-        newStatus === RequestStatus.InProgress ||
-        newStatus === RequestStatus.OnHold ||
-        newStatus === RequestStatus.Cancelled
-      ) {
-        return newStatus;
-      }
-      throw new BadRequestException(
-        `Cannot move from ${currentStatus} to ${newStatus}. Only 'Cancelled', 'Hold', 'Acknowledged' or 'In Progress' from here.`,
-      );
+        if (
+          newStatus === RequestStatus.Acknowledged ||
+          newStatus === RequestStatus.InProgress ||
+          newStatus === RequestStatus.OnHold ||
+          newStatus === RequestStatus.Cancelled
+        ) {
+          return newStatus;
+        }
+        throw new BadRequestException(
+          `Cannot move from ${currentStatus} to ${newStatus}. Only 'Cancelled', 'Hold', 'Acknowledged' or 'In Progress' from here.`,
+        );
 
       case RequestStatus.InProgress:
-      // From In Progress, can go to Completed, Cancelled or Done
-      if (
-        newStatus === RequestStatus.Completed ||
-        newStatus === RequestStatus.Cancelled ||
-        newStatus === RequestStatus.Done
-      ) {
-        return newStatus;
-      }
-      throw new BadRequestException(
-        `Cannot change from ${currentStatus} to ${newStatus}. Only 'Completed', 'Cancelled' or 'Done' from here.`,
-      );
+        if (
+          newStatus === RequestStatus.Completed ||
+          newStatus === RequestStatus.Cancelled ||
+          newStatus === RequestStatus.Done
+        ) {
+          return newStatus;
+        }
+        throw new BadRequestException(
+          `Cannot change from ${currentStatus} to ${newStatus}. Only 'Completed', 'Cancelled' or 'Done' from here.`,
+        );
 
       default:
-      return newStatus;
+        return newStatus;
     }
   }
 
@@ -278,6 +249,10 @@ export class RequestsService {
     this.logger.warn(`Deleting request with ID ${id}`);
     
     try {
+      // Also delete related logs
+      await this.prisma.requestLog.deleteMany({
+        where: { requestId: id },
+      });
       return await this.prisma.request.delete({
         where: { id },
       });
