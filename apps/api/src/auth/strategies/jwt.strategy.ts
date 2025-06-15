@@ -40,6 +40,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       };
     }
 
+    if (role === 'admin') {
+      const admin = await this.validateAdmin(userId);
+      return {
+        id: admin.id,
+        role: 'admin',
+        name: `${admin.name} ${admin.surname}`,
+      };
+    }
+
     // Default flow for anonymous web users
     const user = await this.authService.validateUser(userId);
     if (!user) {
@@ -68,5 +77,27 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     return accessUser.waiter;
+  }
+
+  /**
+   * Validate admin credentials via access_users table.
+   */
+  private async validateAdmin(adminId: string) {
+    const accessUser = await this.prisma.accessUser.findUnique({
+      where: { userId: adminId },
+      include: { waiter: true },
+    });
+
+    if (!accessUser || accessUser.userType !== 'admin') {
+      throw new UnauthorizedException('Invalid admin token');
+    }
+
+    // Re-use waiter table to store personal details for now
+    const adminProfile = accessUser.waiter;
+    if (!adminProfile) {
+      throw new UnauthorizedException('Admin profile not found');
+    }
+
+    return adminProfile;
   }
 }
