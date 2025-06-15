@@ -5,9 +5,14 @@ import { Menu, X } from 'lucide-react';
 interface BurgerMenuProps {
   onMyRequestsClick: () => void;
   onMyBillClick: () => void;
+  onRateWaiterClick: () => void;
 }
 
-const BurgerMenu: React.FC<BurgerMenuProps> = ({ onMyRequestsClick, onMyBillClick }) => {
+const BurgerMenu: React.FC<BurgerMenuProps> = ({
+  onMyRequestsClick,
+  onMyBillClick,
+  onRateWaiterClick,
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -80,6 +85,14 @@ const BurgerMenu: React.FC<BurgerMenuProps> = ({ onMyRequestsClick, onMyBillClic
                     className="block w-full text-left p-3 rounded-md text-lg font-medium text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-300"
                   >
                     My Requests
+                  </button>
+                </li>
+                <li className="mb-2">
+                  <button
+                    onClick={() => handleMenuItemClick(onRateWaiterClick)}
+                    className="block w-full text-left p-3 rounded-md text-lg font-medium text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-300"
+                  >
+                    Rate&nbsp;Your&nbsp;Waiter
                   </button>
                 </li>
                 <li>

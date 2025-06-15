@@ -53,7 +53,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${inter.variable} ${robotoMono.variable}`}>
-      <body className="min-h-screen bg-background-light text-secondary-900 antialiased">
+      <body className="min-h-screen bg-background text-foreground antialiased">
         <div className="flex min-h-screen flex-col">
           <main className="flex-1">{children}</main>
         </div>

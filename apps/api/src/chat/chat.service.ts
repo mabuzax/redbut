@@ -53,13 +53,12 @@ export class ChatService {
     tableNumber: number,
     content: string,
   ): Promise<{
-    response: string;
-    isWaiterRequested: boolean;
+    response: string
   }> {
     this.logger.log(`Processing message from user ${userId} at table ${tableNumber}`);
 
     // Store user message in database
-    await this.storeMessage(userId, ChatRole.USER, content);
+    await this.storeMessage(userId, ChatRole.user, content);
 
     // Get previous messages for context
     const previousMessages = await this.getRecentMessages(userId, 10);
@@ -82,7 +81,6 @@ export class ChatService {
     const { response: aiResponse, toolCalls } = await this.getOpenAIResponse(messages);
 
     let finalResponse = this.appendSuffix(aiResponse);
-    let isWaiterRequested = false;
 
     // Handle tool calls
     if (toolCalls && toolCalls.length > 0) {
@@ -96,18 +94,16 @@ export class ChatService {
             waiterRequestContent,
           );
           finalResponse = toolResponse; // Override AI response with tool response
-          isWaiterRequested = true;
           break; // Assuming only one tool call for now
         }
       }
     }
 
     // Store AI response in database
-    await this.storeMessage(userId, ChatRole.ASSISTANT, finalResponse);
+    await this.storeMessage(userId, ChatRole.assistant, finalResponse);
 
     return {
-      response: finalResponse,
-      isWaiterRequested,
+      response: finalResponse
     };
   }
 
@@ -217,7 +213,6 @@ export class ChatService {
       'If the user asks about menu items, answer as best you can, suggest other things that go well with that menu item, ' +
       'and always ask if you should place an order for the user, or call the waiter to the table. ' +
       'Do not make up information about the restaurant or menu. ' +
-      'Always end your responses with: " Let me know if you still want the waiter to come to the table :)"\n\n' +
       `Here is the current menu information:\n${menuDescription}\n\n` +
       'Restaurant open times: Monday-Friday 11 AM - 10 PM, Saturday-Sunday 10 AM - 11 PM.';
 
@@ -251,7 +246,7 @@ export class ChatService {
    */
   private async getOpenAIResponse(
     messages: ChatCompletionMessageParam[],
-  ): Promise<{ response: string; toolCalls?: OpenAI.Chat.Completions.ChatCompletionMessage.ToolCall[] }> {
+  ): Promise<{ response: string; toolCalls?: OpenAI.Chat.ChatCompletion.Choice['message']['tool_calls'] }> {
     // If AI is disabled return a static fallback.
     if (!this.aiEnabled || !this.openai) {
       return {
@@ -335,7 +330,7 @@ export class ChatService {
    */
   private appendSuffix(response: string): string {    
     // Add suffix with proper spacing
-    return `${response.trim()} Let me know if you still want the waiter to come to the table :)`;
+    return `${response.trim()}`;
   }
 
   /**

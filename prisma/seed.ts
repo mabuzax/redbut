@@ -3,6 +3,7 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { PrismaClient } = require('@prisma/client');
 
+console.log('DATABASE_URL =', process.env.DATABASE_URL);
 const prisma = new PrismaClient();
 
 async function main() {
@@ -125,6 +126,36 @@ async function main() {
     menuItem4,
     menuItem5,
   });
+
+  /* ------------------------------------------------------------------ */
+  /*  Dummy Waiter + Access User                                        */
+  /* ------------------------------------------------------------------ */
+
+  // 1. Upsert waiter record
+  const waiter = await prisma.waiter.upsert({
+    where: { id: 'waiter-1' },
+    update: {},
+    create: {
+      id: 'waiter-1',
+      name: 'John',
+      surname: 'Doe',
+      email: 'waiter@redbut.ai',
+      tag_nickname: 'JohnD',
+    },
+  });
+
+  // 2. Upsert access user credentials linked to the waiter
+  await prisma.accessUser.upsert({
+    where: { username: 'waiter@redbut.ai' },
+    update: {},
+    create: {
+      userId: waiter.id,
+      username: 'waiter@redbut.ai',
+      password: '__new__pass', // default password for first-time login
+    },
+  });
+
+  console.log('Seeded waiter & access user:', waiter);
 }
 
 main()

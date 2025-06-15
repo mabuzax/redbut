@@ -5,7 +5,7 @@ import MyRequests from '../../components/requests/MyRequests';
 
 // Mock react-timeago to avoid issues with its internal logic in tests
 jest.mock('react-timeago', () => {
-  return ({ date }: { date: string | Date }) => <time dateTime={new Date(date).toISOString()}>{new Date(date).toLocaleDateString()}</time>;
+  return ({ date }: { date: string | Date }) => <time DATETIME={new Date(date).toISOString()}>{new Date(date).toLocaleDateString()}</time>;
 });
 
 // Mock fetch API for requests

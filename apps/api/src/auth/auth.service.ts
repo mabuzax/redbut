@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
 import { User } from '@prisma/client';
+import { PrismaService } from '../common/prisma.service';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 
 /**
  * Authentication service for RedBut application
@@ -14,6 +16,7 @@ export class AuthService {
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -86,5 +89,72 @@ export class AuthService {
     const timestamp = Date.now().toString(36);
     const randomStr = Math.random().toString(36).substring(2, 15);
     return `${timestamp}-${randomStr}`;
+  }
+
+  /* ----------------------------------------------------------------------
+   * Waiter authentication (dashboard login)
+   * -------------------------------------------------------------------- */
+
+  /**
+   * Simple helper returning TRUE if the supplied password is the default
+   * first-time password that forces a change on initial login.
+   */
+  verifyDefaultPassword(password: string): boolean {
+    return password === '__new__pass';
+  }
+
+  /**
+   * Authenticate a waiter using the credentials in the `access_users` table.
+   * Returns the waiter record (joined from `waiter` table) and a freshly
+   * issued JWT token on success.
+   */
+  async waiterLogin(username: string, password: string): Promise<{ waiter: any; token: string }> {
+    this.logger.log(`Waiter login attempt for ${username}`);
+
+    const accessUser = await this.prisma.accessUser.findUnique({
+      where: { username },
+      include: { waiter: true },
+    });
+
+    if (!accessUser) {
+      throw new UnauthorizedException('Invalid username or password');
+    }
+
+    if (accessUser.password !== password) {
+      throw new UnauthorizedException('Invalid username or password');
+    }
+
+    // Generate JWT – scope to waiter role
+    const token = this.jwtService.sign({
+      sub: accessUser.userId,
+      role: 'waiter',
+    });
+
+    return { waiter: accessUser.waiter, token };
+  }
+
+  /**
+   * Change a waiter's password.  The old password must match the current one
+   * (or be the default `__new__pass`).  After success the new password is
+   * persisted in `access_users`.
+   */
+  async changeWaiterPassword(userId: string, oldPassword: string, newPassword: string): Promise<void> {
+    const account = await this.prisma.accessUser.findUnique({ where: { userId } });
+    if (!account) {
+      throw new BadRequestException('Waiter account not found');
+    }
+
+    const oldOk =
+      account.password === oldPassword ||
+      (this.verifyDefaultPassword(account.password) && this.verifyDefaultPassword(oldPassword));
+
+    if (!oldOk) {
+      throw new UnauthorizedException('Old password is incorrect');
+    }
+
+    await this.prisma.accessUser.update({
+      where: { userId },
+      data: { password: newPassword },
+    });
   }
 }

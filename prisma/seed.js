@@ -1,5 +1,6 @@
 // Use CommonJS require to avoid "SyntaxError: Cannot use import statement
 // outside a module" when Prisma executes this seed script with plain Node.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
@@ -124,6 +125,21 @@ async function main() {
     menuItem4,
     menuItem5,
   });
+
+  // Create dummy waiter
+  const dummyWaiter = await prisma.waiter.upsert({
+    where: { id: 'waiter-1' },
+    update: {},
+    create: {
+      id: 'waiter-1',
+      name: 'John',
+      surname: 'Doe',
+      email: 'waiter@redbut.ai',
+      tag_nickname: 'JohnD',
+      // Optional fields can be added here if needed
+    },
+  });
+  console.log('Created dummy waiter:', dummyWaiter);
 }
 
 main()

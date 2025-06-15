@@ -5,7 +5,7 @@ import MyBill from '../../components/bill/MyBill';
 
 // Mock react-timeago if it were used in MyBill (it's not, but good practice)
 jest.mock('react-timeago', () => {
-  return ({ date }: { date: string | Date }) => <time dateTime={new Date(date).toISOString()}>{new Date(date).toLocaleDateString()}</time>;
+  return ({ date }: { date: string | Date }) => <time DATETIME={new Date(date).toISOString()}>{new Date(date).toLocaleDateString()}</time>;
 });
 
 // Mock fetch API for requests and orders

@@ -58,6 +58,30 @@ export interface AIAnalysisResponse {
   analysis: string;
 }
 
+/* -------------------------------------------------------------------------- */
+/*  New authentication DTOs for waiter login & password change                */
+/* -------------------------------------------------------------------------- */
+
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  userId: string;
+  username: string;
+  waiterId: string;
+  name: string;
+  token: string;
+}
+
+export interface ChangePasswordRequest {
+  userId: string;
+  oldPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}
+
 // Base URL for the API, defaulting to localhost for development
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -81,6 +105,7 @@ async function callApi<T>(
     Authorization: `Bearer ${token}`,
   };
 
+  console.log(`Preparing API request to: ${API_BASE_URL}/api/v1${endpoint}`);
   const config: RequestInit = {
     method,
     headers,
@@ -91,8 +116,8 @@ async function callApi<T>(
   }
 
   const url = `${API_BASE_URL}/api/v1${endpoint}`;
-  console.log(`[API Client] Calling ${method} ${url}`);
 
+  console.log(`Making API request to: ${url} with config:`, config);
   const response = await fetch(url, config);
 
   if (!response.ok) {
@@ -104,9 +129,59 @@ async function callApi<T>(
 }
 
 /**
+ * Same as callApi but without Authorization header (public endpoints).
+ */
+async function callPublicApi<T>(
+  endpoint: string,
+  method: string = 'POST',
+  body?: object,
+): Promise<T> {
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+  const config: RequestInit = { method, headers };
+  if (body) config.body = JSON.stringify(body);
+
+  const url = `${API_BASE_URL}/api/v1${endpoint}`;
+  const response = await fetch(url, config);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: response.statusText }));
+    throw new Error(errorData.message || `API call failed with status ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+/**
  * API client for waiter-specific operations.
  */
 export const waiterApi = {
+  /* ---------------------------------------------------------------------- */
+  /*  Authentication                                                         */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Login endpoint (public, no token required).
+   * Returns JWT and waiter details on success.
+   */
+  login: async (username: string, password: string): Promise<LoginResponse> => {
+    return callPublicApi<LoginResponse>('/auth/waiter/login', 'POST', {
+      username,
+      password,
+    } as LoginRequest);
+  },
+
+  /**
+   * Change password when current password equals "__new__pass".
+   */
+  changePassword: async (dto: ChangePasswordRequest): Promise<void> => {
+    await callPublicApi<void>('/auth/waiter/change-password', 'POST', dto);
+  },
+
+  /**
+   * Utility: detects first-time login default password.
+   */
+  checkPassword: (password: string): boolean => password === '__new__pass',
+
   /**
    * Fetches a list of active requests for the waiter dashboard.
    * @param token The JWT authentication token.
@@ -114,6 +189,39 @@ export const waiterApi = {
    */
   getActiveRequests: async (token: string): Promise<WaiterRequest[]> => {
     return callApi<WaiterRequest[]>('/waiter/requests/active', token);
+  },
+
+  /**
+   * Fetch **all** requests for the waiter view (optionally filtered /
+   * sorted).  Use this when the waiter taps “View Requests”.
+   *
+   * @param token   JWT for the waiter session.
+   * @param opts    Optional query parameters:
+   *                • status   – filter by request status
+   *                • sort     – 'createdAt' | 'status'
+   *                • search   – full-text search on content
+   * @returns       Full array of requests from the server.
+   */
+  getAllRequests: async (
+    token: string,
+    opts: {
+      status?: RequestStatus | 'all';
+      sort?: 'createdAt' | 'status';
+      search?: string;
+      page?: number;
+      pageSize?: number;
+    } = {},
+  ): Promise<WaiterRequest[]> => {
+    const params = new URLSearchParams();
+    if (opts.status && opts.status !== 'all') params.append('status', opts.status);
+    if (opts.sort) params.append('sort', opts.sort);
+    if (opts.search) params.append('search', opts.search);
+    if (opts.page) params.append('page', String(opts.page));
+    if (opts.pageSize) params.append('pageSize', String(opts.pageSize));
+
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    console.log(`Fetching all requests with query: ${qs}`);
+    return callApi<WaiterRequest[]>(`/waiter/requests${qs}`, token);
   },
 
   /**

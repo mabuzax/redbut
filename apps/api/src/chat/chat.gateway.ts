@@ -125,7 +125,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.logger.debug(`Message from user ${userId}: ${content}`);
 
       // Process message with AI
-      const { response, isWaiterRequested } = await this.chatService.processMessage(
+      const { response } = await this.chatService.processMessage(
         userId,
         tableNumber,
         content,
@@ -136,14 +136,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         content: response,
         timestamp: new Date().toISOString(),
       });
-
-      // If the agent decided a waiter is needed, notify the client
-      if (isWaiterRequested) {
-        client.emit('waiter-requested', {
-          message: 'Waiter Informed',
-          timestamp: new Date().toISOString(),
-        });
-      }
 
 
       return { success: true };

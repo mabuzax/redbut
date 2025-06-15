@@ -70,7 +70,11 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    /* Use design-token variables directly so no special Tailwind utilities
+       are required at build time. */
+    background-color: var(--background);
+    color: var(--foreground);
+    @apply antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
     -webkit-tap-highlight-color: transparent;
   }
@@ -79,7 +83,8 @@
 @layer components {
   /* General card styling for dashboard elements */
   .dashboard-card {
-    @apply bg-card text-card-foreground rounded-lg shadow-md p-6 border border-border;
+    /* Match client (/web) card look: solid white card with subtle shadow */
+    @apply bg-white text-foreground rounded-lg shadow-card p-6 border border-border;
   }
 
   /* Table styling */
@@ -96,7 +101,28 @@
   }
 
   .data-table tbody tr:hover {
-    @apply bg-muted;
+    @apply bg-muted/70;
+    transition: background 0.25s ease;
+  }
+
+  /* Primary button */
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-4 py-2
+      font-medium text-white bg-primary-500 rounded-full shadow
+      hover:bg-primary-600 active:bg-primary-700 transition-all;
+  }
+
+  /* Subtle button (for sheets / cards) */
+  .btn-subtle {
+    @apply inline-flex items-center justify-center px-4 py-2
+      font-medium text-foreground bg-muted rounded-full
+      hover:bg-muted-foreground/10 active:bg-muted-foreground/20
+      transition-all;
+  }
+
+  /* Section header text */
+  .section-title {
+    @apply text-xl font-semibold tracking-tight text-foreground/90 mb-4;
   }
 
   /* Overlay/Sheet styling */
@@ -123,6 +149,17 @@
 }
 
 @layer utilities {
+  /* ------------------------------------------------------------------ */
+  /* Utility classes backed by CSS variables so Tailwind recognises them */
+  /* ------------------------------------------------------------------ */
+  .bg-background          { background-color: var(--background); }
+  .text-foreground        { color: var(--foreground); }
+  .bg-card                { background-color: var(--card); }
+  .text-card-foreground   { color: var(--card-foreground); }
+  .bg-muted               { background-color: var(--muted); }
+  .text-muted-foreground  { color: var(--muted-foreground); }
+  .border-border          { border-color: var(--border); }
+
   /* Custom scrollbar for better UX */
   .scrollbar-thin {
     scrollbar-width: thin;

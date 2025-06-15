@@ -2,8 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
+import { Star } from "lucide-react";
 import ChatWindow from "../components/chat/ChatWindow";
 import BurgerMenu from "../components/ui/BurgerMenu";
+import RateYourWaiter from "../components/rating/RateYourWaiter";
 import MyRequests from "../components/requests/MyRequests";
 import MyBill from "../components/bill/MyBill";
 
@@ -15,7 +17,8 @@ export default function Home() {
     | "chat"
     | "waiterInformed"
     | "requests"
-    | "bill";
+    | "bill"
+    | "rateWaiter";
 
   const [stage, setStage] = useState<Stage>("splash");
   const [loadingSession, setLoadingSession] = useState(false);
@@ -122,6 +125,7 @@ export default function Home() {
    * ------------------------------------------------------------------ */
   const openRequests = () => setStage("requests");
   const openBill = () => setStage("bill");
+  const openRateWaiter = () => setStage("rateWaiter");
 
   return (
     <>
@@ -177,13 +181,25 @@ export default function Home() {
             </div>
             {/* ───────────────────────── Burger Menu ───────────────────────── */}
             <div className="mt-6 flex justify-center">
-              <BurgerMenu onMyRequestsClick={openRequests} onMyBillClick={openBill} />
+              <BurgerMenu
+                onMyRequestsClick={openRequests}
+                onMyBillClick={openBill}
+                onRateWaiterClick={openRateWaiter}
+              />
             </div>
             <p className="mt-8 text-sm text-secondary-400">
               {loadingSession
                 ? "Setting up your session..."
                 : "Phase 4 – AI Chat Integration"}
             </p>
+            {/* top-left star button */}
+            <button
+              onClick={openRateWaiter}
+              className="absolute top-4 left-4 text-primary-500 hover:text-primary-700 focus:outline-none"
+              aria-label="Rate your waiter"
+            >
+              <Star className="h-8 w-8" />
+            </button>
           </motion.div>
         </div>
       )}
@@ -203,6 +219,25 @@ export default function Home() {
         </div>
       )}
 
+      {/* ──────────────────────── Rate Waiter View ─────────────────────── */}
+      {stage === "rateWaiter" && userData && (
+        <div className="fixed inset-0 bg-background z-40 p-4 overflow-y-auto flex flex-col">
+          <RateYourWaiter
+            userId={userData.userId}
+            token={userData.token}
+            waiterId= '3c4d8be2-85bd-4c72-9b6e-748d6e1abf42' // Placeholder, adjust as needed
+            onRatingSubmitted={() => setStage("home")}
+          />
+          <div className="text-center mt-4">
+            <button
+              onClick={() => setStage("home")}
+              className="px-4 py-2 bg-primary-500 text-white rounded-md"
+            >
+              Back
+            </button>
+          </div>
+        </div>
+      )}
       {/* ───────────────────────── Bill View ──────────────────────────── */}
       {stage === "bill" && userData && (
         <div className="fixed inset-0 bg-background z-40 p-4 overflow-y-auto">

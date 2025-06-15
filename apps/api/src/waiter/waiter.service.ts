@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { RequestsService } from '../requests/requests.service';
-import { RequestStatus } from '@prisma/client'; // Import RequestStatus from Prisma client
+import { RequestStatus, Prisma } from '@prisma/client'; // Import RequestStatus and Prisma from Prisma client
 
 /**
  * Service for managing waiter-specific operations and dashboard data.
@@ -69,6 +69,69 @@ export class WaiterService {
     } catch (error) {
       this.logger.error(`Failed to update request status: ${error.message}`);
       throw error; // Re-throw specific exceptions from requestsService
+    }
+  }
+
+  /**
+   * Get a flexible list of **all** requests for the waiter wall.
+   * Supports filtering by status, full-text search, custom sorting and
+   * basic pagination.
+   */
+  async getAllRequests(opts: {
+    status?: string;
+    sort?: 'time' | 'status';
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<any[]> {
+    const {
+      status = 'all',
+      sort = 'time',
+      search,
+      page = 1,
+      pageSize = 20,
+    } = opts;
+
+    this.logger.log(
+      `Fetching all requests – status=${status} sort=${sort} search=${search ?? '∅'} page=${page}`,
+    );
+
+    /* ------------------------------------------------------------ */
+    /* Build dynamic Prisma query                                    */
+    /* ------------------------------------------------------------ */
+    const where: any = {};
+
+    // Status filter (unless 'all')
+    if (status && status !== 'all') {
+      where.status = status;
+    }
+
+    // Full-text search in content (simple contains for MVP)
+    if (search && search.trim().length > 0) {
+      where.content = {
+        contains: search.trim(),
+        mode: 'insensitive',
+      };
+    }
+
+    // Sorting
+    const orderBy =
+      sort === 'status'
+        ? [{ status: Prisma.SortOrder.asc }, { createdAt: Prisma.SortOrder.desc }]
+        : [{ createdAt: Prisma.SortOrder.desc }]; // newest first (default)
+
+    const skip = (Math.max(page, 1) - 1) * Math.max(pageSize, 1);
+
+    try {
+      return await this.prisma.request.findMany({
+        where,
+        orderBy,
+        skip,
+        take: pageSize,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to fetch requests: ${error.message}`);
+      return [];
     }
   }
 
@@ -167,5 +230,63 @@ export class WaiterService {
     this.logger.log('Fetching AI analysis of waiter performance');
     // Placeholder for actual AI analysis logic
     return 'Based on current data, your performance today is excellent! Keep up the great work. Average response time is low, and customer satisfaction is high.';
+  }
+
+  /* ------------------------------------------------------------------
+   *  createRating – store “Rate your Waiter” feedback
+   * ----------------------------------------------------------------- */
+  /**
+   * Store a detailed waiter rating submitted from the client section.
+   * All star–fields must be integers in the range 1-5.
+   */
+  async createRating(dto: {
+    userId: string;
+    waiterId: string;
+    friendliness: number;
+    orderAccuracy: number;
+    speed: number;
+    attentiveness: number;
+    knowledge: number;
+    comment?: string | null;
+  }) {
+    this.logger.log(
+      `Creating waiter rating – user=${dto.userId} waiter=${dto.waiterId}`,
+    );
+
+    /* Basic runtime validation (controller already validated but we add a
+       final safeguard here so this method can be re-used elsewhere). */
+    const stars: (keyof typeof dto)[] = [
+      'friendliness',
+      'orderAccuracy',
+      'speed',
+      'attentiveness',
+      'knowledge',
+    ];
+    for (const key of stars) {
+      const val = dto[key] as unknown as number;
+      if (!Number.isInteger(val) || val < 1 || val > 5) {
+        throw new BadRequestException(
+          `Field "${key}" must be an integer between 1 and 5.`,
+        );
+      }
+    }
+
+    try {
+      return await this.prisma.waiterRating.create({
+        data: {
+          userId: dto.userId,
+          waiterId: dto.waiterId,
+          friendliness: dto.friendliness,
+          orderAccuracy: dto.orderAccuracy,
+          speed: dto.speed,
+          attentiveness: dto.attentiveness,
+          knowledge: dto.knowledge,
+          comment: dto.comment?.trim() || null,
+        },
+      });
+    } catch (error) {
+      this.logger.error(`Failed to store waiter rating: ${error.message}`);
+      throw new BadRequestException('Failed to store rating');
+    }
   }
 }

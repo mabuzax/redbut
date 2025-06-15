@@ -172,43 +172,56 @@ export class RequestsService {
     newStatus?: RequestStatus,
   ): RequestStatus {
     // If no new status provided, keep current
-    if (!newStatus) {
+    if (!newStatus || newStatus === currentStatus) {
       return currentStatus as RequestStatus;
     }
 
     // Status transition rules based on requirements
     switch (currentStatus) {
       case RequestStatus.OnHold:
-        // If on hold, can only activate (New) or cancel
-        if (newStatus === RequestStatus.New || newStatus === RequestStatus.Cancelled) {
-          return newStatus;
-        }
-        throw new BadRequestException(
-          `Invalid status transition from ${currentStatus} to ${newStatus}. Only 'New' or 'Cancelled' allowed.`,
-        );
+      // If on hold, can only activate (New) or cancel
+      if (newStatus === RequestStatus.New || newStatus === RequestStatus.Cancelled) {
+        return newStatus;
+      }
+      throw new BadRequestException(
+        `Invalid status transition from ${currentStatus} to ${newStatus}. Only 'New' or 'Cancelled' allowed.`,
+      );
 
       case RequestStatus.Done:
       case RequestStatus.Cancelled:
-        // If done or cancelled, no changes allowed
-        throw new BadRequestException(
-          `Cannot change status from ${currentStatus}. Request is already in a final state.`,
-        );
+      case RequestStatus.Completed:
+      throw new BadRequestException(
+        `Cannot change status from ${currentStatus}. Request is already in a final state.`,
+      );
 
       case RequestStatus.New:
-        // From New, can go to any other status
-        if (
-          newStatus === RequestStatus.OnHold ||
-          newStatus === RequestStatus.Cancelled ||
-          newStatus === RequestStatus.Done
-        ) {
-          return newStatus;
-        }
-        throw new BadRequestException(
-          `Invalid status transition from ${currentStatus} to ${newStatus}.`,
-        );
+      if (
+        newStatus === RequestStatus.Acknowledged ||
+        newStatus === RequestStatus.InProgress ||
+        newStatus === RequestStatus.OnHold ||
+        newStatus === RequestStatus.Cancelled
+      ) {
+        return newStatus;
+      }
+      throw new BadRequestException(
+        `Cannot move from ${currentStatus} to ${newStatus}. Only 'Cancelled', 'Hold', 'Acknowledged' or 'In Progress' from here.`,
+      );
+
+      case RequestStatus.InProgress:
+      // From In Progress, can go to Completed, Cancelled or Done
+      if (
+        newStatus === RequestStatus.Completed ||
+        newStatus === RequestStatus.Cancelled ||
+        newStatus === RequestStatus.Done
+      ) {
+        return newStatus;
+      }
+      throw new BadRequestException(
+        `Cannot change from ${currentStatus} to ${newStatus}. Only 'Completed', 'Cancelled' or 'Done' from here.`,
+      );
 
       default:
-        return newStatus;
+      return newStatus;
     }
   }
 

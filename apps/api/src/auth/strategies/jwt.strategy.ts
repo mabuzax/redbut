@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from '../auth.service';
+import { PrismaService } from '../../common/prisma.service';
 
 /**
  * JWT authentication strategy for Passport
@@ -13,6 +14,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     private readonly configService: ConfigService,
     private readonly authService: AuthService,
+    private readonly prisma: PrismaService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -27,27 +29,44 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
    * @returns User object to attach to the request
    */
   async validate(payload: any) {
-    // ------------------------------------------------------------
-    // Debug-level logs to trace JWT validation flow.
-    // NOTE: these are temporary for local debugging; replace with
-    // NestJS Logger or remove before production.
-    // ------------------------------------------------------------
-    console.log('[JWT] Raw payload received:', payload);
+    const { sub: userId, role } = payload;
 
-    const userId = payload.sub;
-    console.log('[JWT] Extracted userId:', userId);
+    if (role === 'waiter') {
+      const waiter = await this.validateWaiter(userId);
+      return {
+        id: waiter.id,
+        role: 'waiter',
+        name: `${waiter.name} ${waiter.surname}`,
+      };
+    }
 
+    // Default flow for anonymous web users
     const user = await this.authService.validateUser(userId);
-    console.log('[JWT] User fetched from DB:', user);
-    
     if (!user) {
       throw new UnauthorizedException('Invalid token or user not found');
     }
-    
+
     return {
       id: user.id,
+      role: 'guest',
       tableNumber: user.tableNumber,
       sessionId: user.sessionId,
     };
+  }
+
+  /**
+   * Validate waiter credentials via access_users table.
+   */
+  private async validateWaiter(waiterId: string) {
+    const accessUser = await this.prisma.accessUser.findUnique({
+      where: { userId: waiterId },
+      include: { waiter: true },
+    });
+
+    if (!accessUser || !accessUser.waiter) {
+      throw new UnauthorizedException('Invalid waiter token');
+    }
+
+    return accessUser.waiter;
   }
 }
