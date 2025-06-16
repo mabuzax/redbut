@@ -33,7 +33,7 @@ import {
   AdminRequestSummary,
   RequestFilters,
   RequestSummary,
-  ResolutionBucket, // Added for the new chart
+  ResolutionBucket, 
 } from "../lib/api";
 
 export default function AdminDashboard() {
@@ -55,7 +55,6 @@ export default function AdminDashboard() {
   const [userData, setUserData] = useState<any>(null);
   const [selectedSection, setSelectedSection] = useState<Section | null>(null);
   
-  // Hide splash screen after 3 seconds
   useEffect(() => {
     const timer = setTimeout(() => {
       setStage("login");
@@ -65,7 +64,6 @@ export default function AdminDashboard() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Check for existing session
   useEffect(() => {
     const checkSession = () => {
       const existingSession = localStorage.getItem("redbutAdminSession");
@@ -94,7 +92,6 @@ export default function AdminDashboard() {
     setStage("dashboard");
   };
 
-  // Render splash screen
   if (stage === "splash") {
     return (
       <div className="splash-container">
@@ -103,7 +100,6 @@ export default function AdminDashboard() {
     );
   }
 
-  // Render login screen
   if (stage === "login") {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -112,10 +108,8 @@ export default function AdminDashboard() {
     );
   }
 
-  // Render dashboard
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Top Navigation Bar */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <h1 className="text-2xl font-bold text-primary-600">RedBut Admin</h1>
@@ -146,8 +140,6 @@ export default function AdminDashboard() {
     </div>
   );
 }
-
-/* ---------- Helper Components ---------- */
 
 interface GridProps {
   onSelect: (s: Section) => void;
@@ -201,37 +193,30 @@ const SectionPlaceholder = ({ section, onBack }: SectionProps) => (
   </div>
 );
 
-/* ---------- Requests Component ---------- */
-
 interface RequestsComponentProps {
   onBack: () => void;
 }
 
 const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
-  const token = localStorage.getItem("redbutToken") || "";
+  const token = typeof window !== 'undefined' ? localStorage.getItem("redbutToken") || "" : "";
   const todayISO = new Date().toISOString().split("T")[0];
 
-  /* ---------------- dashboard vs wall ---------------- */
   const [viewMode, setViewMode] = useState<"dashboard" | "wall">("dashboard");
 
-  /* ---------------- header summary ------------------- */
   const [summary, setSummary] = useState<{ open: number; closed: number; avgResolutionTime: number } | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(true);
   const [errorSummary, setErrorSummary] = useState<string | null>(null);
 
-  /* ------------- hourly analytics (line chart) ------- */
   const [selectedDateLineChart, setSelectedDateLineChart] = useState<string>(todayISO);
   const [hourlyData, setHourlyData] = useState<AdminRequestSummary | null>(null);
   const [loadingHourly, setLoadingHourly] = useState(false);
   const [errorHourly, setErrorHourly] = useState<string | null>(null);
 
-  /* ------------- resolution analytics (bar chart) ---- */
   const [resolutionDateFilter, setResolutionDateFilter] = useState<string>(todayISO);
   const [resolutionData, setResolutionData] = useState<ResolutionBucket[] | null>(null);
   const [loadingResolution, setLoadingResolution] = useState(false);
   const [errorResolution, setErrorResolution] = useState<string | null>(null);
   
-  /* ------------- wall-list state & filters ----------- */
   const [requests, setRequests] = useState<RequestSummary[]>([]);
   const [loadingList, setLoadingList] = useState(false);
   const [errorList, setErrorList] = useState<string | null>(null);
@@ -239,26 +224,31 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sortOrder, setSortOrder] = useState<"createdAt" | "status" | "tableNumber">("createdAt");
 
-  /* ------------- date filters for insights & performance cards ---- */
   const [insightsDateFilter, setInsightsDateFilter] = useState<string>(todayISO);
   const [performanceDateFilter, setPerformanceDateFilter] = useState<string>(todayISO);
 
-  /* ---------------- fetch summary (open/closed) ---------------- */
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      setLoadingSummary(false);
+      setErrorSummary("Authentication token not found.");
+      return;
+    }
     let isMounted = true;
     setLoadingSummary(true);
     setErrorSummary(null);
     adminApi.getRequestsSummary(token)
       .then((data) => { if (isMounted) setSummary(data); })
-      .catch((e) => { if (isMounted) setErrorSummary(e.message); console.error(e); })
+      .catch((e) => { if (isMounted) setErrorSummary(e.message); console.error("Error fetching summary:", e); })
       .finally(() => { if (isMounted) setLoadingSummary(false); });
     return () => { isMounted = false; };
   }, [token]);
 
-  /* ---------------- fetch hourly chart data ------------------- */
   useEffect(() => {
-    if (!token || !selectedDateLineChart) return;
+    if (!token || !selectedDateLineChart) {
+      setLoadingHourly(false);
+      setErrorHourly(!token ? "Authentication token not found." : "No date selected for hourly chart.");
+      return;
+    }
     setLoadingHourly(true);
     setErrorHourly(null);
     adminApi
@@ -268,9 +258,12 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
       .finally(() => setLoadingHourly(false));
   }, [token, selectedDateLineChart]);
 
-  /* ---------------- fetch resolution chart data --------------- */
   useEffect(() => {
-    if (!token || !resolutionDateFilter) return;
+    if (!token || !resolutionDateFilter) {
+      setLoadingResolution(false);
+      setErrorResolution(!token ? "Authentication token not found." : "No date selected for resolution chart.");
+      return;
+    }
     setLoadingResolution(true);
     setErrorResolution(null);
     adminApi
@@ -280,9 +273,12 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
       .finally(() => setLoadingResolution(false));
   }, [token, resolutionDateFilter]);
 
-  /* ---------------- fetch list (wall) ------------------------- */
   const fetchList = useCallback(async () => {
-    if (!token) return;
+    if (!token) {
+      setLoadingList(false);
+      setErrorList("Authentication token not found.");
+      return;
+    }
     setLoadingList(true);
     setErrorList(null);
     const filters: RequestFilters = {
@@ -302,7 +298,6 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
 
   useEffect(() => { fetchList(); }, [fetchList]);
 
-  // Function to get status class for coloring
   const getStatusClass = (status: string) => {
     switch (status) {
       case 'New': return 'bg-blue-200 text-blue-600';
@@ -326,9 +321,8 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
         : i === 1
         ? "Yesterday"
         : `${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
-    return { value: iso, label: `${label} (${iso})` };
+    return { value: iso, label: `${label} (${iso.substring(5)})` }; // Shortened ISO for display
   });
-
 
   return (
     <div>
@@ -343,12 +337,8 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
       
       {viewMode === "dashboard" ? (
         <>
-          {/* Dashboard View with Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-            {/* Summary Card */}
-            <div 
-              className="bg-white p-6 rounded-lg shadow-sm border border-gray-200"
-            >
+            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
               <div className="flex justify-between items-start mb-4">
                 <h3 className="font-semibold text-gray-900">Requests Summary</h3>
                 <Eye className="h-5 w-5 text-primary-500" />
@@ -360,43 +350,24 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
               ) : summary ? (
                 <div className="space-y-4">
                   <div className="flex items-center">
-                    <div className="p-2 bg-blue-50 rounded-lg text-blue-500 mr-3">
-                      <MessageSquare className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Open Requests</p>
-                      <p className="text-xl font-bold text-gray-900">{summary.open}</p>
-                    </div>
+                    <div className="p-2 bg-blue-50 rounded-lg text-blue-500 mr-3"><MessageSquare className="h-5 w-5" /></div>
+                    <div><p className="text-sm text-gray-500">Open Requests</p><p className="text-xl font-bold text-gray-900">{summary.open}</p></div>
                   </div>
                   <div className="flex items-center">
-                    <div className="p-2 bg-green-50 rounded-lg text-green-500 mr-3">
-                      <CheckCircle className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Closed Requests</p>
-                      <p className="text-xl font-bold text-gray-900">{summary.closed}</p>
-                    </div>
+                    <div className="p-2 bg-green-50 rounded-lg text-green-500 mr-3"><CheckCircle className="h-5 w-5" /></div>
+                    <div><p className="text-sm text-gray-500">Closed Requests</p><p className="text-xl font-bold text-gray-900">{summary.closed}</p></div>
                   </div>
                   <div className="flex items-center">
-                    <div className="p-2 bg-purple-50 rounded-lg text-purple-500 mr-3">
-                      <Clock className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Avg Resolution Time</p>
-                      <p className="text-xl font-bold text-gray-900">{summary.avgResolutionTime} mins</p>
-                    </div>
+                    <div className="p-2 bg-purple-50 rounded-lg text-purple-500 mr-3"><Clock className="h-5 w-5" /></div>
+                    <div><p className="text-sm text-gray-500">Avg Resolution Time</p><p className="text-xl font-bold text-gray-900">{summary.avgResolutionTime} mins</p></div>
                   </div>
                 </div>
               ) : <p className="text-gray-500 text-center">No summary data.</p>}
-              <button 
-                onClick={() => setViewMode("wall")}
-                className="mt-4 w-full py-2 bg-primary-50 text-primary-600 rounded-md hover:bg-primary-100 transition"
-              >
+              <button onClick={() => setViewMode("wall")} className="mt-4 w-full py-2 bg-primary-50 text-primary-600 rounded-md hover:bg-primary-100 transition">
                 View All Requests
               </button>
             </div>
 
-            {/* Timeline Chart Card */}
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 col-span-1 md:col-span-2 lg:col-span-2">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-semibold text-gray-900">Open vs Closed Requests (Hourly)</h3>
@@ -411,7 +382,6 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                   </select>
                 </div>
               </div>
-              
               <div className="h-64 relative flex items-center justify-center">
                 {loadingHourly ? (
                   <div className="flex items-center"><Loader2 className="h-5 w-5 animate-spin mr-2" /> <p>Loading chart…</p></div>
@@ -422,30 +392,23 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                     <svg viewBox="0 0 620 200" className="w-full h-full">
                       <line x1="0" y1="180" x2="620" y2="180" stroke="#e5e7eb" />
                       {Array.from({length: 19}, (_,i) => 7+i).map(hour => {
-                        const x = ((hour-7)/19)*600 + 10;
+                        const x = ((hour-7)/18)*600 + 10; // 19 points for 19 hours (7am to 2am)
                         return <text key={hour} x={x} y="195" className="text-xs fill-gray-500 text-center" dominantBaseline="middle" textAnchor="middle">{(hour % 24).toString().padStart(2,'0')}</text>
                       })}
-                      
                       {["open", "closed"].map((key) => {
                         const points = hourlyData.hourly
-                          .filter(h => h.hour >= 7 || h.hour < 2) // 7 AM to 2 AM next day
-                          .sort((a,b) => a.hour < 7 ? a.hour + 24 : a.hour - (b.hour < 7 ? b.hour + 24 : b.hour) ) // Sort from 7AM
-                          .map((h, i) => {
+                          .filter(h => (h.hour >= 7 && h.hour <=23) || (h.hour >=0 && h.hour < 2)) // 7 AM to 2 AM next day
+                          .sort((a,b) => (a.hour < 7 ? a.hour + 24 : a.hour) - (b.hour < 7 ? b.hour + 24 : b.hour))
+                          .map((h) => {
                             const hourAdjusted = h.hour < 7 ? h.hour + 24 : h.hour; // Adjust for 24h cycle starting at 7AM
-                            const x = ((hourAdjusted - 7) / 19) * 600 + 10; // 19 hours from 7 AM to 2 AM
+                            const x = ((hourAdjusted - 7) / 18) * 600 + 10; // 19 hours from 7 AM to 2 AM (18 intervals)
                             const maxVal = Math.max(1, ...hourlyData.hourly.map(d => Math.max(d.open, d.closed)));
                             const y = 180 - ((h[key as "open" | "closed"] || 0) / maxVal) * 150;
                             return `${x},${y}`;
                           })
                           .join(" ");
                         return (
-                          <polyline
-                            key={key}
-                            fill="none"
-                            stroke={key === "open" ? "#ef4444" : "#22c55e"} 
-                            strokeWidth="2"
-                            points={points}
-                          />
+                          <polyline key={key} fill="none" stroke={key === "open" ? "#ef4444" : "#22c55e"} strokeWidth="2" points={points} />
                         );
                       })}
                     </svg>
@@ -460,7 +423,6 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
               </div>
             </div>
             
-            {/* Requests Resolution Bar Chart */}
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-semibold text-gray-900">Requests Resolution</h3>
@@ -475,7 +437,6 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                   </select>
                 </div>
               </div>
-              
               <div className="h-48 flex items-end justify-around">
                 {loadingResolution ? (
                   <div className="flex items-center justify-center w-full h-full"><Loader2 className="h-6 w-6 animate-spin" /> <p className="ml-2">Loading data...</p></div>
@@ -484,11 +445,7 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                 ) : resolutionData && resolutionData.length > 0 ? (
                   resolutionData.map((item, i) => (
                     <div key={i} className="flex flex-col items-center">
-                      <div 
-                        className="w-16 bg-primary-500 rounded-t-sm" 
-                        style={{ height: `${Math.max(5, item.count * 8)}px` }} // min height for visibility
-                        title={`Count: ${item.count}`}
-                      ></div>
+                      <div className="w-16 bg-primary-500 rounded-t-sm" style={{ height: `${Math.max(5, item.count * 8)}px` }} title={`Count: ${item.count}`}></div>
                       <p className="text-xs text-gray-500 mt-2">{item.range}</p>
                       <p className="text-sm font-medium">{item.count}</p>
                     </div>
@@ -497,14 +454,9 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                   <p className="text-gray-500 text-center w-full">No resolution data for selected date.</p>
                 )}
               </div>
-              
               <div className="mt-4 flex items-center justify-center">
-                <div className="flex items-center">
-                  <div className="w-3 h-3 bg-primary-500 rounded-sm mr-1"></div>
-                  <span className="text-xs text-gray-500">Number of requests</span>
-                </div>
+                <div className="flex items-center"><div className="w-3 h-3 bg-primary-500 rounded-sm mr-1"></div><span className="text-xs text-gray-500">Number of requests</span></div>
               </div>
-              
               {resolutionData && resolutionData.find(r => r.range === '>15mins' && r.count > 0) && (
                 <div className="mt-4 text-center text-sm text-gray-500">
                   <AlertTriangle className="h-4 w-4 inline-block mr-1 text-yellow-500" />
@@ -513,7 +465,6 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
               )}
             </div>
             
-            {/* Additional Insights Card */}
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-semibold text-gray-900">Request Insights</h3>
@@ -528,7 +479,6 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                   </select>
                 </div>
               </div>
-              {/* Placeholder data for insights, to be replaced with API data based on insightsDateFilter */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center"> <TrendingUp className="h-5 w-5 text-green-500 mr-2" /> <span className="text-sm">Completion Rate</span></div>
@@ -549,7 +499,6 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
               </div>
             </div>
             
-            {/* Staff Performance Card */}
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
                <div className="flex justify-between items-center mb-4">
                 <h3 className="font-semibold text-gray-900">Waiter Performance</h3>
@@ -564,9 +513,8 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                   </select>
                 </div>
               </div>
-              {/* Placeholder data for waiter performance, to be replaced with API data based on performanceDateFilter */}
               <div className="space-y-3">
-                {[\"John D.\", \"Maria S.\", \"Lebo N.\"].map((name, i) => (
+                {["John D.", "Maria S.", "Lebo N."].map((name, i) => (
                   <div key={i} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
                     <div className="flex items-center">
                       <div className="h-8 w-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-600 mr-3">
@@ -585,7 +533,6 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
           </div>
         </>
       ) : (
-        /* Wall View (Request List) */
         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-semibold text-gray-900">All Requests</h3>
