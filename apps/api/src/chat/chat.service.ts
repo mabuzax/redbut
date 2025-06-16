@@ -4,7 +4,7 @@ import OpenAI from 'openai';
 // Precise message type expected by the OpenAI SDK
 import { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { PrismaService } from '../common/prisma.service';
-import { ChatMessage, ChatRole } from '@prisma/client';
+import { ChatMessage, ChatRole, MenuItem, RequestStatus } from '@prisma/client'; // Added MenuItem
 import { RequestsService } from '../requests/requests.service';
 
 @Injectable()
@@ -161,30 +161,36 @@ export class ChatService {
    */
   private async getMenuDescription(): Promise<string> {
     try {
-      const categories = await this.prisma.menuCategory.findMany({
-        include: {
-          items: {
-            where: { status: 'Active' }, // Only include active items
-            orderBy: { name: 'asc' },
-          },
-        },
-        orderBy: { description: 'asc' },
+      const activeItems = await this.prisma.menuItem.findMany({
+        where: { status: 'Active' },
+        orderBy: [
+          { category: 'asc' },
+          { name: 'asc' },
+        ],
       });
 
-      if (categories.length === 0) {
+      if (activeItems.length === 0) {
         return 'No menu items available at the moment.';
       }
 
-      let menuDescription = 'Current Menu:\n';
-      for (const category of categories) {
-        menuDescription += `\n${category.description}:\n`;
-        if (category.items.length === 0) {
-          menuDescription += '  No items in this category.\n';
-        } else {
-          for (const item of category.items) {
-            menuDescription += `  - ${item.name}: $${item.price.toFixed(2)} - ${item.description}\n`;
+      let menuDescription = 'Current Menu:\\n';
+      let currentCategory: string | null = null;
+
+      for (const item of activeItems) {
+        const itemCategory = item.category || 'Other Items'; // Default category for null or empty strings
+        
+        if (itemCategory !== currentCategory) {
+          // Add an extra newline if this isn't the very first category entry (after "Current Menu:\n")
+          if (currentCategory !== null) {
+            menuDescription += '\\n'; 
           }
+          menuDescription += `${itemCategory}:\\n`;
+          currentCategory = itemCategory;
         }
+        
+        const priceStr = item.price.toFixed(2);
+        const descriptionStr = item.description ? ` - ${item.description}` : '';
+        menuDescription += `  - ${item.name}: $${priceStr}${descriptionStr}\\n`;
       }
       return menuDescription;
     } catch (error) {
@@ -213,7 +219,7 @@ export class ChatService {
       'If the user asks about menu items, answer as best you can, suggest other things that go well with that menu item, ' +
       'and always ask if you should place an order for the user, or call the waiter to the table. ' +
       'Do not make up information about the restaurant or menu. ' +
-      `Here is the current menu information:\n${menuDescription}\n\n` +
+      `Here is the current menu information:\\n${menuDescription}\\n\\n` +
       'Restaurant open times: Monday-Friday 11 AM - 10 PM, Saturday-Sunday 10 AM - 11 PM.';
 
     const systemPrompt = {
@@ -290,10 +296,10 @@ export class ChatService {
         return { response: '', toolCalls: message.tool_calls };
       }
 
-      return { response: message?.content || 'Sorry, I couldn\'t generate a response.' };
+      return { response: message?.content || 'Sorry, I couldn\\\'t generate a response.' };
     } catch (error) {
       this.logger.error(`OpenAI API error: ${error.message}`);
-      return { response: 'Sorry, I\'m having trouble connecting to my brain right now. Please try again later.' };
+      return { response: 'Sorry, I\\\'m having trouble connecting to my brain right now. Please try again later.' };
     }
   }
 
@@ -315,7 +321,7 @@ export class ChatService {
         tableNumber,
         content: content,
       });
-      this.logger.log(`Waiter request created for user ${userId} at table ${tableNumber}: "${content}"`);
+      this.logger.log(`Waiter request created for user ${userId} at table ${tableNumber}: \"${content}\"`);
       return 'I have informed the waiter about your request.';
     } catch (error) {
       this.logger.error(`Failed to create waiter request via tool: ${error.message}`);

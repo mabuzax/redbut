@@ -7,6 +7,8 @@ import { PrismaService } from '../common/prisma.service';
 import { AdminRequestsController } from './admin-requests.controller';
 import { AdminRequestsService } from './admin-requests.service';
 import { AuthModule } from '../auth/auth.module';
+import { AdminMenuController } from './admin-menu.controller';
+import { AdminMenuService } from './admin-menu.service';
 
 @Module({
   imports: [
@@ -26,15 +28,18 @@ import { AuthModule } from '../auth/auth.module';
   controllers: [
     AdminController,
     AdminRequestsController, // Dedicated controller for request management
+    AdminMenuController, // Controller for menu management
   ],
   providers: [
     AdminService,
     AdminRequestsService, // Dedicated service for request operations
+    AdminMenuService, // Service for menu operations
     PrismaService,
   ],
   exports: [
     AdminService,
     AdminRequestsService,
+    AdminMenuService,
   ],
 })
 export class AdminModule {}

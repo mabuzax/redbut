@@ -143,32 +143,27 @@ model ChatMessage {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  MENU (categories & items)                                                 */
+/*  MENU ITEMS                                                                */
 /* -------------------------------------------------------------------------- */
 
-model MenuCategory {
-  id          String     @id @default(uuid()) @map("category_id")
-  description String
-
-  /* relations ------------------------------------------------------------- */
-  items       MenuItem[]
-
-  @@map("menu_category")
-}
-
 model MenuItem {
-  id          String       @id @default(uuid()) @map("item_id")
-  name        String       @map("item_name")
-  description String       @map("item_description")
-  categoryId  String       @map("category_id")
-  price       Decimal      @map("item_price")
-  status      String       @default("Active")
+  id                String  @id @default(uuid())
+  category          String?
+  name              String
+  description       String?
+  image             String?
+  price             Decimal
+  status            String  @default("Active")
+  video             String?
+  served_info       String? @map("served_info")
+  available_options Json?   @map("available_options")
+  available_extras  Json?   @map("available_extras")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
-  /* relations ------------------------------------------------------------- */
-  category    MenuCategory @relation(fields: [categoryId], references: [id])
-
-  @@index([categoryId])
-  @@map("menu_item")
+  @@index([category])
+  @@index([status])
+  @@map("menu_items")
 }
 
 /* -------------------------------------------------------------------------- */

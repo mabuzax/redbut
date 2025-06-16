@@ -113,6 +113,68 @@ export interface RequestFilters {
 }
 
 /**
+ * Menu item data structure
+ */
+export interface MenuItem {
+  id: string;
+  category?: string;
+  name: string;
+  description?: string;
+  image?: string;
+  price: number;
+  status: string;
+  video?: string;
+  served_info?: string;
+  available_options?: any;
+  available_extras?: any;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Create menu item DTO
+ */
+export interface CreateMenuItemDto {
+  category?: string;
+  name: string;
+  description?: string;
+  image?: string;
+  price: number;
+  status?: string;
+  video?: string;
+  served_info?: string;
+  available_options?: any;
+  available_extras?: any;
+}
+
+/**
+ * Update menu item DTO
+ */
+export interface UpdateMenuItemDto extends Partial<CreateMenuItemDto> {}
+
+/**
+ * Menu items response with pagination
+ */
+export interface MenuItemsResponse {
+  items: MenuItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+/**
+ * Menu filters for API calls
+ */
+export interface MenuFilters {
+  category?: string;
+  status?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/**
  * DTO for admin login request.
  */
 export interface LoginRequest {
@@ -421,5 +483,104 @@ export const adminApi = {
     period: 'day' | 'week' | 'month' | 'year' = 'day',
   ): Promise<any> => {
     return callApi<any>(`/admin/metrics/satisfaction?period=${period}`, token);
+  },
+
+  /* ---------------------------------------------------------------------- */
+  /*  Menu Management                                                       */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Get all menu items with filtering and pagination
+   * @param token The JWT authentication token
+   * @param filters Optional filters for category, status, search, pagination
+   * @returns Menu items with pagination info
+   */
+  getMenuItems: async (
+    token: string,
+    filters: MenuFilters = {},
+  ): Promise<MenuItemsResponse> => {
+    const queryParams = new URLSearchParams();
+    if (filters.category) queryParams.append('category', filters.category);
+    if (filters.status) queryParams.append('status', filters.status);
+    if (filters.search) queryParams.append('search', filters.search);
+    if (filters.page) queryParams.append('page', String(filters.page));
+    if (filters.pageSize) queryParams.append('pageSize', String(filters.pageSize));
+
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return callApi<MenuItemsResponse>(`/admin/menu${queryString}`, token);
+  },
+
+  /**
+   * Get all available menu categories
+   * @param token The JWT authentication token
+   * @returns Array of category names
+   */
+  getMenuCategories: async (token: string): Promise<string[]> => {
+    return callApi<string[]>('/admin/menu/categories', token);
+  },
+
+  /**
+   * Get menu item by ID
+   * @param token The JWT authentication token
+   * @param id Menu item ID
+   * @returns Menu item details
+   */
+  getMenuItemById: async (token: string, id: string): Promise<MenuItem> => {
+    return callApi<MenuItem>(`/admin/menu/${id}`, token);
+  },
+
+  /**
+   * Create a new menu item
+   * @param token The JWT authentication token
+   * @param data Menu item data
+   * @returns Created menu item
+   */
+  createMenuItem: async (
+    token: string,
+    data: CreateMenuItemDto,
+  ): Promise<MenuItem> => {
+    return callApi<MenuItem>('/admin/menu', token, 'POST', data);
+  },
+
+  /**
+   * Update an existing menu item
+   * @param token The JWT authentication token
+   * @param id Menu item ID
+   * @param data Updated menu item data
+   * @returns Updated menu item
+   */
+  updateMenuItem: async (
+    token: string,
+    id: string,
+    data: UpdateMenuItemDto,
+  ): Promise<MenuItem> => {
+    return callApi<MenuItem>(`/admin/menu/${id}`, token, 'PUT', data);
+  },
+
+  /**
+   * Delete a menu item
+   * @param token The JWT authentication token
+   * @param id Menu item ID
+   */
+  deleteMenuItem: async (token: string, id: string): Promise<void> => {
+    await callApi<void>(`/admin/menu/${id}`, token, 'DELETE');
+  },
+
+  /**
+   * Bulk upload menu items from processed JSON data
+   * @param token The JWT authentication token
+   * @param items Array of menu item data
+   * @returns Upload result with created and failed counts
+   */
+  bulkUploadMenuItems: async (
+    token: string,
+    items: any[],
+  ): Promise<{ created: number; failed: number }> => {
+    return callApi<{ created: number; failed: number }>(
+      '/admin/menu/bulk-upload-json',
+      token,
+      'POST',
+      { items },
+    );
   },
 };
