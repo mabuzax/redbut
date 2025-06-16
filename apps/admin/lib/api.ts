@@ -72,6 +72,33 @@ export interface ResolutionBucket {
 }
 
 /**
+ * Busiest time information for a specific date
+ */
+export interface BusiestTime {
+  hour: number;
+  label: string;
+  count: number;
+}
+
+/**
+ * Peak time requests information
+ */
+export interface PeakTimeRequests {
+  peakTime: string;
+  totalRequests: number;
+}
+
+/**
+ * Waiter performance metrics
+ */
+export interface WaiterPerformance {
+  waiterId: string;
+  waiterName: string;
+  requestsHandled: number;
+  avgResolutionTime: number;
+}
+
+/**
  * Rich filters for list / summary queries.
  */
 export interface RequestFilters {
@@ -308,6 +335,54 @@ export const adminApi = {
   ): Promise<ResolutionBucket[]> => {
     return callApi<ResolutionBucket[]>(
       `/admin/requests/analytics/resolution?date=${date}`,
+      token,
+    );
+  },
+
+  /**
+   * Get the busiest hour for a specific date
+   * @param token The JWT authentication token
+   * @param date YYYY-MM-DD calendar day
+   * @returns The hour with the most requests
+   */
+  getBusiestTime: async (
+    token: string,
+    date: string,
+  ): Promise<BusiestTime> => {
+    return callApi<BusiestTime>(
+      `/admin/requests/analytics/busiest-time?date=${date}`,
+      token,
+    );
+  },
+
+  /**
+   * Get total requests during peak time for a specific date
+   * @param token The JWT authentication token
+   * @param date YYYY-MM-DD calendar day
+   * @returns Peak time and total requests count
+   */
+  getPeakTimeRequests: async (
+    token: string,
+    date: string,
+  ): Promise<PeakTimeRequests> => {
+    return callApi<PeakTimeRequests>(
+      `/admin/requests/analytics/peak-time-requests?date=${date}`,
+      token,
+    );
+  },
+
+  /**
+   * Get waiter performance ranking by average resolution time
+   * @param token The JWT authentication token
+   * @param date YYYY-MM-DD calendar day
+   * @returns Array of waiter performance metrics ranked from fastest to slowest
+   */
+  getWaiterPerformanceAnalytics: async (
+    token: string,
+    date: string,
+  ): Promise<WaiterPerformance[]> => {
+    return callApi<WaiterPerformance[]>(
+      `/admin/requests/analytics/waiter-performance?date=${date}`,
       token,
     );
   },

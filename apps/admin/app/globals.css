@@ -116,7 +116,7 @@
   .btn-subtle {
     @apply inline-flex items-center justify-center px-4 py-2
       font-medium text-foreground bg-muted rounded-full
-      hover:bg-muted-foreground/10 active:bg-muted-foreground/20
+      hover:bg-gray-200 active:bg-gray-300
       transition-all;
   }
 

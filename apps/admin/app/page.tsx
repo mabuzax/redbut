@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -34,21 +35,26 @@ import {
   RequestFilters,
   RequestSummary,
   ResolutionBucket, 
+  BusiestTime,      // Added import
+  PeakTimeRequests, // Added import
+  WaiterPerformance // Added import
 } from "../lib/api";
+
+// Moved Section type definition here to be accessible by GridProps
+type Section =
+  | "AI Analysis"
+  | "Analytics"
+  | "Requests"
+  | "Orders"
+  | "Ratings"
+  | "Food Menu"
+  | "Staff"
+  | "Shifts"
+  | "Table Allocations"
+  | "Owner Dashboard";
 
 export default function AdminDashboard() {
   type Stage = "splash" | "login" | "dashboard";
-  type Section =
-    | "AI Analysis"
-    | "Analytics"
-    | "Requests"
-    | "Orders"
-    | "Ratings"
-    | "Food Menu"
-    | "Staff"
-    | "Shifts"
-    | "Table Allocations"
-    | "Owner Dashboard";
 
   const [stage, setStage] = useState<Stage>("splash");
   const [loading, setLoading] = useState(true);
@@ -77,10 +83,12 @@ export default function AdminDashboard() {
           localStorage.removeItem("redbutAdminSession");
           setStage("login");
         }
+      } else {
+        setStage("login"); // Ensure login stage if no session
       }
     };
     
-    if (stage === "login") {
+    if (stage === "login" || stage === "splash") { // Check session also if splash is skipped by existing session
       checkSession();
     }
   }, [stage]);
@@ -227,6 +235,19 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
   const [insightsDateFilter, setInsightsDateFilter] = useState<string>(todayISO);
   const [performanceDateFilter, setPerformanceDateFilter] = useState<string>(todayISO);
 
+  // New states for Busiest Time, Peak Time Requests, and Waiter Performance
+  const [busiestTimeData, setBusiestTimeData] = useState<BusiestTime | null>(null);
+  const [loadingBusiestTime, setLoadingBusiestTime] = useState(false);
+  const [errorBusiestTime, setErrorBusiestTime] = useState<string | null>(null);
+
+  const [peakTimeRequestsData, setPeakTimeRequestsData] = useState<PeakTimeRequests | null>(null);
+  const [loadingPeakTimeRequests, setLoadingPeakTimeRequests] = useState(false);
+  const [errorPeakTimeRequests, setErrorPeakTimeRequests] = useState<string | null>(null);
+  
+  const [waiterPerformanceData, setWaiterPerformanceData] = useState<WaiterPerformance[] | null>(null);
+  const [loadingWaiterPerformance, setLoadingWaiterPerformance] = useState(false);
+  const [errorWaiterPerformance, setErrorWaiterPerformance] = useState<string | null>(null);
+
   useEffect(() => {
     if (!token) {
       setLoadingSummary(false);
@@ -272,6 +293,42 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
       .catch((e) => setErrorResolution(e.message))
       .finally(() => setLoadingResolution(false));
   }, [token, resolutionDateFilter]);
+
+  // Fetch Busiest Time and Peak Time Requests data
+  useEffect(() => {
+    if (!token || !insightsDateFilter) {
+      setErrorBusiestTime(!token ? "Authentication token not found." : "No date selected.");
+      setErrorPeakTimeRequests(!token ? "Authentication token not found." : "No date selected.");
+      return;
+    }
+    setLoadingBusiestTime(true);
+    setErrorBusiestTime(null);
+    adminApi.getBusiestTime(token, insightsDateFilter)
+      .then(setBusiestTimeData)
+      .catch(e => setErrorBusiestTime(e.message))
+      .finally(() => setLoadingBusiestTime(false));
+
+    setLoadingPeakTimeRequests(true);
+    setErrorPeakTimeRequests(null);
+    adminApi.getPeakTimeRequests(token, insightsDateFilter)
+      .then(setPeakTimeRequestsData)
+      .catch(e => setErrorPeakTimeRequests(e.message))
+      .finally(() => setLoadingPeakTimeRequests(false));
+  }, [token, insightsDateFilter]);
+
+  // Fetch Waiter Performance data
+  useEffect(() => {
+    if (!token || !performanceDateFilter) {
+      setErrorWaiterPerformance(!token ? "Authentication token not found." : "No date selected.");
+      return;
+    }
+    setLoadingWaiterPerformance(true);
+    setErrorWaiterPerformance(null);
+    adminApi.getWaiterPerformanceAnalytics(token, performanceDateFilter)
+      .then(setWaiterPerformanceData)
+      .catch(e => setErrorWaiterPerformance(e.message))
+      .finally(() => setLoadingWaiterPerformance(false));
+  }, [token, performanceDateFilter]);
 
   const fetchList = useCallback(async () => {
     if (!token) {
@@ -392,16 +449,16 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                     <svg viewBox="0 0 620 200" className="w-full h-full">
                       <line x1="0" y1="180" x2="620" y2="180" stroke="#e5e7eb" />
                       {Array.from({length: 19}, (_,i) => 7+i).map(hour => {
-                        const x = ((hour-7)/18)*600 + 10; // 19 points for 19 hours (7am to 2am)
+                        const x = ((hour-7)/18)*600 + 10; 
                         return <text key={hour} x={x} y="195" className="text-xs fill-gray-500 text-center" dominantBaseline="middle" textAnchor="middle">{(hour % 24).toString().padStart(2,'0')}</text>
                       })}
                       {["open", "closed"].map((key) => {
                         const points = hourlyData.hourly
-                          .filter(h => (h.hour >= 7 && h.hour <=23) || (h.hour >=0 && h.hour < 2)) // 7 AM to 2 AM next day
+                          .filter(h => (h.hour >= 7 && h.hour <=23) || (h.hour >=0 && h.hour < 2)) 
                           .sort((a,b) => (a.hour < 7 ? a.hour + 24 : a.hour) - (b.hour < 7 ? b.hour + 24 : b.hour))
                           .map((h) => {
-                            const hourAdjusted = h.hour < 7 ? h.hour + 24 : h.hour; // Adjust for 24h cycle starting at 7AM
-                            const x = ((hourAdjusted - 7) / 18) * 600 + 10; // 19 hours from 7 AM to 2 AM (18 intervals)
+                            const hourAdjusted = h.hour < 7 ? h.hour + 24 : h.hour; 
+                            const x = ((hourAdjusted - 7) / 18) * 600 + 10; 
                             const maxVal = Math.max(1, ...hourlyData.hourly.map(d => Math.max(d.open, d.closed)));
                             const y = 180 - ((h[key as "open" | "closed"] || 0) / maxVal) * 150;
                             return `${x},${y}`;
@@ -486,15 +543,11 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center"> <Clock className="h-5 w-5 text-blue-500 mr-2" /> <span className="text-sm">Peak Request Time</span></div>
-                  <span className="font-medium">12:00 - 14:00</span>
+                  {loadingBusiestTime ? <Loader2 className="h-4 w-4 animate-spin" /> : errorBusiestTime ? <span className="text-xs text-red-500">Error</span> : <span className="font-medium">{busiestTimeData?.label || 'N/A'}</span>}
                 </div>
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center"> <Users className="h-5 w-5 text-purple-500 mr-2" /> <span className="text-sm">Most Active Waiter</span></div>
-                  <span className="font-medium">John D. (42)</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center"> <AlertTriangle className="h-5 w-5 text-yellow-500 mr-2" /> <span className="text-sm">Overdue Requests</span></div>
-                  <span className="font-medium text-yellow-600">5</span>
+                  <div className="flex items-center"> <AlertTriangle className="h-5 w-5 text-yellow-500 mr-2" /> <span className="text-sm">Peak Time Total Requests</span></div>
+                  {loadingPeakTimeRequests ? <Loader2 className="h-4 w-4 animate-spin" /> : errorPeakTimeRequests ? <span className="text-xs text-red-500">Error</span> : <span className="font-medium text-yellow-600">{peakTimeRequestsData?.totalRequests ?? 'N/A'}</span>}
                 </div>
               </div>
             </div>
@@ -513,22 +566,30 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                   </select>
                 </div>
               </div>
-              <div className="space-y-3">
-                {["John D.", "Maria S.", "Lebo N."].map((name, i) => (
-                  <div key={i} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
-                    <div className="flex items-center">
-                      <div className="h-8 w-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-600 mr-3">
-                        {name.split(' ')[0][0]}{name.split(' ')[1][0]}
+              {loadingWaiterPerformance ? (
+                <div className="flex items-center justify-center h-32"><Loader2 className="h-6 w-6 animate-spin" /></div>
+              ) : errorWaiterPerformance ? (
+                <p className="text-red-500 text-center">{errorWaiterPerformance}</p>
+              ) : waiterPerformanceData && waiterPerformanceData.length > 0 ? (
+                <div className="space-y-3">
+                  {waiterPerformanceData.map((waiter, i) => (
+                    <div key={waiter.waiterId} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
+                      <div className="flex items-center">
+                        <div className="h-8 w-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-600 mr-3">
+                          {waiter.waiterName.split(' ')[0][0]}{waiter.waiterName.split(' ')[1]?.[0] || ''}
+                        </div>
+                        <span>{waiter.waiterName}</span>
                       </div>
-                      <span>{name}</span>
+                      <div className="text-right">
+                        <div className="text-sm font-medium">{waiter.requestsHandled} reqs</div>
+                        <div className="text-xs text-gray-500">~{waiter.avgResolutionTime} mins avg</div>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-sm font-medium">{Math.floor(Math.random() * 5) + 15} reqs</div>
-                      <div className="text-xs text-gray-500">~{Math.floor(Math.random() * 5) + 5} mins avg</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500 text-center">No waiter performance data for selected date.</p>
+              )}
             </div>
           </div>
         </>

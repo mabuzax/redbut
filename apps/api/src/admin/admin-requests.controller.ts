@@ -165,6 +165,96 @@ export class AdminRequestsController {
     return this.adminRequestsService.getRequestsResolutionAnalytics(date);
   }
 
+  @Get('analytics/busiest-time')
+  @ApiOperation({ summary: 'Get the busiest hour for a specific date' })
+  @ApiQuery({
+    name: 'date',
+    required: true,
+    description: 'Date in YYYY-MM-DD format',
+    type: String,
+    example: '2025-06-15',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Returns the hour with the most requests',
+    schema: {
+      type: 'object',
+      properties: {
+        hour: { type: 'number', example: 14 },
+        label: { type: 'string', example: '14:00 - 15:00' },
+        count: { type: 'number', example: 25 },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid date format',
+  })
+  async getBusiestTime(@Query('date') date: string) {
+    return this.adminRequestsService.getBusiestTime(date);
+  }
+
+  @Get('analytics/peak-time-requests')
+  @ApiOperation({ summary: 'Get the total number of requests during peak time for a specific date' })
+  @ApiQuery({
+    name: 'date',
+    required: true,
+    description: 'Date in YYYY-MM-DD format',
+    type: String,
+    example: '2025-06-15',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Returns the peak time and total requests count',
+    schema: {
+      type: 'object',
+      properties: {
+        peakTime: { type: 'string', example: '14:00 - 15:00' },
+        totalRequests: { type: 'number', example: 25 },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid date format',
+  })
+  async getPeakTimeRequests(@Query('date') date: string) {
+    return this.adminRequestsService.getPeakTimeRequests(date);
+  }
+
+  @Get('analytics/waiter-performance')
+  @ApiOperation({ summary: 'Get waiter performance ranking by average resolution time' })
+  @ApiQuery({
+    name: 'date',
+    required: true,
+    description: 'Date in YYYY-MM-DD format',
+    type: String,
+    example: '2025-06-15',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Returns waiter performance ranking from fastest to slowest',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          waiterId: { type: 'string' },
+          waiterName: { type: 'string', example: 'John D.' },
+          requestsHandled: { type: 'number', example: 15 },
+          avgResolutionTime: { type: 'number', example: 8.5 },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid date format',
+  })
+  async getWaiterPerformance(@Query('date') date: string) {
+    return this.adminRequestsService.getWaiterPerformance(date);
+  }
+
   @Get()
   @ApiOperation({ summary: 'Get all requests with comprehensive filtering options' })
   @ApiQuery({
