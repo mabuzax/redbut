@@ -17,19 +17,65 @@ export interface RestaurantMetrics {
 }
 
 /**
- * Represents a staff member (waiter) for the admin dashboard.
+ * Defines possible staff positions.
+ */
+export const STAFF_POSITIONS = ['Waiter', 'Chef', 'Manager', 'Supervisor'] as const;
+export type StaffPosition = typeof STAFF_POSITIONS[number];
+
+/**
+ * Represents a staff member (waiter, chef, etc.) for the admin dashboard.
+ * This interface combines information from the Waiter model and AccessUser model.
  */
 export interface StaffMember {
   id: string;
   name: string;
   surname: string;
-  email: string;
+  email: string; // Primary email, also used as username for login
   tag_nickname: string;
-  userType: UserType;
-  propic?: string;
+  position?: StaffPosition; // Role like 'Waiter', 'Chef', 'Manager'
+  address?: string | null;
+  phone?: string | null;
+  propic?: string | null;
+  createdAt: string; // ISO string
+  updatedAt: string; // ISO string
+  accessAccount?: {
+    username: string; // Login username, typically the email
+    userType: UserType; // System role: 'admin', 'waiter', 'manager'
+  } | null;
+  // Optional analytics fields if provided by specific endpoints
   averageRating?: number;
   requestsHandled?: number;
 }
+
+/**
+ * DTO for creating a new staff member.
+ */
+export interface CreateStaffMemberDto {
+  name: string;
+  surname: string;
+  email: string; 
+  tag_nickname: string;
+  position: StaffPosition;
+  address?: string;
+  phone?: string; 
+  propic?: string;
+  password?: string; // Optional: defaults to a system-defined new password if not provided
+}
+
+/**
+ * DTO for updating an existing staff member.
+ * Email/username and password changes are typically handled via separate, dedicated endpoints for security.
+ */
+export interface UpdateStaffMemberDto {
+  name?: string;
+  surname?: string;
+  tag_nickname?: string;
+  position?: StaffPosition;
+  address?: string;
+  phone?: string; 
+  propic?: string;
+}
+
 
 /**
  * Represents a request summary for the admin dashboard.
@@ -75,17 +121,17 @@ export interface ResolutionBucket {
  * Busiest time information for a specific date
  */
 export interface BusiestTime {
-  hour: number;
-  label: string;
-  count: number;
+  hour: number; // Starting hour of the busiest period (e.g., 14 for 2 PM)
+  label: string; // User-friendly label (e.g., "2 PM - 3 PM")
+  count: number; // Number of requests during this hour
 }
 
 /**
  * Peak time requests information
  */
 export interface PeakTimeRequests {
-  peakTime: string;
-  totalRequests: number;
+  peakTime: string; // User-friendly label for the peak period
+  totalRequests: number; // Total requests during that peak period
 }
 
 /**
@@ -95,7 +141,7 @@ export interface WaiterPerformance {
   waiterId: string;
   waiterName: string;
   requestsHandled: number;
-  avgResolutionTime: number;
+  avgResolutionTime: number; // in minutes
 }
 
 /**
@@ -202,6 +248,24 @@ export interface ChangePasswordRequest {
   newPassword: string;
   confirmPassword: string;
 }
+
+/**
+ * DTO for AI query request for Staff Management.
+ */
+export interface AiQueryRequest {
+  message: string;
+}
+
+/**
+ * Response types for AI query for Staff Management.
+ */
+export type AiQueryResponse = 
+  | string 
+  | StaffMember 
+  | StaffMember[] 
+  | { message: string } 
+  | string[];
+
 
 // Base URL for the API, defaulting to localhost for development
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -312,15 +376,6 @@ export const adminApi = {
    */
   getRestaurantMetrics: async (token: string): Promise<RestaurantMetrics> => {
     return callApi<RestaurantMetrics>('/admin/metrics/summary', token);
-  },
-
-  /**
-   * Fetches a list of all staff members (waiters).
-   * @param token The JWT authentication token.
-   * @returns A promise that resolves to an array of staff members.
-   */
-  getStaffMembers: async (token: string): Promise<StaffMember[]> => {
-    return callApi<StaffMember[]>('/admin/staff', token);
   },
 
   /**
@@ -456,7 +511,7 @@ export const adminApi = {
    * @returns A promise that resolves to waiter performance metrics.
    */
   getWaiterPerformance: async (token: string, waiterId: string): Promise<any> => {
-    return callApi<any>(`/admin/staff/${waiterId}/performance`, token);
+    return callApi<any>(`/admin/staff/${waiterId}/performance`, token); // This endpoint might not exist yet or might be part of general staff info
   },
 
   /**
@@ -484,6 +539,80 @@ export const adminApi = {
   ): Promise<any> => {
     return callApi<any>(`/admin/metrics/satisfaction?period=${period}`, token);
   },
+
+  /* ---------------------------------------------------------------------- */
+  /*  Staff Management                                                      */
+  /* ---------------------------------------------------------------------- */
+  /**
+   * Fetches a list of all staff members.
+   * @param token The JWT authentication token.
+   * @returns A promise that resolves to an array of staff members.
+   */
+  getAllStaffMembers: async (token: string): Promise<StaffMember[]> => {
+    return callApi<StaffMember[]>('/admin/staff', token);
+  },
+
+  /**
+   * Fetches a specific staff member by ID.
+   * @param token The JWT authentication token.
+   * @param id The ID of the staff member.
+   * @returns A promise that resolves to the staff member details.
+   */
+  getStaffMemberById: async (token: string, id: string): Promise<StaffMember> => {
+    return callApi<StaffMember>(`/admin/staff/${id}`, token);
+  },
+
+  /**
+   * Creates a new staff member.
+   * @param token The JWT authentication token.
+   * @param data The data for the new staff member.
+   * @returns A promise that resolves to the created staff member.
+   */
+  createStaffMember: async (
+    token: string,
+    data: CreateStaffMemberDto,
+  ): Promise<StaffMember> => {
+    return callApi<StaffMember>('/admin/staff', token, 'POST', data);
+  },
+
+  /**
+   * Updates an existing staff member.
+   * @param token The JWT authentication token.
+   * @param id The ID of the staff member to update.
+   * @param data The updated data for the staff member.
+   * @returns A promise that resolves to the updated staff member.
+   */
+  updateStaffMember: async (
+    token: string,
+    id: string,
+    data: UpdateStaffMemberDto,
+  ): Promise<StaffMember> => {
+    return callApi<StaffMember>(`/admin/staff/${id}`, token, 'PUT', data);
+  },
+
+  /**
+   * Deletes a staff member.
+   * @param token The JWT authentication token.
+   * @param id The ID of the staff member to delete.
+   * @returns A promise that resolves when the staff member is deleted.
+   */
+  deleteStaffMember: async (token: string, id: string): Promise<void> => {
+    await callApi<void>(`/admin/staff/${id}`, token, 'DELETE');
+  },
+
+  /**
+   * Processes an AI query for staff management.
+   * @param token The JWT authentication token.
+   * @param query The AI query request.
+   * @returns A promise that resolves to the AI's response.
+   */
+  processStaffAiQuery: async (
+    token: string,
+    query: AiQueryRequest,
+  ): Promise<AiQueryResponse> => {
+    return callApi<AiQueryResponse>('/admin/staff/ai/query', token, 'POST', query);
+  },
+
 
   /* ---------------------------------------------------------------------- */
   /*  Menu Management                                                       */
