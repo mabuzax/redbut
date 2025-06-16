@@ -25,16 +25,13 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles, RolesGuard } from '../auth/guards/role.guard';
-import {
-  AdminStaffService,
-  CreateStaffMemberDto,
-  UpdateStaffMemberDto,
-  StaffMemberResponseDto, // Import the new DTO class
-  STAFF_POSITIONS,
-  StaffMemberWithAccessInfo, // Keep for service return type if needed, but DTO for response
-} from './admin-staff.service';
-// Waiter type might still be used if service methods return it directly for some operations
-// but StaffMemberResponseDto should be used for API responses.
+import { AdminStaffService } from './admin-staff.service';
+import { 
+  CreateStaffMemberDto, 
+  UpdateStaffMemberDto, 
+  StaffMemberResponseDto 
+} from './admin-staff.dto';
+import { STAFF_POSITIONS, StaffMemberWithAccessInfo } from './admin-staff.types';
 import { Waiter } from '@prisma/client'; 
 
 @ApiTags('admin-staff')
@@ -50,10 +47,9 @@ export class AdminStaffController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'List of all staff members retrieved successfully.',
-    type: [StaffMemberResponseDto], // Use the new DTO class
+    type: [StaffMemberResponseDto], 
   })
   async getAllStaffMembers(): Promise<StaffMemberWithAccessInfo[]> { 
-    // Service returns StaffMemberWithAccessInfo, which is compatible with StaffMemberResponseDto structure
     return this.adminStaffService.getAllStaffMembers();
   }
 
@@ -63,7 +59,7 @@ export class AdminStaffController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Staff member details retrieved successfully.',
-    type: StaffMemberResponseDto, // Use the new DTO class
+    type: StaffMemberResponseDto, 
   })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
@@ -72,7 +68,6 @@ export class AdminStaffController {
   async getStaffMemberById(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<StaffMemberWithAccessInfo> {
-    // Service returns StaffMemberWithAccessInfo
     return this.adminStaffService.getStaffMemberById(id);
   }
 
@@ -80,7 +75,7 @@ export class AdminStaffController {
   @ApiOperation({ summary: 'Create a new staff member' })
   @ApiBody({
     description: 'Data for creating a new staff member.',
-    type: CreateStaffMemberDto, // Use the new DTO class
+    type: CreateStaffMemberDto, 
     examples: {
       waiter: {
         summary: 'Create a Waiter',
@@ -111,7 +106,7 @@ export class AdminStaffController {
   @ApiResponse({
     status: HttpStatus.CREATED,
     description: 'Staff member created successfully.',
-    type: StaffMemberResponseDto, // Use the new DTO class
+    type: StaffMemberResponseDto, 
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
@@ -125,8 +120,6 @@ export class AdminStaffController {
   async createStaffMember(
     @Body() createStaffDto: CreateStaffMemberDto,
   ): Promise<Waiter> { 
-    // Service method might return Waiter, which is fine.
-    // The actual response structure for Swagger is defined by StaffMemberResponseDto.
     return this.adminStaffService.createStaffMember(createStaffDto);
   }
 
@@ -135,7 +128,7 @@ export class AdminStaffController {
   @ApiParam({ name: 'id', description: 'Staff member ID (UUID)', type: String })
   @ApiBody({
     description: 'Data for updating an existing staff member. Email/username and password changes are not supported via this endpoint.',
-    type: UpdateStaffMemberDto, // Use the new DTO class
+    type: UpdateStaffMemberDto, 
      examples: {
       updateWaiter: {
         summary: 'Update Waiter Details',
@@ -152,7 +145,7 @@ export class AdminStaffController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Staff member updated successfully.',
-    type: StaffMemberResponseDto, // Use the new DTO class
+    type: StaffMemberResponseDto, 
   })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
@@ -171,7 +164,6 @@ export class AdminStaffController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateStaffDto: UpdateStaffMemberDto,
   ): Promise<Waiter> {
-    // Service method might return Waiter.
     return this.adminStaffService.updateStaffMember(id, updateStaffDto);
   }
 
