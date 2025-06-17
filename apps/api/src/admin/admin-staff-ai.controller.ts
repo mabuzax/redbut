@@ -22,6 +22,7 @@ import { Roles, RolesGuard } from '../auth/guards/role.guard';
 import { AdminStaffAiService } from './admin-staff-ai.service';
 import { IsString, IsNotEmpty } from 'class-validator';
 import { StaffMemberResponseDto } from './admin-staff.dto';
+import * as crypto from 'crypto';
 
 class AiQueryDto {
   @ApiProperty({ description: 'The user message or query for the AI assistant related to staff management.' , example: "Create a new waiter named John Doe, email john.doe@example.com, tag JohnnyD, position Waiter"})
@@ -70,12 +71,13 @@ export class AdminStaffAiController {
   })
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   async processStaffQuery(@Body() queryDto: AiQueryDto) {
-    this.logger.log(`Received AI staff query: "${queryDto.message}"`);
+    const thread_id = crypto.randomUUID();
+    this.logger.log(`Received AI staff query for thread ${thread_id}: "${queryDto.message}"`);
     try {
-      const response = await this.adminStaffAiService.processStaffQuery(queryDto.message);
+      const response = await this.adminStaffAiService.processStaffQuery(queryDto.message, thread_id);
       return response;
     } catch (error) {
-      this.logger.error(`Error processing AI staff query: ${error.message}`, error.stack);
+      this.logger.error(`Error processing AI staff query for thread ${thread_id}: ${error.message}`, error.stack);
       if (error instanceof HttpException) {
         throw error;
       }
