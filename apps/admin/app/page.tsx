@@ -10,8 +10,7 @@ import { adminApi } from "../lib/api";
 import DashboardGrid, { Section } from "../components/dashboard/DashboardGrid";
 import SectionPlaceholder from "../components/dashboard/SectionPlaceholder";
 import RequestsComponent from "../components/requests/RequestsComponent";
-// FoodMenuComponent import removed as per instruction, will use SectionPlaceholder
-// import FoodMenuComponent from "../components/food-menu/FoodMenuComponent";
+import FoodMenuComponent from "../components/food-menu/FoodMenuComponent"; // Added import for FoodMenuComponent
 import StaffComponent from "../components/staff/StaffComponent"; 
 // AiChatWindowComponent is part of StaffComponent or will be a separate import if needed there
 
@@ -107,7 +106,7 @@ export default function AdminDashboard() {
           ) : selectedSection === "Requests" ? (
             <RequestsComponent onBack={() => setSelectedSection(null)} />
           ) : selectedSection === "Food Menu" ? (
-            <SectionPlaceholder section="Food Menu" onBack={() => setSelectedSection(null)} />
+            <FoodMenuComponent onBack={() => setSelectedSection(null)} />
           ) : selectedSection === "Staff" ? (
             <StaffComponent onBack={() => setSelectedSection(null)} />
           ) : (
