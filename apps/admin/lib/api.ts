@@ -302,12 +302,15 @@ async function callApi<T>(
   const url = `${API_BASE_URL}/api/v1${endpoint}`;
 
   const response = await fetch(url, config);
+  
+  this.logger?.debug(`API call RESPONDED WITH: `, response);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ message: response.statusText }));
     throw new Error(errorData.message || `API call failed with status ${response.status}`);
   }
 
+  
   return response.json() as Promise<T>;
 }
 

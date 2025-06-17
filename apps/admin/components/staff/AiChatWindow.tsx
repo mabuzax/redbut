@@ -46,7 +46,7 @@ const AiChatWindow = ({ onClose, onStaffUpdate }: AiChatWindowProps) => {
       let responseContent = "";
       let operationSuccess = false;
       
-      console.log("AI Response:", aiResponse);
+      console.log("AI AI AI AI:", aiResponse);
       
       if (typeof aiResponse === 'string') {
         responseContent = aiResponse;
@@ -115,7 +115,7 @@ const AiChatWindow = ({ onClose, onStaffUpdate }: AiChatWindowProps) => {
         {isAiTyping && (
           <div className="flex justify-start">
             <div className="bg-gray-200 text-gray-800 rounded-lg p-2.5 text-sm rounded-bl-none">
-              <Loader2 className="h-4 w-4 animate-spin inline-block" /> Typing...
+              <Loader2 className="h-4 w-4 animate-spin inline-block" /> Thinking...
             </div>
           </div>
         )}

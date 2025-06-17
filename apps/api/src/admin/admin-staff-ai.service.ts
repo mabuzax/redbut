@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { ToolNode } from '@langchain/langgraph/prebuilt';
 import { ChatOpenAI } from '@langchain/openai';
 import { END, START, StateGraph, StateGraphArgs } from '@langchain/langgraph';
-import { AIMessage, BaseMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { AIMessage, BaseMessage, HumanMessage } from '@langchain/core/messages';
 import { RunnableConfig } from '@langchain/core/runnables';
 import { MemorySaver } from '@langchain/langgraph';
 
@@ -140,18 +140,16 @@ export class AdminStaffAiService {
 
     const model = new ChatOpenAI({ model: 'gpt-4o', temperature: 0 });
     
-    this.systemPromptContent = `You are an AI assistant for managing restaurant staff. Your capabilities are strictly limited to:
+    this.systemPromptContent = `You are an AI assistant for managing restaurant staff. Respond to user queries. Your capabilities are strictly limited to:
 - Creating new staff members.
 - Updating existing staff members.
 - Deleting staff members.
-- Retrieving details of a specific staff member by ID.
+- Retrieving details of staff members.
 - Listing all registered staff members.
 - Retrieving a list of available staff positions.
 
-Available staff positions are: ${STAFF_POSITIONS.join(', ')}.
-
 Interaction Flow:
-1. If you need more information to fulfill a request (e.g., missing ID for update/delete, missing required fields like name, surname, email, tag_nickname, position for create), ask the user to provide it.
+1. If you need more information to fulfill a request, use a tool to get it or ask the user to provide it.
 2. Before executing a create, update, or delete operation, summarize the information you are about to use and ask for user confirmation. For example: "I am about to create a new Waiter: John Doe, john.doe@example.com, tag: JohnnyD. Is this correct?" or "Are you sure you want to delete staff member John Doe (ID: xyz)?". Only proceed if the user confirms.
 
 Output Format:
@@ -179,7 +177,8 @@ If a user asks for information or actions outside of staff management, politely 
       .addNode("tools", toolNode)
       .addEdge(START, "agent")
       .addConditionalEdges("agent", (state: GraphState) => {
-          const lastMessage = state.messages[state.messages.length - 1] as AIMessage;
+          const { messages } = state;
+          const lastMessage = messages[messages.length - 1] as AIMessage;
           if (!lastMessage.tool_calls?.length) {
             return END;
           }
@@ -201,29 +200,31 @@ If a user asks for information or actions outside of staff management, politely 
     this.logger.log(`Processing AI staff query (LangGraph) for thread ${thread_id}: "${userMessage}"`);
 
     const config: RunnableConfig = { configurable: { thread_id } };
-    const inputs = { messages: [new SystemMessage(this.systemPromptContent), new HumanMessage(userMessage)] };
+    
+    const combinedMessageContent = `${this.systemPromptContent}\n\nUser: ${userMessage}`;
+    const inputs = { messages: [new HumanMessage(combinedMessageContent)] };
     
     let finalMessages: BaseMessage[] = [];
 
     try {
-      const stream = this.persistentGraph.stream(inputs, { ...config, streamMode: "values" });
-      for await (const step of stream) {
-        finalMessages = step.messages;
-      }
+      const result = await this.persistentGraph.invoke(inputs, config);
+      finalMessages = result.messages;
 
+      this.logger.log(`AI query for thread ${thread_id} processed successfully. Final messages: ${JSON.stringify(finalMessages)}`);
       const finalMessage = finalMessages[finalMessages.length - 1];
 
       if (finalMessage && finalMessage.content && typeof finalMessage.content === 'string') {
-        const contentStr = finalMessage.content as string;
-        try {
-          const parsed = JSON.parse(contentStr);
-          if (typeof parsed === 'object' && parsed !== null) {
-            return parsed;
-          }
-          return contentStr;
-        } catch (e) {
-          return contentStr;
+        this.logger.log(`Final message content for thread ${thread_id}: ${finalMessage.content}`);
+      const contentStr = finalMessage.content as string;
+      try {
+        const parsed = JSON.parse(contentStr);
+        if (typeof parsed === 'object' && parsed !== null) {
+        return parsed;
         }
+        return contentStr;
+      } catch (e) {
+        return contentStr;
+      }
       }
       this.logger.warn(`AI query for thread ${thread_id} processed, but no final content in the last message. Final message: ${JSON.stringify(finalMessage)}`);
       return "I'm unable to provide a response for that. Please try rephrasing.";
