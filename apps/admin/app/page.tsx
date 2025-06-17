@@ -10,9 +10,9 @@ import { adminApi } from "../lib/api";
 import DashboardGrid, { Section } from "../components/dashboard/DashboardGrid";
 import SectionPlaceholder from "../components/dashboard/SectionPlaceholder";
 import RequestsComponent from "../components/requests/RequestsComponent";
-// FoodMenuComponent and StaffComponent imports removed as per instruction
+// FoodMenuComponent import removed as per instruction, will use SectionPlaceholder
 // import FoodMenuComponent from "../components/food-menu/FoodMenuComponent";
-// import StaffComponent from "../components/staff/StaffComponent";
+import StaffComponent from "../components/staff/StaffComponent"; 
 // AiChatWindowComponent is part of StaffComponent or will be a separate import if needed there
 
 export default function AdminDashboard() {
@@ -50,13 +50,10 @@ export default function AdminDashboard() {
       }
     };
     
-    // Only run checkSession if not already in dashboard stage and not still in splash loading
     if (stage !== "dashboard" && !loading) { 
       checkSession();
     } else if (loading && stage === "splash") {
-      // If still loading splash, do nothing here, wait for splash timer or session check
     } else if (!loading && !localStorage.getItem("redbutAdminSession")) {
-      // If loading is done and no session, go to login
       setStage("login");
     }
 
@@ -67,10 +64,10 @@ export default function AdminDashboard() {
     localStorage.setItem("redbutToken", data.token);
     setUserData(data);
     setStage("dashboard");
-    setSelectedSection(null); // Go to main dashboard grid after login
+    setSelectedSection(null); 
   };
 
-  if (loading && stage === "splash") { // Show splash only if loading and in splash stage
+  if (loading && stage === "splash") { 
     return (
       <div className="splash-container">
         <div className="splash-text">RedBut Admin</div>
@@ -86,7 +83,6 @@ export default function AdminDashboard() {
     );
   }
 
-  // Render dashboard only if stage is 'dashboard' and userData is available (implies successful login/session)
   if (stage === "dashboard" && userData) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -113,7 +109,7 @@ export default function AdminDashboard() {
           ) : selectedSection === "Food Menu" ? (
             <SectionPlaceholder section="Food Menu" onBack={() => setSelectedSection(null)} />
           ) : selectedSection === "Staff" ? (
-            <SectionPlaceholder section="Staff" onBack={() => setSelectedSection(null)} />
+            <StaffComponent onBack={() => setSelectedSection(null)} />
           ) : (
             <SectionPlaceholder
               section={selectedSection}
@@ -125,8 +121,6 @@ export default function AdminDashboard() {
     );
   }
   
-  // Fallback for unexpected states, or if still loading but not splash (e.g. session check)
-  // This can be a generic loading screen or redirect to login if session check fails and not handled by useEffect
   return ( 
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
@@ -134,6 +128,3 @@ export default function AdminDashboard() {
     </div>
   );
 }
-
-// All other component definitions (DashboardGrid, SectionPlaceholder, FoodMenuComponent, StaffComponent, RequestsComponent, AiChatWindowComponent)
-// and their related interfaces/types have been removed from this file and are expected to be in their own files.
