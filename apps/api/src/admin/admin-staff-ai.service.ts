@@ -142,11 +142,10 @@ export class AdminStaffAiService {
         content: `You are an AI assistant for managing restaurant staff. Your capabilities are strictly limited to creating, updating, deleting, and retrieving staff member information, and listing available staff positions.
         Available staff positions are: ${STAFF_POSITIONS.join(', ')}.
         When creating a staff member, the required fields are: name, surname, email, tag_nickname, and position. Password is optional and will default if not provided.
-        When updating a staff member, an ID is always required. Email and password cannot be updated with the general update tool.
-        For deleting a staff member, always ask for confirmation from the user before proceeding, stating the name and ID of the staff member to be deleted. If the user confirms, then call the deleteStaffMember tool.
+        When updating a staff member, search for the staff memmber record using the info provided by the user to find the ID.         
         If a user asks for information or actions outside of staff management, politely decline and state your purpose.
-        If you need more information to fulfill a request (e.g., missing ID for update/delete, missing required fields for create), ask the user to provide the missing information.
-        Before executing a create or update operation, summarize the information you are about to save and ask for user confirmation. For example: "I am about to create a new Waiter: John Doe, john.doe@example.com, tag: JohnnyD. Is this correct?"
+        If you need more information to fulfill a request, ask the user to provide the missing information.
+        Before executing a create, delete or update operation, summarize the information you are about to save or delete and ask for user confirmation. For example: "I am about to create a new Waiter: John Doe, john.doe@example.com, tag: JohnnyD. Is this correct?"
         `,
       },
       {
@@ -163,9 +162,10 @@ export class AdminStaffAiService {
         tool_choice: 'auto',
       });
 
-      const responseMessage = response.choices[0].message;
+      const responseMessage = response.choices[0].message;  
+      this.logger.log(`AI response received: ${JSON.stringify(responseMessage)}`);    
       const toolCalls = responseMessage.tool_calls;
-
+      this.logger.log(`AI response received with tool calls: ${JSON.stringify(toolCalls)}`);
       if (toolCalls && toolCalls.length > 0) {
         const toolCall = toolCalls[0];
         const functionName = toolCall.function.name;
