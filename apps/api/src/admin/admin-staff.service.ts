@@ -31,7 +31,7 @@ export class AdminStaffService {
       case 'Chef':
       case 'Supervisor':
       default:
-        return UserType.waiter; // Defaulting Chef/Supervisor to Waiter UserType for now
+        return UserType.waiter;
     }
   }
 
@@ -43,7 +43,6 @@ export class AdminStaffService {
           select: {
             username: true,
             userType: true,
-            // No 'position' field on AccessUser, so we derive it or use Waiter's if it exists
           },
         },
       },
@@ -52,22 +51,7 @@ export class AdminStaffService {
       },
     });
 
-    this.logger.log(`Found ${waiters.length} staff members: ${waiters.map(w => `${w.name} ${w.surname}`).join(', ')}`);
-    return waiters.map(w => {
-      let displayPosition = (w as any).position; // Assuming Waiter model might have a 'position' field
-      if (!displayPosition && w.accessAccount) {
-        this.logger.log(`No direct position field on Waiter model for ${w.name} ${w.surname}, deriving from accessAccount userType`);
-        // Fallback to UserType if direct position field is not on Waiter model
-        if (w.accessAccount.userType === UserType.manager) displayPosition = 'Manager';
-        else if (w.accessAccount.userType === UserType.admin) displayPosition = 'Admin'; // Should not happen for staff usually
-        else displayPosition = 'Waiter'; // Default for UserType.waiter
-      }
-      this.logger.log(`Staff member ${w.name} ${w.surname} has position: ${displayPosition || 'N/A'}`);
-      return {
-        ...w,
-        position: displayPosition || 'N/A',
-      };
-    });
+    return waiters;
   }
 
   async getStaffMemberById(id: string): Promise<StaffMemberWithAccessInfo> {

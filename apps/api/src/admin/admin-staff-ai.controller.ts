@@ -20,7 +20,7 @@ import {
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles, RolesGuard } from '../auth/guards/role.guard';
 import { AdminStaffAiService } from './admin-staff-ai.service';
-import { IsString, IsNotEmpty } from 'class-validator';
+import { IsString, IsNotEmpty, IsUUID, IsOptional  } from 'class-validator';
 import { StaffMemberResponseDto } from './admin-staff.dto';
 import * as crypto from 'crypto';
 
@@ -28,7 +28,10 @@ class AiQueryDto {
   @ApiProperty({ description: 'The user message or query for the AI assistant related to staff management.' , example: "Create a new waiter named John Doe, email john.doe@example.com, tag JohnnyD, position Waiter"})
   @IsString()
   @IsNotEmpty()
-  message: string;
+  message!: string;
+  @IsUUID()
+  @IsOptional()
+  threadId?: string;
 }
 
 @ApiTags('admin-staff-ai')
@@ -71,7 +74,7 @@ export class AdminStaffAiController {
   })
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   async processStaffQuery(@Body() queryDto: AiQueryDto) {
-    const thread_id = crypto.randomUUID();
+    const thread_id = queryDto.threadId ?? crypto.randomUUID();
     this.logger.log(`Received AI staff query for thread ${thread_id}: "${queryDto.message}"`);
     try {
       const response = await this.adminStaffAiService.processStaffQuery(queryDto.message, thread_id);

@@ -1,9 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 
-import { useState, useEffect, useRef, FormEvent } from "react";
+import React, { useState, useEffect, useRef, FormEvent } from "react";
 import { X, Loader2 } from "lucide-react";
 import { adminApi, StaffMember, AiQueryRequest, AiQueryResponse } from "../../lib/api";
+import { v4 as uuid } from 'uuid';
+import { usePersistentMessages } from "../../hooks/usePersistentMessages";
 
 export interface AiChatMessage {
   role: 'user' | 'ai' | 'system' | 'error';
@@ -15,11 +17,28 @@ export interface AiChatWindowProps {
   onStaffUpdate: () => void;
 }
 
+function usePersistentThreadId(key = 'staffChatThreadId') {
+  const [threadId] = React.useState(() => {
+    // ① Try to read an existing value
+    const stored = localStorage.getItem(key);
+    if (stored) return stored;
+
+    // ② Generate a fresh UUID and save it
+    const newId = uuid();
+    localStorage.setItem(key, newId);
+    return newId;
+  });
+  return threadId;
+}
+
 const AiChatWindow = ({ onClose, onStaffUpdate }: AiChatWindowProps) => {
+
+  const threadId = usePersistentThreadId(); 
+  const { messages, setMessages, reset } =
+        usePersistentMessages(threadId);
+
   const token = typeof window !== 'undefined' ? localStorage.getItem("redbutToken") || "" : "";
-  const [messages, setMessages] = useState<AiChatMessage[]>([
-    { role: 'ai', content: "Hello! How can I help you manage staff today? You can ask me to create, update, or list staff members." }
-  ]);
+
   const [input, setInput] = useState('');
   const [isAiTyping, setIsAiTyping] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
@@ -42,12 +61,10 @@ const AiChatWindow = ({ onClose, onStaffUpdate }: AiChatWindowProps) => {
     setChatError(null);
 
     try {
-      const aiResponse = await adminApi.processStaffAiQuery(token, { message: userMessage.content });
+      const aiResponse = await adminApi.processStaffAiQuery(token, { message: userMessage.content, threadId  });
       let responseContent = "";
       let operationSuccess = false;
-      
-      console.log("AI AI AI AI:", aiResponse);
-      
+            
       if (typeof aiResponse === 'string') {
         responseContent = aiResponse;
       } else if (Array.isArray(aiResponse)) {
