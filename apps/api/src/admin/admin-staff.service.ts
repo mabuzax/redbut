@@ -62,6 +62,7 @@ export class AdminStaffService {
         else if (w.accessAccount.userType === UserType.admin) displayPosition = 'Admin'; // Should not happen for staff usually
         else displayPosition = 'Waiter'; // Default for UserType.waiter
       }
+      this.logger.log(`Staff member ${w.name} ${w.surname} has position: ${displayPosition || 'N/A'}`);
       return {
         ...w,
         position: displayPosition || 'N/A',

@@ -57,32 +57,24 @@ export class ChatService {
   }> {
     this.logger.log(`Processing message from user ${userId} at table ${tableNumber}`);
 
-    // Store user message in database
     await this.storeMessage(userId, ChatRole.user, content);
 
-    // Get previous messages for context
     const previousMessages = await this.getRecentMessages(userId, 10);
 
-    // ────────────────────────────────────────────────────────────
-    // Load current menu so the assistant can answer menu questions
-    // without hitting the database on every token.  We keep it short
-    // and declarative to stay within token budget.
-    // ────────────────────────────────────────────────────────────
     const menuDescription = await this.getMenuDescription();
 
-    // Format messages for OpenAI (include menu + guard-rails prompt)
     const messages = this.formatMessagesForOpenAI(
       previousMessages,
       content,
       menuDescription,
     );
 
-    // Get response from OpenAI
+
     const { response: aiResponse, toolCalls } = await this.getOpenAIResponse(messages);
 
     let finalResponse = this.appendSuffix(aiResponse);
 
-    // Handle tool calls
+
     if (toolCalls && toolCalls.length > 0) {
       for (const toolCall of toolCalls) {
         if (toolCall.function.name === 'create_waiter_request') {
@@ -93,13 +85,13 @@ export class ChatService {
             tableNumber,
             waiterRequestContent,
           );
-          finalResponse = toolResponse; // Override AI response with tool response
-          break; // Assuming only one tool call for now
+          finalResponse = toolResponse; 
+          break; 
         }
       }
     }
 
-    // Store AI response in database
+
     await this.storeMessage(userId, ChatRole.assistant, finalResponse);
 
     return {
@@ -107,13 +99,6 @@ export class ChatService {
     };
   }
 
-  /**
-   * Store a chat message in the database
-   * @param userId User ID
-   * @param role Message role (user or assistant)
-   * @param content Message content
-   * @returns Stored message
-   */
   private async storeMessage(
   userId: string,
   role: ChatRole,
@@ -133,12 +118,6 @@ export class ChatService {
   }
 }
 
-  /**
-   * Get recent messages for a user to provide context
-   * @param userId User ID
-   * @param limit Maximum number of messages to retrieve
-   * @returns Array of recent messages
-   */
   private async getRecentMessages(
     userId: string,
     limit: number = 10,
@@ -155,10 +134,6 @@ export class ChatService {
     }
   }
 
-  /**
-   * Get a formatted description of the menu from the database.
-   * @returns A string describing the menu categories and items.
-   */
   private async getMenuDescription(): Promise<string> {
     try {
       const activeItems = await this.prisma.menuItem.findMany({
@@ -198,14 +173,6 @@ export class ChatService {
       return 'I am sorry, I could not retrieve the menu information at this time.';
     }
   }
-
-  /**
-   * Format messages for OpenAI API
-   * @param previousMessages Previous messages from database
-   * @param currentMessage Current user message
-   * @param menuDescription Current menu information
-   * @returns Formatted messages for OpenAI
-   */
   private formatMessagesForOpenAI(
     previousMessages: ChatMessage[],
     currentMessage: string,
@@ -227,7 +194,6 @@ export class ChatService {
       content: systemPromptContent,
     };
 
-    // Convert previous messages to OpenAI format and reverse to chronological order
     const formattedPreviousMessages = previousMessages
       .reverse()
       .map((msg) => ({
@@ -235,25 +201,19 @@ export class ChatService {
         content: msg.content,
       }));
 
-    // Add current message
     const currentUserMessage = {
       role: 'user',
       content: currentMessage,
     };
 
-    // Combine all messages with system prompt first
     return [systemPrompt, ...formattedPreviousMessages, currentUserMessage] as ChatCompletionMessageParam[];
   }
 
-  /**
-   * Get response from OpenAI
-   * @param messages Formatted messages for context
-   * @returns AI response text and any tool calls
-   */
+
   private async getOpenAIResponse(
     messages: ChatCompletionMessageParam[],
   ): Promise<{ response: string; toolCalls?: OpenAI.Chat.ChatCompletion.Choice['message']['tool_calls'] }> {
-    // If AI is disabled return a static fallback.
+
     if (!this.aiEnabled || !this.openai) {
       return {
         response:
@@ -287,7 +247,7 @@ export class ChatService {
             },
           },
         ],
-        tool_choice: 'auto', // Allow OpenAI to decide when to use the tool
+        tool_choice: 'auto', 
       });
 
       const message = completion.choices[0]?.message;
@@ -303,13 +263,6 @@ export class ChatService {
     }
   }
 
-  /**
-   * Handles the tool call to create a waiter request.
-   * @param userId The ID of the user making the request.
-   * @param tableNumber The table number of the user.
-   * @param content The content of the waiter request.
-   * @returns A confirmation message for the user.
-   */
   private async _handleWaiterRequestTool(
     userId: string,
     tableNumber: number,
@@ -329,22 +282,13 @@ export class ChatService {
     }
   }
 
-  /**
-   * Append the required suffix to AI responses
-   * @param response Original AI response
-   * @returns Response with suffix
-   */
+
   private appendSuffix(response: string): string {    
     // Add suffix with proper spacing
     return `${response.trim()}`;
   }
 
-  /**
-   * Get chat history for a user
-   * @param userId User ID
-   * @param limit Maximum number of messages to retrieve
-   * @returns Chat history
-   */
+
   async getChatHistory(userId: string, limit: number = 50): Promise<ChatMessage[]> {
     try {
       return await this.prisma.chatMessage.findMany({
@@ -358,11 +302,6 @@ export class ChatService {
     }
   }
 
-  /**
-   * Clear chat history for a user
-   * @param userId User ID
-   * @returns Count of deleted messages
-   */
   async clearChatHistory(userId: string): Promise<{ count: number }> {
     try {
       const result = await this.prisma.chatMessage.deleteMany({
