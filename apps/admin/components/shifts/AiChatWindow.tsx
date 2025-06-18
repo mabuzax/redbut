@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef, FormEvent } from "react";
 import { X, Loader2 } from "lucide-react";
 import { 
   adminApi, 
-  ShiftWithStaffInfo, 
+  Shift,
   AiQueryRequest, 
   AiShiftsQueryResponse 
 } from "../../lib/api";
@@ -107,7 +107,7 @@ const AiChatWindow = ({ onClose, onUpdate, entityName }: AiChatWindowProps) => {
           responseContent = `Available options: ${aiResponse.join(', ')}`;
         } else { 
           responseContent = `Here are the ${entityName.toLowerCase()}s I found:\n` + 
-            (aiResponse as ShiftWithStaffInfo[]).map(s => `- Staff: ${s.staffMember?.name || 'N/A'} ${s.staffMember?.surname || ''}, Type: ${s.type}, Start: ${new Date(s.startTime).toLocaleString()}, End: ${new Date(s.endTime).toLocaleString()}, Status: ${s.status}, ID: ${s.id.substring(0,8)}`).join('\n');
+            (aiResponse as Shift[]).map(s => `- Date: ${new Date(s.date).toLocaleDateString()}, Start: ${new Date(s.startTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}, End: ${new Date(s.endTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}, ID: ${s.id.substring(0,8)}`).join('\n');
           operationSuccess = true; 
         }
       } else if (typeof aiResponse === 'object' && aiResponse !== null) {
@@ -117,10 +117,10 @@ const AiChatWindow = ({ onClose, onUpdate, entityName }: AiChatWindowProps) => {
             operationSuccess = true;
           }
         } else { 
-          const shift = aiResponse as ShiftWithStaffInfo;
-          responseContent = `${entityName} details: Staff: ${shift.staffMember?.name || 'N/A'} ${shift.staffMember?.surname || ''}, Type: ${shift.type}, Start: ${new Date(shift.startTime).toLocaleString()}, End: ${new Date(shift.endTime).toLocaleString()}, Status: ${shift.status}.`;
+          const shift = aiResponse as Shift;
+          responseContent = `${entityName} details: Date: ${new Date(shift.date).toLocaleDateString()}, Start: ${new Date(shift.startTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}, End: ${new Date(shift.endTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}.`;
           if (userMessage.content.toLowerCase().includes('create') || userMessage.content.toLowerCase().includes('update')) {
-             responseContent = `Successfully processed ${entityName.toLowerCase()} for staff ${shift.staffMember?.name || 'N/A'} ${shift.staffMember?.surname || ''}.`;
+             responseContent = `Successfully processed ${entityName.toLowerCase()} for date ${new Date(shift.date).toLocaleDateString()}.`;
           }
           operationSuccess = true;
         }
@@ -177,7 +177,7 @@ const AiChatWindow = ({ onClose, onUpdate, entityName }: AiChatWindowProps) => {
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={`e.g. Create a ${entityName.toLowerCase()} for Staff ID 'xyz'...`}
+          placeholder={`e.g. Create a ${entityName.toLowerCase()} tomorrow from 9 AM to 5 PM...`}
           className="w-full p-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500"
           disabled={isAiTyping}
         />

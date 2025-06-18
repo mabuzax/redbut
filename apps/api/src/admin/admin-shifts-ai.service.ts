@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AdminShiftsService } from './admin-shifts.service';
 import { CreateShiftDto, UpdateShiftDto } from './admin-shifts.dto';
-import { SHIFT_TYPES, SHIFT_STATUSES, ShiftWithStaffInfo } from './admin-shifts.types';
+import { Shift } from './admin-shifts.types';
 
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
@@ -30,52 +30,48 @@ export class AdminShiftsAiService {
       return;
     }
 
-    this.systemPrompt = `You are an intelligent AI assistant for managing restaurant staff shifts.
+    this.systemPrompt = `You are an intelligent AI assistant for managing restaurant shifts.
+A shift is defined by a start time and an end time. Staff are not assigned to shifts directly through this system.
 Use the tools at your disposal to answer user queries related to shifts.
-Available shift types are: ${SHIFT_TYPES.join(', ')}.
-Available shift statuses are: ${SHIFT_STATUSES.join(', ')}.
 
 If a user asks for information or actions outside of shift management, politely decline and state your purpose.
-If you need more information to fulfil a request (e.g., missing staffId for create, missing shiftId for update/delete), first try to find the info using what the user already supplied; otherwise ask the user to provide the missing information.
+If you need more information to fulfil a request (e.g., missing shiftId for update/delete), first try to find the info using what the user already supplied; otherwise ask the user to provide the missing information.
 Before executing a create, delete or update operation, show the full details of the shift you are about to create/update/delete, and ask for user confirmation. For example:
-"I am about to create a new Morning shift for Staff ID 'xyz' from 2024-07-01T09:00 to 2024-07-01T17:00. Is this correct?" or "Here is the shift (ID: 'abc') I am going to update/delete, Is this correct?".`;
+"I am about to create a new shift from 2024-07-01T09:00 to 2024-07-01T17:00. Is this correct?" or "Here is the shift (ID: 'abc', Start: ..., End: ...) I am going to update/delete, Is this correct?".`;
 
     const createShiftTool = tool(
-      async (input: CreateShiftDto): Promise<ShiftWithStaffInfo> => this.adminShiftsService.createShift(input),
+      async (input: { startTime: string; endTime: string }): Promise<Shift> => {
+        const createDto: CreateShiftDto = {
+            startTime: new Date(input.startTime),
+            endTime: new Date(input.endTime),
+        };
+        return this.adminShiftsService.createShift(createDto);
+      },
       {
         name: 'createShift',
-        description: 'Creates a new shift for a staff member. Requires staffId, startTime, endTime, and type. Status is optional (defaults to Scheduled). Always confirm details with the user before calling this tool.',
+        description: 'Creates a new shift. Requires startTime and endTime. Always confirm details with the user before calling this tool.',
         schema: z.object({
-          staffId: z.string().uuid().describe('Unique identifier of the staff member for this shift.'),
           startTime: z.string().datetime().describe('Start date and time of the shift in ISO 8601 format (e.g., 2024-07-01T09:00:00.000Z).'),
           endTime: z.string().datetime().describe('End date and time of the shift in ISO 8601 format (e.g., 2024-07-01T17:00:00.000Z).'),
-          type: z.enum(SHIFT_TYPES).describe('Type of the shift.'),
-          status: z.enum(SHIFT_STATUSES).optional().describe('Status of the shift. Defaults to Scheduled if not provided.'),
-          notes: z.string().optional().describe('Optional notes for the shift.'),
-        }).transform(data => ({...data, startTime: new Date(data.startTime), endTime: new Date(data.endTime) })),
+        }),
       },
     );
 
     const updateShiftTool = tool(
-      async (input: UpdateShiftDto & { id: string }): Promise<ShiftWithStaffInfo> => {
+      async (input: { id: string; startTime?: string; endTime?: string }): Promise<Shift> => {
         const { id, ...rest } = input;
-        const transformedRest = {
-            ...rest,
-            ...(rest.startTime && { startTime: new Date(rest.startTime) }),
-            ...(rest.endTime && { endTime: new Date(rest.endTime) }),
-        };
-        return this.adminShiftsService.updateShift(id, transformedRest as UpdateShiftDto);
+        const updateDto: UpdateShiftDto = {};
+        if (rest.startTime) updateDto.startTime = new Date(rest.startTime);
+        if (rest.endTime) updateDto.endTime = new Date(rest.endTime);
+        return this.adminShiftsService.updateShift(id, updateDto);
       },
       {
         name: 'updateShift',
-        description: 'Updates an existing shift. Requires the shift ID. All other fields are optional. Always confirm details with the user before calling this tool.',
+        description: 'Updates an existing shift. Requires the shift ID. StartTime and endTime are optional. Always confirm details with the user before calling this tool.',
         schema: z.object({
           id: z.string().uuid().describe('Unique identifier (UUID) of the shift to update.'),
           startTime: z.string().datetime().optional().describe('Optional new start date and time of the shift (ISO 8601).'),
           endTime: z.string().datetime().optional().describe('Optional new end date and time of the shift (ISO 8601).'),
-          type: z.enum(SHIFT_TYPES).optional().describe('Optional new type of the shift.'),
-          status: z.enum(SHIFT_STATUSES).optional().describe('Optional new status of the shift.'),
-          notes: z.string().optional().describe('Optional new notes for the shift.'),
         }),
       },
     );
@@ -98,25 +94,7 @@ Before executing a create, delete or update operation, show the full details of 
       async (): Promise<string> => JSON.stringify(await this.adminShiftsService.getAllShifts()),
       {
         name: 'getAllShifts',
-        description: 'Lists all scheduled shifts, including staff information if available.',
-        schema: z.object({}),
-      },
-    );
-
-    const getShiftTypesTool = tool(
-      async (): Promise<string> => JSON.stringify(SHIFT_TYPES.slice()),
-      {
-        name: 'getShiftTypes',
-        description: 'Returns a list of available shift types (e.g., Morning, Afternoon).',
-        schema: z.object({}),
-      },
-    );
-
-    const getShiftStatusesTool = tool(
-      async (): Promise<string> => JSON.stringify(SHIFT_STATUSES.slice()),
-      {
-        name: 'getShiftStatuses',
-        description: 'Returns a list of available shift statuses (e.g., Scheduled, Active, Completed).',
+        description: 'Lists all scheduled shifts.',
         schema: z.object({}),
       },
     );
@@ -126,8 +104,6 @@ Before executing a create, delete or update operation, show the full details of 
       updateShiftTool,
       deleteShiftTool,
       getAllShiftsTool,
-      getShiftTypesTool,
-      getShiftStatusesTool,
     ];
 
     this.boundModel = new ChatOpenAI({

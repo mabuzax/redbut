@@ -209,54 +209,29 @@ export type AiQueryResponse =
   | string[]; 
 
 
-export const SHIFT_TYPES = ['Morning', 'Afternoon', 'Evening', 'Night'] as const;
-export type ShiftType = typeof SHIFT_TYPES[number];
-
-export const SHIFT_STATUSES = ['Scheduled', 'Active', 'Completed', 'Cancelled'] as const;
-export type ShiftStatus = typeof SHIFT_STATUSES[number];
-
-export interface MinimalStaffInfo {
+export interface Shift {
   id: string;
-  name: string;
-  surname: string;
-  tag_nickname: string;
-  position?: string;
-}
-
-export interface ShiftWithStaffInfo {
-  id: string;
-  staffId: string;
+  date: string; 
   startTime: string; 
   endTime: string; 
-  type: ShiftType;
-  status: ShiftStatus;
-  notes?: string | null;
   createdAt: string; 
   updatedAt: string; 
-  staffMember?: MinimalStaffInfo | null;
 }
 
 export interface CreateShiftDto {
-  staffId: string;
   startTime: string; 
   endTime: string; 
-  type: ShiftType;
-  status?: ShiftStatus;
-  notes?: string;
 }
 
 export interface UpdateShiftDto {
   startTime?: string; 
   endTime?: string; 
-  type?: ShiftType;
-  status?: ShiftStatus;
-  notes?: string;
 }
 
 export type AiShiftsQueryResponse =
   | string
-  | ShiftWithStaffInfo
-  | ShiftWithStaffInfo[]
+  | Shift
+  | Shift[]
   | { message: string }
   | string[];
 
@@ -494,27 +469,27 @@ export const adminApi = {
     return callApi<AiQueryResponse>('/admin/staff/ai/query', token, 'POST', query);
   },
 
-  getAllShifts: async (token: string): Promise<ShiftWithStaffInfo[]> => {
-    return callApi<ShiftWithStaffInfo[]>('/admin/shifts', token);
+  getAllShifts: async (token: string): Promise<Shift[]> => {
+    return callApi<Shift[]>('/admin/shifts', token);
   },
 
-  getShiftById: async (token: string, id: string): Promise<ShiftWithStaffInfo> => {
-    return callApi<ShiftWithStaffInfo>(`/admin/shifts/${id}`, token);
+  getShiftById: async (token: string, id: string): Promise<Shift> => {
+    return callApi<Shift>(`/admin/shifts/${id}`, token);
   },
 
   createShift: async (
     token: string,
     data: CreateShiftDto,
-  ): Promise<ShiftWithStaffInfo> => {
-    return callApi<ShiftWithStaffInfo>('/admin/shifts', token, 'POST', data);
+  ): Promise<Shift> => {
+    return callApi<Shift>('/admin/shifts', token, 'POST', data);
   },
 
   updateShift: async (
     token: string,
     id: string,
     data: UpdateShiftDto,
-  ): Promise<ShiftWithStaffInfo> => {
-    return callApi<ShiftWithStaffInfo>(`/admin/shifts/${id}`, token, 'PUT', data);
+  ): Promise<Shift> => {
+    return callApi<Shift>(`/admin/shifts/${id}`, token, 'PUT', data);
   },
 
   deleteShift: async (token: string, id: string): Promise<void> => {

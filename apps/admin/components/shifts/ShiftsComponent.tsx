@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 
-import { useState, useEffect, useCallback, useRef, ChangeEvent } from "react";
+import React, { useState, useEffect, useCallback, FormEvent, ChangeEvent } from "react";
 import {
   ArrowLeft,
   Loader2,
@@ -10,43 +10,42 @@ import {
   PlusCircle,
   Sparkles,
   X,
-  CalendarDays, 
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
 } from "lucide-react";
 import {
   adminApi,
-  ShiftWithStaffInfo,
+  Shift,
   CreateShiftDto,
   UpdateShiftDto,
-  MinimalStaffInfo,
-  SHIFT_TYPES,
-  ShiftType,
-  SHIFT_STATUSES,
-  ShiftStatus,
 } from "../../lib/api";
-import AiChatWindow from "./AiChatWindow"; 
+import AiChatWindow from "./AiChatWindow";
 
 export interface ShiftsComponentProps {
   onBack: () => void;
 }
 
+const daysOfWeek = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
 const ShiftsComponent = ({ onBack }: ShiftsComponentProps) => {
   const token = typeof window !== 'undefined' ? localStorage.getItem("redbutToken") || "" : "";
-  const [shifts, setShifts] = useState<ShiftWithStaffInfo[]>([]);
-  const [staffListForDropdown, setStaffListForDropdown] = useState<MinimalStaffInfo[]>([]);
+
+  const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingShift, setEditingShift] = useState<ShiftWithStaffInfo | null>(null);
 
-  const initialShiftFormData: CreateShiftDto = {
-    staffId: "",
-    startTime: "",
-    endTime: "",
-    type: SHIFT_TYPES[0],
-    status: SHIFT_STATUSES[0],
-    notes: "",
-  };
-  const [formData, setFormData] = useState<CreateShiftDto | UpdateShiftDto>(initialShiftFormData);
+  const [currentDisplayMonth, setCurrentDisplayMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(new Date());
+
+  const [newShiftStartTime, setNewShiftStartTime] = useState("09:00");
+  const [newShiftEndTime, setNewShiftEndTime] = useState("17:00");
+
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingShift, setEditingShift] = useState<Shift | null>(null);
+  const [editFormData, setEditFormData] = useState<{ startTime: string; endTime: string }>({ startTime: "", endTime: "" });
+
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
 
   const fetchShifts = useCallback(async () => {
@@ -67,60 +66,99 @@ const ShiftsComponent = ({ onBack }: ShiftsComponentProps) => {
     }
   }, [token]);
 
-  const fetchStaffListForDropdown = useCallback(async () => {
-    if (!token) return;
-    try {
-      const staffList = await adminApi.getAllStaffMembers(token);
-      setStaffListForDropdown(staffList.map(s => ({ id: s.id, name: s.name, surname: s.surname, tag_nickname: s.tag_nickname, position: s.position })));
-    } catch (e: any) {
-      console.error("Failed to fetch staff list for dropdown:", e.message);
-    }
-  }, [token]);
-
   useEffect(() => {
     fetchShifts();
-    fetchStaffListForDropdown();
-  }, [fetchShifts, fetchStaffListForDropdown]);
+  }, [fetchShifts]);
 
-  const handleInputChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+  const handlePrevMonth = () => {
+    setCurrentDisplayMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
   };
 
-  const resetForm = () => {
-    setFormData(initialShiftFormData);
-    setEditingShift(null);
+  const handleNextMonth = () => {
+    setCurrentDisplayMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
   };
 
-  const handleAddNew = () => {
-    resetForm();
-    setIsModalOpen(true);
+  const handleDateClick = (day: number) => {
+    setSelectedDate(new Date(currentDisplayMonth.getFullYear(), currentDisplayMonth.getMonth(), day));
   };
 
-  const formatDateTimeForInput = (isoString: string | Date): string => {
-    if (!isoString) return "";
+  const getDaysInMonth = (year: number, month: number) => {
+    const date = new Date(year, month, 1);
+    const days: (Date | null)[] = [];
+    const firstDayOfWeek = date.getDay();
+
+    for (let i = 0; i < firstDayOfWeek; i++) {
+      days.push(null);
+    }
+
+    while (date.getMonth() === month) {
+      days.push(new Date(date));
+      date.setDate(date.getDate() + 1);
+    }
+    return days;
+  };
+
+  const calendarDays = getDaysInMonth(currentDisplayMonth.getFullYear(), currentDisplayMonth.getMonth());
+
+  const combineDateAndTime = (date: Date, timeString: string): string => {
+    const [hours, minutes] = timeString.split(':').map(Number);
+    const newDate = new Date(date);
+    newDate.setHours(hours, minutes, 0, 0);
+    return newDate.toISOString();
+  };
+
+  const handleCreateShift = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!token) {
+      setError("Authentication token not found.");
+      return;
+    }
+    setError(null);
     try {
-      return new Date(isoString).toISOString().slice(0, 16);
-    } catch (e) {
-      return "";
+      const createDto: CreateShiftDto = {
+        startTime: combineDateAndTime(selectedDate, newShiftStartTime),
+        endTime: combineDateAndTime(selectedDate, newShiftEndTime),
+      };
+      await adminApi.createShift(token, createDto);
+      fetchShifts();
+    } catch (e: any) {
+      setError(`Failed to create shift: ${e.message}`);
     }
   };
 
-  const handleEdit = (shift: ShiftWithStaffInfo) => {
+  const handleEdit = (shift: Shift) => {
     setEditingShift(shift);
-    setFormData({
-      staffId: shift.staffId,
-      startTime: formatDateTimeForInput(shift.startTime),
-      endTime: formatDateTimeForInput(shift.endTime),
-      type: shift.type,
-      status: shift.status,
-      notes: shift.notes || "",
+    setEditFormData({
+      startTime: new Date(shift.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+      endTime: new Date(shift.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
     });
-    setIsModalOpen(true);
+    setIsEditModalOpen(true);
+  };
+  
+  const handleUpdateShift = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!token || !editingShift) {
+      setError("Authentication token or shift data missing.");
+      return;
+    }
+    setError(null);
+    try {
+      const originalShiftDate = new Date(editingShift.date); // Use the 'date' field of the shift
+      const updateDto: UpdateShiftDto = {
+        startTime: combineDateAndTime(originalShiftDate, editFormData.startTime),
+        endTime: combineDateAndTime(originalShiftDate, editFormData.endTime),
+      };
+      await adminApi.updateShift(token, editingShift.id, updateDto);
+      setIsEditModalOpen(false);
+      setEditingShift(null);
+      fetchShifts();
+    } catch (e: any) {
+      setError(`Failed to update shift: ${e.message}`);
+    }
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this shift? This action cannot be undone.")) {
+    if (window.confirm("Are you sure you want to delete this shift?")) {
       if (!token) { setError("Authentication token not found."); return; }
       try {
         await adminApi.deleteShift(token, id);
@@ -131,94 +169,128 @@ const ShiftsComponent = ({ onBack }: ShiftsComponentProps) => {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token) {
-      setError("Authentication token not found.");
-      return;
-    }
-    setError(null); 
-    
-    const dataToSend = {
-        ...formData,
-        startTime: new Date((formData as CreateShiftDto | UpdateShiftDto).startTime).toISOString(),
-        endTime: new Date((formData as CreateShiftDto | UpdateShiftDto).endTime).toISOString(),
-    };
-
-    try {
-      if (editingShift) {
-        await adminApi.updateShift(token, editingShift.id, dataToSend as UpdateShiftDto);
-      } else {
-        await adminApi.createShift(token, dataToSend as CreateShiftDto);
-      }
-      setIsModalOpen(false);
-      fetchShifts();
-    } catch (e: any) {
-      setError(`Failed to save shift: ${e.message}`);
-    }
-  };
-
   const toggleAiChat = () => setIsAiChatOpen(prev => !prev);
+
+  const formatDateForDisplay = (isoString: string) => new Date(isoString).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+  const formatTimeForDisplay = (isoString: string) => new Date(isoString).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
 
   return (
     <div>
       <button onClick={onBack} className="mb-6 inline-flex items-center text-primary-600 hover:underline">
         <ArrowLeft className="h-4 w-4 mr-1" /> Back to Dashboard
       </button>
+
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Shifts Management</h2>
-        <div className="flex space-x-2">
-          <button
-            onClick={toggleAiChat}
-            className="btn-primary bg-purple-600 hover:bg-purple-700 flex items-center"
-            style={{ backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }}
-          >
-            <Sparkles className="h-4 w-4 mr-2" /> Use AI
-          </button>
-          <button onClick={handleAddNew} className="btn-primary flex items-center"
-            style={{ backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }}
-          >
-            <PlusCircle className="h-4 w-4 mr-2" /> Add Shift
-          </button>
-        </div>
+        <h2 className="text-2xl font-bold text-gray-900">Create New Shift</h2>
+        <button
+          onClick={toggleAiChat}
+          className="btn-primary flex items-center"
+          style={{ backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }}
+        >
+          <Sparkles className="h-4 w-4 mr-2" /> Use AI
+        </button>
       </div>
 
+      <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+        <div className="flex flex-col md:flex-row gap-6">
+          {/* Calendar */}
+          <div className="w-full md:w-1/2 lg:w-2/5 border border-gray-200 p-4 rounded-md">
+            <div className="flex items-center justify-between mb-4">
+              <button onClick={handlePrevMonth} className="p-2 rounded-full hover:bg-gray-100"><ChevronLeft className="h-5 w-5 text-gray-600" /></button>
+              <h3 className="font-semibold text-gray-700">
+                {currentDisplayMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
+              </h3>
+              <button onClick={handleNextMonth} className="p-2 rounded-full hover:bg-gray-100"><ChevronRight className="h-5 w-5 text-gray-600" /></button>
+            </div>
+            <div className="grid grid-cols-7 gap-1 text-center text-sm">
+              {daysOfWeek.map(day => <div key={day} className="font-medium text-gray-500">{day}</div>)}
+              {calendarDays.map((date, index) => (
+                <button
+                  key={index}
+                  onClick={() => date && handleDateClick(date.getDate())}
+                  disabled={!date}
+                  className={`p-2 rounded-full w-10 h-10 mx-auto flex items-center justify-center
+                    ${!date ? 'cursor-default' : 'hover:bg-primary-100'}
+                    ${date && selectedDate.toDateString() === date.toDateString() ? 'bg-primary-500 text-white hover:bg-primary-600' : ''}
+                    ${date && new Date().toDateString() === date.toDateString() && selectedDate.toDateString() !== date.toDateString() ? 'text-primary-600 font-bold' : ''}
+                  `}
+                >
+                  {date ? date.getDate() : ''}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Form */}
+          <div className="w-full md:w-1/2 lg:w-3/5">
+            <form onSubmit={handleCreateShift} className="space-y-4">
+              <div>
+                <label htmlFor="newShiftStartTime" className="block text-sm font-medium text-gray-700 mb-1">Start Time</label>
+                <div className="relative">
+                  <input
+                    type="time"
+                    id="newShiftStartTime"
+                    value={newShiftStartTime}
+                    onChange={(e) => setNewShiftStartTime(e.target.value)}
+                    required
+                    className="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm pl-10"
+                  />
+                  <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                </div>
+              </div>
+              <div>
+                <label htmlFor="newShiftEndTime" className="block text-sm font-medium text-gray-700 mb-1">End Time</label>
+                 <div className="relative">
+                  <input
+                    type="time"
+                    id="newShiftEndTime"
+                    value={newShiftEndTime}
+                    onChange={(e) => setNewShiftEndTime(e.target.value)}
+                    required
+                    className="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm pl-10"
+                  />
+                  <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                </div>
+              </div>
+              <button type="submit" className="btn-primary w-full">
+                Create Shift
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+      
+      {error && !isEditModalOpen && <p className="text-red-500 text-center mb-4">{error}</p>}
+
+      {/* Shifts Table */}
+      <h3 className="text-xl font-bold text-gray-900 mb-4">Scheduled Shifts</h3>
       {loading ? (
         <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary-500" /></div>
-      ) : error && !isModalOpen ? (
-        <p className="text-red-500 text-center">{error}</p>
-      ) : shifts.length === 0 ? (
-        <div className="text-center py-10">
+      ) : shifts.length === 0 && !error ? (
+        <div className="text-center py-10 bg-white rounded-lg shadow-md">
           <CalendarDays className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-          <p className="text-gray-500">No shifts found. Add new shifts to get started.</p>
+          <p className="text-gray-500">No shifts scheduled yet. Create one above!</p>
         </div>
       ) : (
-        <div className="overflow-x-auto bg-white rounded-lg shadow">
+        <div className="overflow-x-auto bg-white rounded-lg shadow-md">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Staff Member</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shift Type</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start Time</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">End Time</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {shifts.map(shift => (
                 <tr key={shift.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {shift.staffMember ? `${shift.staffMember.name} ${shift.staffMember.surname}` : 'N/A'}
-                    {shift.staffMember?.tag_nickname && <span className="text-xs text-gray-500 ml-1">({shift.staffMember.tag_nickname})</span>}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{shift.type}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(shift.startTime).toLocaleString()}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(shift.endTime).toLocaleString()}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{shift.status}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                    <button onClick={() => handleEdit(shift)} className="text-primary-600 hover:text-primary-900"><Edit3 className="h-5 w-5" /></button>
-                    <button onClick={() => handleDelete(shift.id)} className="text-red-600 hover:text-red-900"><Trash2 className="h-5 w-5" /></button>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{formatDateForDisplay(shift.date)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatTimeForDisplay(shift.startTime)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatTimeForDisplay(shift.endTime)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                    <button onClick={() => handleEdit(shift)} className="text-primary-600 hover:text-primary-900 p-1"><Edit3 className="h-5 w-5" /></button>
+                    <button onClick={() => handleDelete(shift.id)} className="text-red-600 hover:text-red-900 p-1"><Trash2 className="h-5 w-5" /></button>
                   </td>
                 </tr>
               ))}
@@ -227,61 +299,51 @@ const ShiftsComponent = ({ onBack }: ShiftsComponentProps) => {
         </div>
       )}
 
-      {isModalOpen && (
+      {/* Edit Modal */}
+      {isEditModalOpen && editingShift && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
-          <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-lg">
+          <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-semibold">{editingShift ? 'Edit Shift' : 'Add New Shift'}</h3>
-              <button onClick={() => { setIsModalOpen(false); setError(null); }}><X className="h-6 w-6 text-gray-500 hover:text-gray-700" /></button>
+              <h3 className="text-xl font-semibold">Edit Shift for {formatDateForDisplay(editingShift.date)}</h3>
+              <button onClick={() => { setIsEditModalOpen(false); setError(null); }}><X className="h-6 w-6 text-gray-500 hover:text-gray-700" /></button>
             </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleUpdateShift} className="space-y-4">
               <div>
-                <label htmlFor="staffId" className="block text-sm font-medium text-gray-700">Staff Member</label>
-                <select name="staffId" id="staffId" value={(formData as CreateShiftDto).staffId || (formData as UpdateShiftDto & {staffId: string}).staffId} onChange={handleInputChange} required className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm" disabled={!!editingShift}>
-                  <option value="" disabled>Select Staff Member</option>
-                  {staffListForDropdown.map(staff => (
-                    <option key={staff.id} value={staff.id}>{staff.name} {staff.surname} ({staff.tag_nickname})</option>
-                  ))}
-                </select>
-                 {editingShift && <p className="text-xs text-gray-500 mt-1">Staff member cannot be changed for an existing shift.</p>}
+                <label htmlFor="editShiftStartTime" className="block text-sm font-medium text-gray-700 mb-1">Start Time</label>
+                <input
+                  type="time"
+                  id="editShiftStartTime"
+                  value={editFormData.startTime}
+                  onChange={(e) => setEditFormData(prev => ({ ...prev, startTime: e.target.value }))}
+                  required
+                  className="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                />
               </div>
               <div>
-                <label htmlFor="startTime" className="block text-sm font-medium text-gray-700">Start Time</label>
-                <input type="datetime-local" name="startTime" id="startTime" value={(formData as CreateShiftDto | UpdateShiftDto).startTime} onChange={handleInputChange} required className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm" />
-              </div>
-              <div>
-                <label htmlFor="endTime" className="block text-sm font-medium text-gray-700">End Time</label>
-                <input type="datetime-local" name="endTime" id="endTime" value={(formData as CreateShiftDto | UpdateShiftDto).endTime} onChange={handleInputChange} required className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm" />
-              </div>
-              <div>
-                <label htmlFor="type" className="block text-sm font-medium text-gray-700">Shift Type</label>
-                <select name="type" id="type" value={formData.type} onChange={handleInputChange} required className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm">
-                  {SHIFT_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="status" className="block text-sm font-medium text-gray-700">Status</label>
-                <select name="status" id="status" value={formData.status} onChange={handleInputChange} required className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm">
-                  {SHIFT_STATUSES.map(status => <option key={status} value={status}>{status}</option>)}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="notes" className="block text-sm font-medium text-gray-700">Notes</label>
-                <textarea name="notes" id="notes" value={(formData as CreateShiftDto | UpdateShiftDto).notes || ""} onChange={handleInputChange} rows={3} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm"></textarea>
+                <label htmlFor="editShiftEndTime" className="block text-sm font-medium text-gray-700 mb-1">End Time</label>
+                <input
+                  type="time"
+                  id="editShiftEndTime"
+                  value={editFormData.endTime}
+                  onChange={(e) => setEditFormData(prev => ({ ...prev, endTime: e.target.value }))}
+                  required
+                  className="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                />
               </div>
               {error && <p className="text-sm text-red-600">{error}</p>}
               <div className="flex justify-end space-x-3 pt-4">
-                <button type="button" onClick={() => { setIsModalOpen(false); setError(null); }} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                <button type="button" onClick={() => { setIsEditModalOpen(false); setError(null); }} className="btn-secondary">
                   Cancel
                 </button>
                 <button type="submit" className="btn-primary">
-                  {editingShift ? 'Save Changes' : 'Add Shift'}
+                  Save Changes
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+      
       {isAiChatOpen && <AiChatWindow onClose={toggleAiChat} onUpdate={fetchShifts} entityName="Shift" />}
     </div>
   );

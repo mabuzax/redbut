@@ -29,7 +29,7 @@ import {
   UpdateShiftDto,
   ShiftResponseDto,
 } from './admin-shifts.dto';
-import { ShiftWithStaffInfo } from './admin-shifts.types';
+import { Shift } from './admin-shifts.types';
 
 @ApiTags('admin-shifts')
 @Controller('admin/shifts')
@@ -46,7 +46,7 @@ export class AdminShiftsController {
     description: 'List of all shifts retrieved successfully.',
     type: [ShiftResponseDto],
   })
-  async getAllShifts(): Promise<ShiftWithStaffInfo[]> {
+  async getAllShifts(): Promise<Shift[]> {
     return this.adminShiftsService.getAllShifts();
   }
 
@@ -64,14 +64,14 @@ export class AdminShiftsController {
   })
   async getShiftById(
     @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<ShiftWithStaffInfo> {
+  ): Promise<Shift> {
     return this.adminShiftsService.getShiftById(id);
   }
 
   @Post()
   @ApiOperation({ summary: 'Create a new shift' })
   @ApiBody({
-    description: 'Data for creating a new shift.',
+    description: 'Data for creating a new shift. Requires startTime and endTime.',
     type: CreateShiftDto,
   })
   @ApiResponse({
@@ -81,12 +81,12 @@ export class AdminShiftsController {
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid input data.',
+    description: 'Invalid input data (e.g., end time before start time).',
   })
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   async createShift(
     @Body() createShiftDto: CreateShiftDto,
-  ): Promise<ShiftWithStaffInfo> {
+  ): Promise<Shift> {
     return this.adminShiftsService.createShift(createShiftDto);
   }
 
@@ -94,7 +94,7 @@ export class AdminShiftsController {
   @ApiOperation({ summary: 'Update an existing shift' })
   @ApiParam({ name: 'id', description: 'Shift ID (UUID)', type: String })
   @ApiBody({
-    description: 'Data for updating an existing shift.',
+    description: 'Data for updating an existing shift. All fields are optional.',
     type: UpdateShiftDto,
   })
   @ApiResponse({
@@ -108,13 +108,13 @@ export class AdminShiftsController {
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid input data.',
+    description: 'Invalid input data (e.g., end time before start time).',
   })
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   async updateShift(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateShiftDto: UpdateShiftDto,
-  ): Promise<ShiftWithStaffInfo> {
+  ): Promise<Shift> {
     return this.adminShiftsService.updateShift(id, updateShiftDto);
   }
 
