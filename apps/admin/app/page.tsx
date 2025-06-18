@@ -13,6 +13,7 @@ import RequestsComponent from "../components/requests/RequestsComponent";
 import FoodMenuComponent from "../components/food-menu/FoodMenuComponent";
 import StaffComponent from "../components/staff/StaffComponent"; 
 import ShiftsComponent from "../components/shifts/ShiftsComponent";
+import TableAllocationsComponent from "../components/table-allocations/TableAllocationsComponent";
 
 export default function AdminDashboard() {
   type Stage = "splash" | "login" | "dashboard";
@@ -111,6 +112,8 @@ export default function AdminDashboard() {
             <StaffComponent onBack={() => setSelectedSection(null)} />
           ) : selectedSection === "Shifts" ? (
             <ShiftsComponent onBack={() => setSelectedSection(null)} />
+          ) : selectedSection === "Table Allocations" ? (
+            <TableAllocationsComponent onBack={() => setSelectedSection(null)} />
           ) : (
             <SectionPlaceholder
               section={selectedSection}

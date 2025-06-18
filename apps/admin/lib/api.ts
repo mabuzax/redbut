@@ -235,6 +235,64 @@ export type AiShiftsQueryResponse =
   | { message: string }
   | string[];
 
+// Table Allocations Section
+export interface ShiftForDropdown {
+  id: string;
+  displayLabel: string; // e.g., "2025-06-01 (9AM to 5PM)"
+}
+
+export interface WaiterForDropdown {
+  id: string;
+  displayLabel: string; // e.g., "John Doe (JohnnyD)"
+}
+
+export interface TableAllocation {
+  id: string;
+  shiftId: string;
+  tableNumbers: number[];
+  waiterId: string;
+  createdAt: string; 
+  updatedAt: string; 
+}
+
+export interface ShiftInfoForAllocation {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+}
+  
+export interface WaiterInfoForAllocation {
+  id: string;
+  name: string;
+  surname: string;
+  tag_nickname: string;
+}
+
+export interface TableAllocationWithDetails extends TableAllocation {
+  shift?: ShiftInfoForAllocation | null;
+  waiter?: WaiterInfoForAllocation | null;
+}
+
+export interface CreateTableAllocationDto {
+  shiftId: string;
+  tableNumbers: number[];
+  waiterId: string;
+}
+
+export interface UpdateTableAllocationDto {
+  shiftId?: string;
+  tableNumbers?: number[];
+  waiterId?: string;
+}
+
+export type AiTableAllocationsQueryResponse =
+  | string
+  | TableAllocationWithDetails
+  | TableAllocationWithDetails[]
+  | { message: string }
+  | string[];
+
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -501,6 +559,41 @@ export const adminApi = {
     query: AiQueryRequest,
   ): Promise<AiShiftsQueryResponse> => {
     return callApi<AiShiftsQueryResponse>('/admin/shifts/ai/query', token, 'POST', query);
+  },
+
+  // Table Allocations API functions
+  getAllTableAllocations: async (token: string): Promise<TableAllocationWithDetails[]> => {
+    return callApi<TableAllocationWithDetails[]>('/admin/table-allocations', token);
+  },
+
+  getTableAllocationById: async (token: string, id: string): Promise<TableAllocationWithDetails> => {
+    return callApi<TableAllocationWithDetails>(`/admin/table-allocations/${id}`, token);
+  },
+
+  createTableAllocation: async (
+    token: string,
+    data: CreateTableAllocationDto,
+  ): Promise<TableAllocationWithDetails> => {
+    return callApi<TableAllocationWithDetails>('/admin/table-allocations', token, 'POST', data);
+  },
+
+  updateTableAllocation: async (
+    token: string,
+    id: string,
+    data: UpdateTableAllocationDto,
+  ): Promise<TableAllocationWithDetails> => {
+    return callApi<TableAllocationWithDetails>(`/admin/table-allocations/${id}`, token, 'PUT', data);
+  },
+
+  deleteTableAllocation: async (token: string, id: string): Promise<void> => {
+    await callApi<void>(`/admin/table-allocations/${id}`, token, 'DELETE');
+  },
+
+  processTableAllocationsAiQuery: async (
+    token: string,
+    query: AiQueryRequest,
+  ): Promise<AiTableAllocationsQueryResponse> => {
+    return callApi<AiTableAllocationsQueryResponse>('/admin/table-allocations/ai/query', token, 'POST', query);
   },
 
   getMenuItems: async (

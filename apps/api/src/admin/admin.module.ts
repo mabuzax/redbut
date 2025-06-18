@@ -17,6 +17,10 @@ import { AdminShiftsController } from './admin-shifts.controller';
 import { AdminShiftsService } from './admin-shifts.service';
 import { AdminShiftsAiController } from './admin-shifts-ai.controller';
 import { AdminShiftsAiService } from './admin-shifts-ai.service';
+import { AdminTableAllocationsController } from './admin-table-allocations.controller';
+import { AdminTableAllocationsService } from './admin-table-allocations.service';
+import { AdminTableAllocationsAiController } from './admin-table-allocations-ai.controller';
+import { AdminTableAllocationsAiService } from './admin-table-allocations-ai.service';
 
 @Module({
   imports: [
@@ -40,6 +44,8 @@ import { AdminShiftsAiService } from './admin-shifts-ai.service';
     AdminStaffAiController,
     AdminShiftsController,
     AdminShiftsAiController,
+    AdminTableAllocationsController,
+    AdminTableAllocationsAiController,
   ],
   providers: [
     AdminService,
@@ -49,6 +55,8 @@ import { AdminShiftsAiService } from './admin-shifts-ai.service';
     AdminStaffAiService,
     AdminShiftsService,
     AdminShiftsAiService,
+    AdminTableAllocationsService,
+    AdminTableAllocationsAiService,
     PrismaService,
   ],
   exports: [
@@ -59,6 +67,8 @@ import { AdminShiftsAiService } from './admin-shifts-ai.service';
     AdminStaffAiService,
     AdminShiftsService,
     AdminShiftsAiService,
+    AdminTableAllocationsService,
+    AdminTableAllocationsAiService,
   ],
 })
 export class AdminModule {}
