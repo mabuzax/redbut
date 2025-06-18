@@ -16,6 +16,7 @@ import { END, START, StateGraph, StateGraphArgs } from '@langchain/langgraph';
 import { AIMessage, BaseMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { RunnableConfig } from '@langchain/core/runnables';
 import { MemorySaver } from '@langchain/langgraph';
+import { addMessages } from "@langchain/langgraph";
 
 interface GraphState {
   messages: BaseMessage[];
@@ -58,19 +59,13 @@ export class ChatService {
 Answer questions directly and in short sentences.
 Only answer questions related to the restaurant, such as open times, menu items, or services.
 If a question is not related to the restaurant, politely decline to answer.
-If the user asks about menu items, answer as best you can, suggest other things that go well with that menu item,
-and always ask if you should place an order for the user, or call the waiter to the table.
+If the user asks about menu items, answer as best you can, suggest other things that go well with that menu item.
 Do not make up information about the restaurant or menu.
 
 Interaction Flow:
 1. If you need more information to fulfill a request, use a tool to get it or ask the user to provide it.
-2. Before executing a create, update, or delete operation, summarize the information you are about to use and ask for user confirmation. For example: "I am about to create a new Waiter: John Doe, john.doe@example.com, tag: JohnnyD. Is this correct? or Here is the record of John Doe I am going to update/delet, Is this correct?".
-
-Output Format:
-- If you use a tool that retrieves data (getMenuItems, getRestaurantInfo, getTableBill, getMyRequests) and the user's query was a direct request for this data, your *entire response* must be ONLY the JSON string representation of the data returned by the tool.
-- For createWaiterRequest, createOrder, updateRequest, or deleteRequest, if successful, your *entire response* must be ONLY the JSON string representation of the created/updated/deleted object or a success message object like: {"message": "Operation successful."}.
-- For all other interactions (asking for information, confirming actions, explaining errors, or if the user's query is conversational), respond in natural language.
-- Do not add any explanatory text before or after the JSON string outputs if the output is data.
+2. Before executing a create, update, or delete operation, show the information you are about to use and ask for user confirmation.
+3. When the user asks for menu information, always call getMenuItems first, rather than guessing.
 
 Restaurant open times: Monday-Friday 11 AM - 10 PM, Saturday-Sunday 10 AM - 11 PM.
 Restaurant address: 123 Main Street, Anytown, USA.`;
@@ -86,7 +81,7 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
     const createWaiterRequestTool = tool(
       async (input: { content: string }) => {
         if (!this.currentUserId || this.currentTableNumber === undefined) throw new Error("User ID and Table Number are required for createWaiterRequestTool");
-        return this.requestsService.create({ content: input.content, userId: this.currentUserId, tableNumber: this.currentTableNumber });
+        return this.toSafeContent(await this.requestsService.create({ content: input.content, userId: this.currentUserId, tableNumber: this.currentTableNumber }));
       },
       {
         name: 'createWaiterRequest',
@@ -105,15 +100,13 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
             { description: { contains: input.search, mode: 'insensitive' } },
           ];
         }
-        return this.prisma.menuItem.findMany({ where: whereClause, orderBy: [{ category: 'asc' }, { name: 'asc' }] });
+
+        return this.toSafeContent(await this.prisma.menuItem.findMany({ where: whereClause, orderBy: [{ category: 'asc' }, { name: 'asc' }] }));
       },
       {
         name: 'getMenuItems',
         description: 'Retrieves a list of available menu items. Can be filtered by category or searched by name/description.',
-        schema: z.object({
-          category: z.string().optional().describe('Optional category to filter menu items by.'),
-          search: z.string().optional().describe('Optional search term to find in item name or description.'),
-        }),
+        schema: z.object( {}),
       },
     );
 
@@ -127,21 +120,19 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
       {
         name: 'getRestaurantInfo',
         description: 'Provides general information about the restaurant, such as opening hours, address, or contact details.',
-        schema: z.object({ query: z.string().optional().describe('Specific information requested, e.g., "opening hours", "address".') }),
+        schema: z.object({}),
       },
     );
 
     const createOrderTool = tool(
       async (input: { item: string; price: number }) => {
         if (this.currentTableNumber === undefined || !this.currentSessionId) throw new Error("Table Number and Session ID are required for createOrderTool");
-        return this.ordersService.create({ tableNumber: this.currentTableNumber, sessionId: this.currentSessionId, item: input.item, price: input.price });
+        return this.toSafeContent(await this.ordersService.create({ tableNumber: this.currentTableNumber, sessionId: this.currentSessionId, item: input.item, price: input.price }));
       },
       {
         name: 'createOrder',
         description: 'Creates a new order for a menu item. Requires item name and price. The system will automatically use the current table number and session ID.',
         schema: z.object({
-          item: z.string().describe('The name of the menu item to order.'),
-          price: z.number().describe('The price of the menu item.'),
         }),
       },
     );
@@ -149,7 +140,7 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
     const getTableBillTool = tool(
       async (_input: Record<string, never>) => {
          if (this.currentTableNumber === undefined) throw new Error("Table Number is required for getTableBillTool");
-        return this.ordersService.calculateBill(this.currentTableNumber, this.currentSessionId);
+        return this.toSafeContent(await this.ordersService.calculateBill(this.currentTableNumber, this.currentSessionId));
       },
       {
         name: 'getTableBill',
@@ -161,7 +152,7 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
     const getMyRequestsTool = tool(
       async (_input: Record<string, never>) => {
         if (!this.currentUserId) throw new Error("User ID is required for getMyRequestsTool");
-        return this.requestsService.findAllByUserId(this.currentUserId);
+        return this.toSafeContent(await this.requestsService.findAllByUserId(this.currentUserId));
       },
       {
         name: 'getMyRequests',
@@ -174,7 +165,7 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
 
     const updateRequestTool = tool(
       async (input: { id: string; status?: z.infer<typeof requestStatusEnum>; content?: string }) => {
-        return this.requestsService.update(input.id, { status: input.status, content: input.content });
+        return this.toSafeContent(await this.requestsService.update(input.id, { status: input.status, content: input.content }));
       },
       {
         name: 'updateRequest',
@@ -189,7 +180,7 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
 
     const deleteRequestTool = tool(
       async (input: { id: string }) => {
-        await this.requestsService.remove(input.id);
+        this.toSafeContent(await this.requestsService.remove(input.id));
         return { message: `Request with ID ${input.id} has been deleted.` };
       },
       {
@@ -244,60 +235,38 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
     this.logger.log(`Processing message for thread ${threadId} (User: ${userId}, Table: ${tableNumber}, Session: ${sessionId}): "${content}"`);
     await this.storeMessage(userId, ChatRole.user, content);
 
-    const config: RunnableConfig = { configurable: { thread_id: threadId } };
-    
-    const recentChatMessages = await this.getRecentMessages(userId, 5); 
-    const historyMessages: BaseMessage[] = recentChatMessages.map(msg => 
-        msg.role === ChatRole.user ? new HumanMessage(msg.content) : new AIMessage(msg.content)
-    );
+    const config: RunnableConfig = { configurable: { thread_id: threadId } }; 
+    this.logger.debug(`Config for AI model: ${JSON.stringify(config)}`);
+     const systemMsg = new SystemMessage(this.systemPromptContent);
+    const userMsg = new HumanMessage(content);
 
-    const inputs: GraphState = { 
-        messages: [new SystemMessage(this.systemPromptContent), ...historyMessages, new HumanMessage(content)],
-        userId,
-        tableNumber,
-        sessionId
+    const state: GraphState = {
+      messages: [systemMsg, userMsg],
+      userId,
+      tableNumber,
+      sessionId,
     };
-    
-    let finalMessages: BaseMessage[] = [];
 
     try {
-      const result = await this.persistentGraph.invoke(inputs, config);
-      finalMessages = result.messages;
-      
-      const finalMessage = finalMessages[finalMessages.length - 1];
+      const { messages } = await this.persistentGraph.invoke(state, config);
+      this.logger.debug(`AI model returned messages: ${JSON.stringify(messages)}`);
+      const final = messages[messages.length - 1];
 
-      if (finalMessage && finalMessage.content && typeof finalMessage.content === 'string') {
-        const contentStr = finalMessage.content as string;
-        await this.storeMessage(userId, ChatRole.assistant, contentStr);
+      if (typeof final.content === 'string') {
         try {
-          const parsed = JSON.parse(contentStr);
-          if (typeof parsed === 'object' && parsed !== null) return parsed;
-          return contentStr;
-        } catch (e) {
-          return contentStr;
+          this.logger.debug(`Final AI response: ${final.content}`);
+          return JSON.parse(final.content); // JSON payloads
+        } catch {
+          this.logger.debug(`Returning natural language response: ${final.content}`);
+          return final.content; // natural-language answers
         }
       }
-      const lastAiMessageWithContent = [...finalMessages].reverse().find(m => m instanceof AIMessage && m.content && typeof m.content === 'string');
-      if (lastAiMessageWithContent && lastAiMessageWithContent.content && typeof lastAiMessageWithContent.content === 'string') {
-         await this.storeMessage(userId, ChatRole.assistant, lastAiMessageWithContent.content as string);
-         return lastAiMessageWithContent.content;
-      }
-
-      this.logger.warn(`AI query for thread ${threadId} processed, but no final content in the last message. Final message: ${JSON.stringify(finalMessage)}`);
-      const fallbackResponse = "I'm not sure how to help with that. Can you try asking differently?";
-      await this.storeMessage(userId, ChatRole.assistant, fallbackResponse);
-      return fallbackResponse;
-
-    } catch (error: any) {
-      this.logger.error(`Error processing LangGraph AI chat query for thread ${threadId}: ${error.message}`, error.stack);
-      const errorResponse = `An unexpected error occurred: ${error.message}`;
-      await this.storeMessage(userId, ChatRole.assistant, errorResponse);
-      return errorResponse;
-    } finally {
-        this.currentUserId = undefined;
-        this.currentTableNumber = undefined;
-        this.currentSessionId = undefined;
+      return "I'm not sure how to answer that.";
+    } catch (err) {
+      this.logger.error(err);
+      return `Error: ${(err as Error).message}`;
     }
+  
   }
 
   async storeMessage(userId: string, role: ChatRole, content: string): Promise<ChatMessage> {
@@ -339,4 +308,9 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
       throw error;
     }
   }
+
+private toSafeContent(output: unknown): string {
+  
+  return typeof output === "string" ? output : JSON.stringify(output);
+}
 }

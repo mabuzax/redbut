@@ -114,7 +114,7 @@ Before executing a create, delete or update operation, show the full record you 
       },
     );
 
-    const getAllStaffMembers = tool(
+  const getAllStaffMembers = tool(
   async () => JSON.stringify(await adminStaffService.getAllStaffMembers()),
   {
     name: "getAllStaffMembers",
@@ -186,7 +186,7 @@ const getStaffPositions = tool(
       return 'AI Staff Service not initialised – missing API key?';
     }
 
-    const config: RunnableConfig = { configurable: { thread_id: threadId } };
+    const config: RunnableConfig = { configurable: { thread_id: threadId } }; 
 
     const systemMsg = new SystemMessage(this.systemPrompt);
     const userMsg = new HumanMessage(userMessage);

@@ -6,6 +6,7 @@ import { PrismaService } from '../common/prisma.service';
 import { AuthModule } from '../auth/auth.module';
 import { RequestsModule } from '../requests/requests.module';
 import { UsersModule } from '../users/users.module';
+import { OrdersModule } from '../orders/orders.module'; // Import OrdersModule
 
 /**
  * Chat module for real-time AI chat functionality
@@ -19,6 +20,8 @@ import { UsersModule } from '../users/users.module';
     RequestsModule,
     // Import UsersModule for user data access
     UsersModule,
+    // Import OrdersModule for order and bill management via AI
+    OrdersModule, 
   ],
   providers: [
     ChatService,
