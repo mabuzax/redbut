@@ -10,15 +10,15 @@ import { adminApi } from "../lib/api";
 import DashboardGrid, { Section } from "../components/dashboard/DashboardGrid";
 import SectionPlaceholder from "../components/dashboard/SectionPlaceholder";
 import RequestsComponent from "../components/requests/RequestsComponent";
-import FoodMenuComponent from "../components/food-menu/FoodMenuComponent"; // Added import for FoodMenuComponent
+import FoodMenuComponent from "../components/food-menu/FoodMenuComponent";
 import StaffComponent from "../components/staff/StaffComponent"; 
-// AiChatWindowComponent is part of StaffComponent or will be a separate import if needed there
+import ShiftsComponent from "../components/shifts/ShiftsComponent";
 
 export default function AdminDashboard() {
   type Stage = "splash" | "login" | "dashboard";
 
   const [stage, setStage] = useState<Stage>("splash");
-  const [loading, setLoading] = useState(true); // Keep loading state for splash/initial load
+  const [loading, setLoading] = useState(true); 
   const [userData, setUserData] = useState<any>(null);
   const [selectedSection, setSelectedSection] = useState<Section | null>(null);
   
@@ -109,6 +109,8 @@ export default function AdminDashboard() {
             <FoodMenuComponent onBack={() => setSelectedSection(null)} />
           ) : selectedSection === "Staff" ? (
             <StaffComponent onBack={() => setSelectedSection(null)} />
+          ) : selectedSection === "Shifts" ? (
+            <ShiftsComponent onBack={() => setSelectedSection(null)} />
           ) : (
             <SectionPlaceholder
               section={selectedSection}

@@ -13,11 +13,14 @@ import { AdminStaffController } from './admin-staff.controller';
 import { AdminStaffService } from './admin-staff.service';
 import { AdminStaffAiService } from './admin-staff-ai.service';
 import { AdminStaffAiController } from './admin-staff-ai.controller';
+import { AdminShiftsController } from './admin-shifts.controller';
+import { AdminShiftsService } from './admin-shifts.service';
+import { AdminShiftsAiController } from './admin-shifts-ai.controller';
+import { AdminShiftsAiService } from './admin-shifts-ai.service';
 
 @Module({
   imports: [
     AuthModule,
-    // Re-use JWT module configuration from auth module
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -31,17 +34,21 @@ import { AdminStaffAiController } from './admin-staff-ai.controller';
   ],
   controllers: [
     AdminController,
-    AdminRequestsController, // Dedicated controller for request management
-    AdminMenuController, // Controller for menu management
-    AdminStaffController, // Controller for staff management
-    AdminStaffAiController, // Controller for AI staff management
+    AdminRequestsController,
+    AdminMenuController,
+    AdminStaffController,
+    AdminStaffAiController,
+    AdminShiftsController,
+    AdminShiftsAiController,
   ],
   providers: [
     AdminService,
-    AdminRequestsService, // Dedicated service for request operations
-    AdminMenuService, // Service for menu operations
-    AdminStaffService, // Service for staff operations
-    AdminStaffAiService, // Service for AI staff management
+    AdminRequestsService,
+    AdminMenuService,
+    AdminStaffService,
+    AdminStaffAiService,
+    AdminShiftsService,
+    AdminShiftsAiService,
     PrismaService,
   ],
   exports: [
@@ -49,7 +56,9 @@ import { AdminStaffAiController } from './admin-staff-ai.controller';
     AdminRequestsService,
     AdminMenuService,
     AdminStaffService,
-    AdminStaffAiService, // Export AI staff management service
+    AdminStaffAiService,
+    AdminShiftsService,
+    AdminShiftsAiService,
   ],
 })
 export class AdminModule {}

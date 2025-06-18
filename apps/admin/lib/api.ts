@@ -5,7 +5,7 @@ export interface RestaurantMetrics {
   occupiedTables: number;
   totalRequests: number;
   openRequests: number;
-  averageResponseTime: number; // in minutes
+  averageResponseTime: number; 
   dailyRevenue: number;
 }
 
@@ -18,19 +18,18 @@ export interface StaffMember {
   id: string;
   name: string;
   surname: string;
-  email: string; // Primary email, also used as username for login
+  email: string; 
   tag_nickname: string;
-  position?: StaffPosition; // Role like 'Waiter', 'Chef', 'Manager'
+  position?: StaffPosition; 
   address?: string | null;
   phone?: string | null;
   propic?: string | null;
-  createdAt: string; // ISO string
-  updatedAt: string; // ISO string
+  createdAt: string; 
+  updatedAt: string; 
   accessAccount?: {
-    username: string; // Login username, typically the email
-    userType: UserType; // System role: 'admin', 'waiter', 'manager'
+    username: string; 
+    userType: UserType; 
   } | null;
-  // Optional analytics fields if provided by specific endpoints
   averageRating?: number;
   requestsHandled?: number;
 }
@@ -45,7 +44,7 @@ export interface CreateStaffMemberDto {
   address?: string;
   phone?: string; 
   propic?: string;
-  password?: string; // Optional: defaults to a system-defined new password if not provided
+  password?: string; 
 }
 
 
@@ -60,7 +59,6 @@ export interface UpdateStaffMemberDto {
 }
 
 
-
 export interface RequestSummary {
   id: string;
   tableNumber: number;
@@ -68,40 +66,40 @@ export interface RequestSummary {
   status: string;
   waiterId?: string;
   waiterName?: string;
-  createdAt: string; // ISO string
-  updatedAt: string; // ISO string
-  responseTime?: number; // in minutes
+  createdAt: string; 
+  updatedAt: string; 
+  responseTime?: number; 
 }
 
 export interface HourlyRequestData {
-  hour: number;   // 0-23
+  hour: number;   
   open: number;
   closed: number;
 }
 
 
 export interface AdminRequestSummary {
-  date: string; // YYYY-MM-DD
+  date: string; 
   hourly: HourlyRequestData[];
 }
 
 
 export interface ResolutionBucket {
-  range: string; // '<10mins' | '10-15mins' | '>15mins'
+  range: string; 
   count: number;
 }
 
 
 export interface BusiestTime {
-  hour: number; // Starting hour of the busiest period (e.g., 14 for 2 PM)
-  label: string; // User-friendly label (e.g., "2 PM - 3 PM")
-  count: number; // Number of requests during this hour
+  hour: number; 
+  label: string; 
+  count: number; 
 }
 
 
 export interface PeakTimeRequests {
-  peakTime: string; // User-friendly label for the peak period
-  totalRequests: number; // Total requests during that peak period
+  peakTime: string; 
+  totalRequests: number; 
 }
 
 
@@ -109,7 +107,7 @@ export interface WaiterPerformance {
   waiterId: string;
   waiterName: string;
   requestsHandled: number;
-  avgResolutionTime: number; // in minutes
+  avgResolutionTime: number; 
 }
 
 export interface RequestFilters {
@@ -200,7 +198,7 @@ export interface ChangePasswordRequest {
 
 export interface AiQueryRequest {
   message: string;
-  threadId?: string; // Added threadId property
+  threadId?: string; 
 }
 
 export type AiQueryResponse = 
@@ -209,6 +207,58 @@ export type AiQueryResponse =
   | StaffMember[] 
   | { message: string } 
   | string[]; 
+
+
+export const SHIFT_TYPES = ['Morning', 'Afternoon', 'Evening', 'Night'] as const;
+export type ShiftType = typeof SHIFT_TYPES[number];
+
+export const SHIFT_STATUSES = ['Scheduled', 'Active', 'Completed', 'Cancelled'] as const;
+export type ShiftStatus = typeof SHIFT_STATUSES[number];
+
+export interface MinimalStaffInfo {
+  id: string;
+  name: string;
+  surname: string;
+  tag_nickname: string;
+  position?: string;
+}
+
+export interface ShiftWithStaffInfo {
+  id: string;
+  staffId: string;
+  startTime: string; 
+  endTime: string; 
+  type: ShiftType;
+  status: ShiftStatus;
+  notes?: string | null;
+  createdAt: string; 
+  updatedAt: string; 
+  staffMember?: MinimalStaffInfo | null;
+}
+
+export interface CreateShiftDto {
+  staffId: string;
+  startTime: string; 
+  endTime: string; 
+  type: ShiftType;
+  status?: ShiftStatus;
+  notes?: string;
+}
+
+export interface UpdateShiftDto {
+  startTime?: string; 
+  endTime?: string; 
+  type?: ShiftType;
+  status?: ShiftStatus;
+  notes?: string;
+}
+
+export type AiShiftsQueryResponse =
+  | string
+  | ShiftWithStaffInfo
+  | ShiftWithStaffInfo[]
+  | { message: string }
+  | string[];
 
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -386,7 +436,7 @@ export const adminApi = {
 
   
   getWaiterPerformance: async (token: string, waiterId: string): Promise<any> => {
-    return callApi<any>(`/admin/staff/${waiterId}/performance`, token); // This endpoint might not exist yet or might be part of general staff info
+    return callApi<any>(`/admin/staff/${waiterId}/performance`, token); 
   },
 
 
@@ -444,6 +494,39 @@ export const adminApi = {
     return callApi<AiQueryResponse>('/admin/staff/ai/query', token, 'POST', query);
   },
 
+  getAllShifts: async (token: string): Promise<ShiftWithStaffInfo[]> => {
+    return callApi<ShiftWithStaffInfo[]>('/admin/shifts', token);
+  },
+
+  getShiftById: async (token: string, id: string): Promise<ShiftWithStaffInfo> => {
+    return callApi<ShiftWithStaffInfo>(`/admin/shifts/${id}`, token);
+  },
+
+  createShift: async (
+    token: string,
+    data: CreateShiftDto,
+  ): Promise<ShiftWithStaffInfo> => {
+    return callApi<ShiftWithStaffInfo>('/admin/shifts', token, 'POST', data);
+  },
+
+  updateShift: async (
+    token: string,
+    id: string,
+    data: UpdateShiftDto,
+  ): Promise<ShiftWithStaffInfo> => {
+    return callApi<ShiftWithStaffInfo>(`/admin/shifts/${id}`, token, 'PUT', data);
+  },
+
+  deleteShift: async (token: string, id: string): Promise<void> => {
+    await callApi<void>(`/admin/shifts/${id}`, token, 'DELETE');
+  },
+
+  processShiftsAiQuery: async (
+    token: string,
+    query: AiQueryRequest,
+  ): Promise<AiShiftsQueryResponse> => {
+    return callApi<AiShiftsQueryResponse>('/admin/shifts/ai/query', token, 'POST', query);
+  },
 
   getMenuItems: async (
     token: string,
