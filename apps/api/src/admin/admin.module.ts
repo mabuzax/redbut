@@ -21,6 +21,8 @@ import { AdminTableAllocationsController } from './admin-table-allocations.contr
 import { AdminTableAllocationsService } from './admin-table-allocations.service';
 import { AdminTableAllocationsAiController } from './admin-table-allocations-ai.controller';
 import { AdminTableAllocationsAiService } from './admin-table-allocations-ai.service';
+import { AdminOrdersController } from './admin-orders.controller';
+import { AdminOrdersService } from './admin-orders.service';
 
 @Module({
   imports: [
@@ -46,6 +48,7 @@ import { AdminTableAllocationsAiService } from './admin-table-allocations-ai.ser
     AdminShiftsAiController,
     AdminTableAllocationsController,
     AdminTableAllocationsAiController,
+    AdminOrdersController,
   ],
   providers: [
     AdminService,
@@ -57,6 +60,7 @@ import { AdminTableAllocationsAiService } from './admin-table-allocations-ai.ser
     AdminShiftsAiService,
     AdminTableAllocationsService,
     AdminTableAllocationsAiService,
+    AdminOrdersService,
     PrismaService,
   ],
   exports: [
@@ -69,6 +73,7 @@ import { AdminTableAllocationsAiService } from './admin-table-allocations-ai.ser
     AdminShiftsAiService,
     AdminTableAllocationsService,
     AdminTableAllocationsAiService,
+    AdminOrdersService,
   ],
 })
 export class AdminModule {}

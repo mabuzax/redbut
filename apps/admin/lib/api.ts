@@ -293,6 +293,31 @@ export type AiTableAllocationsQueryResponse =
   | { message: string }
   | string[];
 
+// Orders Analytics Section
+export interface CurrentShiftOrdersDataPoint {
+  timeLabel: string; // e.g., "09:00", "10:00"
+  newOrders: number;
+  inProgressOrders: number;
+  completedOrders: number;
+}
+
+export interface DailyOrdersDataPoint {
+  date: string; // Format: "YYYY-MM-DD"
+  totalOrders: number;
+}
+
+export interface TopSellingItem {
+  item: string;
+  count: number;
+}
+
+export interface OrderInsightsData {
+  totalRevenueToday: number;
+  averageOrderValue: number;
+  peakOrderHour: string; // e.g., "14:00 - 14:59" or "N/A"
+  topSellingItems: TopSellingItem[];
+}
+
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -594,6 +619,19 @@ export const adminApi = {
     query: AiQueryRequest,
   ): Promise<AiTableAllocationsQueryResponse> => {
     return callApi<AiTableAllocationsQueryResponse>('/admin/table-allocations/ai/query', token, 'POST', query);
+  },
+
+  // Orders Analytics API functions
+  getCurrentShiftOrdersByStatus: async (token: string): Promise<CurrentShiftOrdersDataPoint[]> => {
+    return callApi<CurrentShiftOrdersDataPoint[]>('/admin/orders/current-shift-status', token);
+  },
+
+  getOrdersPerDayThisMonth: async (token: string): Promise<DailyOrdersDataPoint[]> => {
+    return callApi<DailyOrdersDataPoint[]>('/admin/orders/daily-this-month', token);
+  },
+
+  getOrderInsights: async (token: string): Promise<OrderInsightsData> => {
+    return callApi<OrderInsightsData>('/admin/orders/insights', token);
   },
 
   getMenuItems: async (
