@@ -199,6 +199,7 @@ model Waiter {
   tag_nickname String @map("tag_nickname")
   propic    String?
   createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at") // Added updatedAt for consistency
 
   /* waiter-centric analytics & feedback ----------------------------------- */
   metrics   WaiterMetric[]
@@ -207,8 +208,56 @@ model Waiter {
   /* one-to-one credential record used for dashboard login */
   accessAccount AccessUser?
 
+  /* relations to table allocations */
+  tableAllocations TableAllocation[]
+
   @@map("waiter")
 }
+
+/* -------------------------------------------------------------------------- */
+/*  SHIFTS                                                                    */
+/* -------------------------------------------------------------------------- */
+
+model Shift {
+  id        String   @id @default(uuid())
+  date      DateTime // Stores the date of the shift (time part at midnight UTC for easy date querying)
+  startTime DateTime @map("start_time") // Full start date and time
+  endTime   DateTime @map("end_time")   // Full end date and time
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /* relations */
+  tableAllocations TableAllocation[]
+
+  @@index([date])
+  @@index([startTime])
+  @@map("shifts")
+}
+
+/* -------------------------------------------------------------------------- */
+/*  TABLE ALLOCATIONS                                                         */
+/* -------------------------------------------------------------------------- */
+
+model TableAllocation {
+  id           String   @id @default(uuid())
+  shiftId      String   @map("shift_id")
+  tableNumbers Int[]    @map("table_numbers") // Array of table numbers
+  waiterId     String   @map("waiter_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  /* relations */
+  shift        Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  waiter       Waiter   @relation(fields: [waiterId], references: [id], onDelete: Cascade)
+
+  @@index([shiftId])
+  @@index([waiterId])
+  @@index([shiftId, waiterId]) // To quickly find allocations for a specific waiter on a specific shift
+  // @@unique([shiftId, waiterId]) // If a waiter can only have one allocation entry per shift. Remove if a waiter can have multiple separate allocations in one shift.
+                                 // Based on previous logic, a waiter has one allocation per shift, which can include multiple tables.
+  @@map("table_allocations")
+}
+
 
 /* -------------------------------------------------------------------------- */
 /*  ACCESS USERS – credentials for waiter dashboard login                     */
@@ -217,7 +266,7 @@ model Waiter {
 model AccessUser {
   /* The waiter this credential belongs to (1-to-1) */
   userId   String @id @map("user_id")
-  waiter   Waiter @relation(fields: [userId], references: [id])
+  waiter   Waiter @relation(fields: [userId], references: [id], onDelete: Cascade) // Added onDelete Cascade
 
   /* Credentials */
   username String @unique
@@ -243,7 +292,7 @@ model WaiterMetric {
   createdAt       DateTime @default(now()) @map("created_at")
 
   /* relations ------------------------------------------------------------- */
-  waiter          Waiter   @relation(fields: [waiterId], references: [id])
+  waiter          Waiter   @relation(fields: [waiterId], references: [id], onDelete: Cascade) // Added onDelete Cascade
 
   @@index([waiterId])
   @@map("waiter_metrics")
@@ -258,11 +307,11 @@ model WaiterRating {
 
   /* author (diner) */
   userId          String   @map("user_id")
-  user            User     @relation("UserRatingAuthor", fields: [userId], references: [id])
+  user            User     @relation("UserRatingAuthor", fields: [userId], references: [id], onDelete: Cascade) // Added onDelete Cascade
 
   /* target waiter */
   waiterId        String   @map("waiter_id")
-  waiter          Waiter   @relation(fields: [waiterId], references: [id])
+  waiter          Waiter   @relation(fields: [waiterId], references: [id], onDelete: Cascade) // Added onDelete Cascade
 
   /* 1-5 metrics */
   friendliness    Int
