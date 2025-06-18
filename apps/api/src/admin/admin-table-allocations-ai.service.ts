@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AdminTableAllocationsService } from './admin-table-allocations.service';
 import { CreateTableAllocationDto, UpdateTableAllocationDto } from './admin-table-allocations.dto';
 import { TableAllocationWithDetails } from './admin-table-allocations.types';
+import { AdminShiftsService } from './admin-shifts.service';
+import { AdminStaffService } from './admin-staff.service';
 
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
@@ -24,7 +26,11 @@ export class AdminTableAllocationsAiService {
   private readonly persistentGraph;
   private readonly systemPrompt: string;
 
-  constructor(private readonly adminTableAllocationsService: AdminTableAllocationsService) {
+  constructor(
+    private readonly adminTableAllocationsService: AdminTableAllocationsService,
+    private readonly adminShiftsService: AdminShiftsService,
+    private readonly adminStaffService: AdminStaffService,
+  ) {
     if (!process.env.OPENAI_API_KEY) {
       this.logger.error('OPENAI_API_KEY is not set. AI Table Allocations Service will not function.');
       return;
@@ -35,8 +41,12 @@ A table allocation assigns specific tables (numbers 1-50) to a specific waiter f
 Required information for creating an allocation: shiftId (UUID of an existing shift), tableNumbers (an array of numbers, e.g., [1, 2, 5]), and waiterId (UUID of an existing waiter).
 Use the tools at your disposal to answer user queries related to table allocations.
 
+If the user provides a shift date/time instead of a shiftId, use the 'getShiftsTool' to find the correct shift and its ID.
+If the user provides a waiter name or tag name instead of a waiterId, use the 'getWaitersTool' to find the correct waiter and their ID.
+Always confirm the found shift (with date and time) and waiter (with name and tag name) with the user before proceeding with an allocation.
+
 If a user asks for information or actions outside of table allocation management, politely decline and state your purpose.
-If you need more information to fulfil a request (e.g., missing shiftId, tableNumbers, or waiterId for create; missing allocationId for update/delete), first try to find the info using what the user already supplied; otherwise ask the user to provide the missing information.
+If you need more information to fulfil a request (e.g., missing shiftId, tableNumbers, or waiterId for create; missing allocationId for update/delete), first try to find the info using what the user already supplied or the provided tools; otherwise ask the user to provide the missing information.
 Before executing a create, delete or update operation, show the full details of the allocation you are about to create/update/delete, and ask for user confirmation. For example:
 "I am about to allocate tables [1, 5, 10] to Waiter John Doe (ID: waiter_uuid) for Shift (ID: shift_uuid, Date: YYYY-MM-DD, Time: HH:MM-HH:MM). Is this correct?" or "Here is the allocation (ID: 'abc', Tables: [...], Waiter: ..., Shift: ...) I am going to update/delete, Is this correct?".`;
 
@@ -94,11 +104,31 @@ Before executing a create, delete or update operation, show the full details of 
       },
     );
 
+    const getShiftsTool = tool(
+      async (): Promise<string> => JSON.stringify(await this.adminShiftsService.getAllShifts()),
+      {
+        name: 'getShiftsTool',
+        description: 'Lists all available shifts. Use this to find a shiftId based on date and time provided by the user.',
+        schema: z.object({}),
+      },
+    );
+
+    const getWaitersTool = tool(
+      async (): Promise<string> => JSON.stringify(await this.adminStaffService.getAllStaffMembers()),
+      {
+        name: 'getWaitersTool',
+        description: 'Lists all available staff members (waiters). Use this to find a waiterId based on name or tag name provided by the user.',
+        schema: z.object({}),
+      },
+    );
+
     const tools = [
       createTableAllocationTool,
       updateTableAllocationTool,
       deleteTableAllocationTool,
       getAllTableAllocationsTool,
+      getShiftsTool,
+      getWaitersTool,
     ];
 
     this.boundModel = new ChatOpenAI({

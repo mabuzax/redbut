@@ -57,12 +57,35 @@ const TableAllocationsComponent = ({ onBack }: TableAllocationsComponentProps) =
   const tableNumbersOptions = Array.from({ length: 50 }, (_, i) => i + 1);
 
   const formatShiftForDropdown = (shift: Shift): ShiftForDropdown => {
-    const date = new Date(shift.date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    console.log("Raw shift data for dropdown formatting:", JSON.stringify(shift));
+
+    let shiftDateSource: Date;
+
+    if (shift.date && !isNaN(new Date(shift.date).getTime())) {
+      shiftDateSource = new Date(shift.date);
+    } else if (shift.startTime && !isNaN(new Date(shift.startTime).getTime())) {
+      shiftDateSource = new Date(shift.startTime);
+      console.log(`Used startTime for date for shift ID ${shift.id} as shift.date was invalid or missing.`);
+    } else {
+      console.error("Invalid or missing date source for shift:", shift.id, "Shift data:", shift);
+      const formattedLabel = `Shift ID: ${shift.id} (Date N/A)`;
+      console.log("Formatted shift label (error case):", formattedLabel);
+      return {
+        id: shift.id,
+        displayLabel: formattedLabel,
+      };
+    }
+    
+    const date = shiftDateSource.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
     const startTime = new Date(shift.startTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
     const endTime = new Date(shift.endTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+    
+    const formattedLabel = `${date} (${startTime} to ${endTime})`;
+    console.log("Formatted shift label (success case):", formattedLabel, "for shift ID:", shift.id);
+    
     return {
       id: shift.id,
-      displayLabel: `${date} (${startTime} to ${endTime})`,
+      displayLabel: formattedLabel,
     };
   };
 
@@ -87,11 +110,13 @@ const TableAllocationsComponent = ({ onBack }: TableAllocationsComponentProps) =
         adminApi.getAllShifts(token),
         adminApi.getAllStaffMembers(token),
       ]);
+      console.log("Fetched Shifts Data for Dropdown:", JSON.stringify(shiftsData));
       setAllocations(allocsData);
       setShiftsForDropdown(shiftsData.map(formatShiftForDropdown));
       setWaitersForDropdown(waitersData.map(formatWaiterForDropdown));
     } catch (e: any) {
       setError(e.message);
+      console.error("Error fetching data for table allocations:", e);
     } finally {
       setLoading(false);
     }
