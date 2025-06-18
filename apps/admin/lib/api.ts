@@ -318,6 +318,240 @@ export interface OrderInsightsData {
   topSellingItems: TopSellingItem[];
 }
 
+// Comprehensive Analytics Section
+
+// General Utility Types
+export interface DateRange {
+  startDate: string; // ISO Date string YYYY-MM-DD
+  endDate: string;   // ISO Date string YYYY-MM-DD
+}
+
+export interface DataPoint<X = string | number | Date, Y = number> {
+  x: X;
+  y: Y;
+  [key: string]: any; 
+}
+
+export interface NameValuePair {
+  name: string;
+  value: number;
+  [key: string]: any; 
+}
+
+export interface TimeValuePair {
+  time: string; 
+  value: number;
+  [key: string]: any;
+}
+
+export interface MetricCardValue {
+  value: string | number;
+  label: string;
+  trend?: string; 
+  trendDirection?: 'up' | 'down' | 'neutral';
+}
+
+// 1. Sales Analytics
+export interface SalesSummaryMetrics {
+  totalSales: number;
+  totalOrders: number;
+  averageOrderValue: number;
+}
+
+export interface SalesTrendDataPoint {
+  date: string; 
+  sales: number;
+  orders: number;
+}
+
+export interface SalesAnalyticsData {
+  summary: SalesSummaryMetrics;
+  salesTrend: SalesTrendDataPoint[];
+}
+
+// 2. Popular Items Analytics
+export interface PopularItem {
+  itemId: string;
+  itemName: string;
+  quantitySold: number;
+  totalRevenue: number;
+  percentageOfTotalRevenue?: number;
+}
+
+export interface RevenueByItemDataPoint extends NameValuePair {}
+
+export interface PopularItemsAnalyticsData {
+  topSellingItems: PopularItem[];
+  revenueByItem: RevenueByItemDataPoint[];
+}
+
+// 3. Shifts Analytics
+export interface ShiftSalesDataPoint extends NameValuePair {}
+export interface ShiftAverageOrderValueDataPoint extends NameValuePair {}
+export interface ShiftPerformanceDetail {
+  shiftId: string;
+  shiftLabel: string; 
+  date: string; 
+  totalSales: number;
+  totalOrders: number;
+  averageOrderValue: number;
+  totalRequestsHandled?: number; 
+  averageRequestResponseTime?: number; 
+}
+export interface ShiftsAnalyticsData {
+  salesByShift: ShiftSalesDataPoint[];
+  averageOrderValueByShift: ShiftAverageOrderValueDataPoint[];
+  shiftPerformanceDetails: ShiftPerformanceDetail[];
+}
+
+// 4. Hourly Sales Analytics
+export interface HourlySalesDataPoint {
+  hour: string; 
+  sales: number;
+  orders: number;
+}
+export interface HourlyAverageOrderValueDataPoint {
+  hour: string;
+  averageOrderValue: number;
+}
+export interface HourlySalesAnalyticsData {
+  salesTodayByHour: HourlySalesDataPoint[];
+  averageOrderValueByHour: HourlyAverageOrderValueDataPoint[];
+}
+
+// 5. Staff Analytics
+export interface StaffSalesPerformance {
+  staffId: string;
+  staffName: string; 
+  totalSales: number;
+  totalOrders: number;
+  averageOrderValue: number;
+  itemsSold?: number;
+}
+export interface StaffOrderCount extends NameValuePair {}
+export interface StaffPerformanceDetail {
+  staffId: string;
+  staffName: string;
+  position: string;
+  shiftsWorked: number;
+  totalHoursWorked: number;
+  averageRating?: number; 
+  requestsHandled?: number; 
+}
+export interface StaffAnalyticsData {
+  salesPerformance: StaffSalesPerformance[];
+  orderCounts: StaffOrderCount[]; 
+  performanceDetails: StaffPerformanceDetail[]; 
+}
+
+// 6. Tables Analytics
+export interface TableUtilizationDataPoint {
+  tableNumber: number;
+  totalOrders: number;
+  totalRevenue: number;
+  averageTurnaroundTimeMinutes?: number; 
+  occupancyPercentage?: number; 
+}
+export interface RevenueByTableDataPoint extends NameValuePair {}
+export interface TablesAnalyticsData {
+  utilization: TableUtilizationDataPoint[]; 
+  revenueByTable: RevenueByTableDataPoint[]; 
+  mostPopularTables?: NameValuePair[]; 
+}
+
+// 7. Waiter Ratings Analytics
+export interface WaiterAverageRating extends NameValuePair {
+  waiterId: string;
+  totalRatings: number;
+}
+export interface RatingDistributionDataPoint extends NameValuePair {}
+export interface RatingsOverTimeDataPoint {
+  date: string; 
+  averageRating: number;
+}
+export interface RecentComment {
+  commentId: string;
+  waiterId: string;
+  waiterName: string;
+  rating: number;
+  commentText: string;
+  commentDate: string; 
+  tableName?: string; 
+}
+export interface WaiterRatingsBreakdown {
+    waiterId: string;
+    waiterName: string;
+    averageFriendliness: number;
+    averageOrderAccuracy: number;
+    averageSpeed: number;
+    averageAttentiveness: number;
+    averageKnowledge: number;
+    totalRatings: number;
+}
+export interface WaiterRatingsAnalyticsData {
+  averageRatingsPerWaiter: WaiterAverageRating[];
+  overallRatingDistribution: RatingDistributionDataPoint[]; 
+  ratingsTrend: RatingsOverTimeDataPoint[];
+  recentComments: RecentComment[];
+  ratingsBreakdownPerWaiter: WaiterRatingsBreakdown[];
+}
+
+// 8. Requests Analytics
+export interface RequestsSummaryMetrics {
+  totalRequests: number;
+  averageResponseTimeMinutes: number; 
+  completionRatePercentage: number; 
+  openRequests: number;
+}
+export interface RequestStatusDistribution extends NameValuePair {}
+export interface RequestsOverTimeDataPoint {
+  time: string; 
+  newRequests: number;
+  resolvedRequests: number; 
+}
+export interface WaiterResponseTimeDataPoint extends NameValuePair {
+    waiterId: string;
+}
+export interface RequestsAnalyticsData {
+  summaryMetrics: RequestsSummaryMetrics;
+  statusDistribution: RequestStatusDistribution[];
+  requestsOverTime: RequestsOverTimeDataPoint[]; 
+  waiterResponseTimes: WaiterResponseTimeDataPoint[]; 
+  waiterRequestPerformance: StaffPerformanceDetail[]; 
+}
+
+// 9. Customer Ratings Analytics
+export interface OverallRestaurantRating {
+  averageOverallRating: number; 
+  totalReviews: number;
+}
+export interface CustomerSatisfactionTrendDataPoint {
+  date: string; 
+  satisfactionScore: number; 
+}
+export interface FeedbackTheme extends NameValuePair {
+  sentiment?: 'positive' | 'negative' | 'neutral';
+}
+export interface CustomerRatingsAnalyticsData {
+  overallRestaurantRating: OverallRestaurantRating;
+  satisfactionTrend: CustomerSatisfactionTrendDataPoint[];
+  topFeedbackThemes: FeedbackTheme[]; 
+}
+
+export type AiAnalyticsQueryResponse = 
+  | string 
+  | SalesAnalyticsData
+  | PopularItemsAnalyticsData
+  | ShiftsAnalyticsData
+  | HourlySalesAnalyticsData
+  | StaffAnalyticsData
+  | TablesAnalyticsData
+  | WaiterRatingsAnalyticsData
+  | RequestsAnalyticsData
+  | CustomerRatingsAnalyticsData
+  | { message: string } 
+  | any; // For potentially mixed or custom AI responses
+
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -632,6 +866,86 @@ export const adminApi = {
 
   getOrderInsights: async (token: string): Promise<OrderInsightsData> => {
     return callApi<OrderInsightsData>('/admin/orders/insights', token);
+  },
+
+  // Comprehensive Analytics API functions
+  getSalesAnalytics: async (token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<SalesAnalyticsData> => {
+    const queryParams = new URLSearchParams();
+    if (dateRangeDto?.startDate) queryParams.append('startDate', dateRangeDto.startDate);
+    if (dateRangeDto?.endDate) queryParams.append('endDate', dateRangeDto.endDate);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return callApi<SalesAnalyticsData>(`/admin/analytics/sales${queryString}`, token);
+  },
+
+  getPopularItemsAnalytics: async (token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<PopularItemsAnalyticsData> => {
+    const queryParams = new URLSearchParams();
+    if (dateRangeDto?.startDate) queryParams.append('startDate', dateRangeDto.startDate);
+    if (dateRangeDto?.endDate) queryParams.append('endDate', dateRangeDto.endDate);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return callApi<PopularItemsAnalyticsData>(`/admin/analytics/popular-items${queryString}`, token);
+  },
+  
+  getShiftsAnalytics: async (token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<ShiftsAnalyticsData> => {
+    const queryParams = new URLSearchParams();
+    if (dateRangeDto?.startDate) queryParams.append('startDate', dateRangeDto.startDate);
+    if (dateRangeDto?.endDate) queryParams.append('endDate', dateRangeDto.endDate);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return callApi<ShiftsAnalyticsData>(`/admin/analytics/shifts${queryString}`, token);
+  },
+
+  getHourlySalesAnalytics: async (token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<HourlySalesAnalyticsData> => {
+    const queryParams = new URLSearchParams();
+    if (dateRangeDto?.startDate) queryParams.append('startDate', dateRangeDto.startDate);
+    if (dateRangeDto?.endDate) queryParams.append('endDate', dateRangeDto.endDate);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return callApi<HourlySalesAnalyticsData>(`/admin/analytics/hourly-sales${queryString}`, token);
+  },
+
+  getStaffAnalytics: async (token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<StaffAnalyticsData> => {
+    const queryParams = new URLSearchParams();
+    if (dateRangeDto?.startDate) queryParams.append('startDate', dateRangeDto.startDate);
+    if (dateRangeDto?.endDate) queryParams.append('endDate', dateRangeDto.endDate);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return callApi<StaffAnalyticsData>(`/admin/analytics/staff${queryString}`, token);
+  },
+
+  getTablesAnalytics: async (token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<TablesAnalyticsData> => {
+    const queryParams = new URLSearchParams();
+    if (dateRangeDto?.startDate) queryParams.append('startDate', dateRangeDto.startDate);
+    if (dateRangeDto?.endDate) queryParams.append('endDate', dateRangeDto.endDate);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return callApi<TablesAnalyticsData>(`/admin/analytics/tables${queryString}`, token);
+  },
+
+  getWaiterRatingsAnalytics: async (token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<WaiterRatingsAnalyticsData> => {
+    const queryParams = new URLSearchParams();
+    if (dateRangeDto?.startDate) queryParams.append('startDate', dateRangeDto.startDate);
+    if (dateRangeDto?.endDate) queryParams.append('endDate', dateRangeDto.endDate);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return callApi<WaiterRatingsAnalyticsData>(`/admin/analytics/waiter-ratings${queryString}`, token);
+  },
+
+  getRequestsAnalytics: async (token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<RequestsAnalyticsData> => {
+    const queryParams = new URLSearchParams();
+    if (dateRangeDto?.startDate) queryParams.append('startDate', dateRangeDto.startDate);
+    if (dateRangeDto?.endDate) queryParams.append('endDate', dateRangeDto.endDate);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return callApi<RequestsAnalyticsData>(`/admin/analytics/requests${queryString}`, token);
+  },
+
+  getCustomerRatingsAnalytics: async (token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<CustomerRatingsAnalyticsData> => {
+    const queryParams = new URLSearchParams();
+    if (dateRangeDto?.startDate) queryParams.append('startDate', dateRangeDto.startDate);
+    if (dateRangeDto?.endDate) queryParams.append('endDate', dateRangeDto.endDate);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return callApi<CustomerRatingsAnalyticsData>(`/admin/analytics/customer-ratings${queryString}`, token);
+  },
+
+  processAnalyticsAiQuery: async (
+    token: string,
+    query: AiQueryRequest,
+  ): Promise<AiAnalyticsQueryResponse> => {
+    return callApi<AiAnalyticsQueryResponse>('/admin/analytics/ai/query', token, 'POST', query);
   },
 
   getMenuItems: async (

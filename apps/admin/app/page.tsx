@@ -15,12 +15,13 @@ import StaffComponent from "../components/staff/StaffComponent";
 import ShiftsComponent from "../components/shifts/ShiftsComponent";
 import TableAllocationsComponent from "../components/table-allocations/TableAllocationsComponent";
 import OrdersComponent from "../components/orders/OrdersComponent";
+import AnalyticsComponent from "../components/analytics/AnalyticsComponent"; // Fixed import path
 
 export default function AdminDashboard() {
   type Stage = "splash" | "login" | "dashboard";
 
   const [stage, setStage] = useState<Stage>("splash");
-  const [loading, setLoading] = useState(true); 
+  const [loading, setLoading] = useState<boolean>(true); 
   const [userData, setUserData] = useState<any>(null);
   const [selectedSection, setSelectedSection] = useState<Section | null>(null);
   
@@ -54,7 +55,9 @@ export default function AdminDashboard() {
     if (stage !== "dashboard" && !loading) { 
       checkSession();
     } else if (loading && stage === "splash") {
+      // Do nothing, wait for splash to finish
     } else if (!loading && !localStorage.getItem("redbutAdminSession")) {
+      // If not loading and no session, ensure login stage
       setStage("login");
     }
 
@@ -65,7 +68,11 @@ export default function AdminDashboard() {
     localStorage.setItem("redbutToken", data.token);
     setUserData(data);
     setStage("dashboard");
-    setSelectedSection(null); 
+    setSelectedSection(null); // Reset section on login
+  };
+
+  const handleBackToDashboard = () => {
+    setSelectedSection(null);
   };
 
   if (loading && stage === "splash") { 
@@ -85,11 +92,15 @@ export default function AdminDashboard() {
   }
 
   if (stage === "dashboard" && userData) {
+    // Main dashboard view
     return (
       <div className="min-h-screen bg-gray-50">
         <header className="bg-white shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <h1 className="text-2xl font-bold text-primary-600">RedBut Admin</h1>
+            {/* Clicking the title/logo now also navigates back to the dashboard grid */}
+            <button onClick={handleBackToDashboard} className="text-2xl font-bold text-primary-600 hover:text-primary-700 transition-colors">
+              RedBut Admin
+            </button>
             <div className="flex items-center space-x-4">
               <span className="text-gray-700">{userData?.name || "Admin User"}</span>
               <div className="h-8 w-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-600">
@@ -106,21 +117,23 @@ export default function AdminDashboard() {
               <DashboardGrid onSelect={setSelectedSection} />
             </>
           ) : selectedSection === "Requests" ? (
-            <RequestsComponent onBack={() => setSelectedSection(null)} />
+            <RequestsComponent onBack={handleBackToDashboard} />
           ) : selectedSection === "Food Menu" ? (
-            <FoodMenuComponent onBack={() => setSelectedSection(null)} />
+            <FoodMenuComponent onBack={handleBackToDashboard} />
           ) : selectedSection === "Staff" ? (
-            <StaffComponent onBack={() => setSelectedSection(null)} />
+            <StaffComponent onBack={handleBackToDashboard} />
           ) : selectedSection === "Shifts" ? (
-            <ShiftsComponent onBack={() => setSelectedSection(null)} />
+            <ShiftsComponent onBack={handleBackToDashboard} />
           ) : selectedSection === "Table Allocations" ? (
-            <TableAllocationsComponent onBack={() => setSelectedSection(null)} />
+            <TableAllocationsComponent onBack={handleBackToDashboard} />
           ) : selectedSection === "Orders" ? (
-            <OrdersComponent onBack={() => setSelectedSection(null)} />
+            <OrdersComponent onBack={handleBackToDashboard} />
+          ) : selectedSection === "Analytics" ? (
+            <AnalyticsComponent /> 
           ) : (
             <SectionPlaceholder
               section={selectedSection}
-              onBack={() => setSelectedSection(null)}
+              onBack={handleBackToDashboard}
             />
           )}
         </main>
@@ -128,6 +141,7 @@ export default function AdminDashboard() {
     );
   }
   
+  // Fallback loading state if not splash, not login, and not dashboard with user data
   return ( 
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
