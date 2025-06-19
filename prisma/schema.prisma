@@ -26,6 +26,7 @@ model User {
   chatMessages   ChatMessage[]
   reviews        Review[]
   ratingsGiven   WaiterRating[] @relation("UserRatingAuthor")
+  orders         Order[] // Relation to Orders placed by this user
 
   @@index([sessionId])
   @@map("users")
@@ -74,20 +75,50 @@ model RequestLog {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  ORDERS (items added to “My Bill”)                                         */
+/*  ORDERS                                                                    */
 /* -------------------------------------------------------------------------- */
 
 model Order {
-  id          String   @id @default(uuid())
-  tableNumber Int      @map("table_number")
-  sessionId   String   @map("session_id")
-  item        String
-  price       Decimal  @map("item_price")            // ← Decimal suits currency
-  createdAt   DateTime @default(now()) @map("created_at")
+  id          String      @id @default(uuid())
+  tableNumber Int         @map("table_number")
+  sessionId   String      @map("session_id") // For guest orders before user association
+  userId      String?     @map("user_id")    // Optional: Link to a registered user
+  status      OrderStatus @default(New)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  /* relations */
+  user        User?       @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  orderItems  OrderItem[]
 
   @@index([tableNumber, sessionId])
+  @@index([userId])
+  @@index([status])
   @@map("orders")
 }
+
+/* -------------------------------------------------------------------------- */
+/*  ORDER ITEMS                                                               */
+/* -------------------------------------------------------------------------- */
+
+model OrderItem {
+  id          String      @id @default(uuid())
+  orderId     String      @map("order_id")
+  menuItemId  String      @map("menu_item_id")
+  quantity    Int         @default(1)
+  price       Decimal     // Price of the item at the time of order
+  status      OrderStatus @default(New) // Status of the individual item, typically matches order status
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem  MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([menuItemId])
+  @@map("order_items")
+}
+
 
 /* -------------------------------------------------------------------------- */
 /*  ENUMS                                                                     */
@@ -107,6 +138,15 @@ enum RequestStatus {
   OnHold
   Cancelled
   Done
+}
+
+enum OrderStatus {
+  New          // Order created by customer, not yet seen by staff
+  Acknowledged // Staff has seen the order
+  InProgress   // Order is being prepared
+  Delivered    // Order has been delivered to the table
+  Paid         // Order has been paid
+  // Cancelled // Optional: if orders can be cancelled
 }
 
 enum SortOrder {
@@ -153,13 +193,16 @@ model MenuItem {
   description       String?
   image             String?
   price             Decimal
-  status            String  @default("Active")
+  status            String  @default("Active") // e.g., Active, Inactive, OutOfStock
   video             String?
   served_info       String? @map("served_info")
   available_options Json?   @map("available_options")
   available_extras  Json?   @map("available_extras")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
+
+  /* relations */
+  orderItems        OrderItem[] // Relation to order items featuring this menu item
 
   @@index([category])
   @@index([status])
@@ -178,7 +221,7 @@ model Review {
   createdAt DateTime @default(now()) @map("created_at")
 
   /* relations ------------------------------------------------------------- */
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("reviews")
@@ -199,7 +242,7 @@ model Waiter {
   tag_nickname String @map("tag_nickname")
   propic    String?
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at") // Added updatedAt for consistency
+  updatedAt DateTime @updatedAt @map("updated_at") 
 
   /* waiter-centric analytics & feedback ----------------------------------- */
   metrics   WaiterMetric[]
@@ -252,9 +295,7 @@ model TableAllocation {
 
   @@index([shiftId])
   @@index([waiterId])
-  @@index([shiftId, waiterId]) // To quickly find allocations for a specific waiter on a specific shift
-  // @@unique([shiftId, waiterId]) // If a waiter can only have one allocation entry per shift. Remove if a waiter can have multiple separate allocations in one shift.
-                                 // Based on previous logic, a waiter has one allocation per shift, which can include multiple tables.
+  @@index([shiftId, waiterId]) 
   @@map("table_allocations")
 }
 
@@ -266,7 +307,7 @@ model TableAllocation {
 model AccessUser {
   /* The waiter this credential belongs to (1-to-1) */
   userId   String @id @map("user_id")
-  waiter   Waiter @relation(fields: [userId], references: [id], onDelete: Cascade) // Added onDelete Cascade
+  waiter   Waiter @relation(fields: [userId], references: [id], onDelete: Cascade) 
 
   /* Credentials */
   username String @unique
@@ -292,7 +333,7 @@ model WaiterMetric {
   createdAt       DateTime @default(now()) @map("created_at")
 
   /* relations ------------------------------------------------------------- */
-  waiter          Waiter   @relation(fields: [waiterId], references: [id], onDelete: Cascade) // Added onDelete Cascade
+  waiter          Waiter   @relation(fields: [waiterId], references: [id], onDelete: Cascade) 
 
   @@index([waiterId])
   @@map("waiter_metrics")
@@ -307,11 +348,11 @@ model WaiterRating {
 
   /* author (diner) */
   userId          String   @map("user_id")
-  user            User     @relation("UserRatingAuthor", fields: [userId], references: [id], onDelete: Cascade) // Added onDelete Cascade
+  user            User     @relation("UserRatingAuthor", fields: [userId], references: [id], onDelete: Cascade) 
 
   /* target waiter */
   waiterId        String   @map("waiter_id")
-  waiter          Waiter   @relation(fields: [waiterId], references: [id], onDelete: Cascade) // Added onDelete Cascade
+  waiter          Waiter   @relation(fields: [waiterId], references: [id], onDelete: Cascade) 
 
   /* 1-5 metrics */
   friendliness    Int

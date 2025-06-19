@@ -1,14 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, Utensils } from 'lucide-react'; // Added Utensils for Food Menu icon
 
 interface BurgerMenuProps {
+  onFoodMenuClick: () => void; // Added Food Menu click handler
   onMyRequestsClick: () => void;
   onMyBillClick: () => void;
   onRateWaiterClick: () => void;
 }
 
 const BurgerMenu: React.FC<BurgerMenuProps> = ({
+  onFoodMenuClick, // Destructure new prop
   onMyRequestsClick,
   onMyBillClick,
   onRateWaiterClick,
@@ -79,6 +81,15 @@ const BurgerMenu: React.FC<BurgerMenuProps> = ({
             </div>
             <nav className="flex-1">
               <ul>
+                <li className="mb-2">
+                  <button
+                    onClick={() => handleMenuItemClick(onFoodMenuClick)}
+                    className="block w-full text-left p-3 rounded-md text-lg font-medium text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-300 flex items-center"
+                  >
+                    <Utensils className="h-5 w-5 mr-3 text-primary-500" /> {/* Added icon */}
+                    Food Menu
+                  </button>
+                </li>
                 <li className="mb-2">
                   <button
                     onClick={() => handleMenuItemClick(onMyRequestsClick)}
