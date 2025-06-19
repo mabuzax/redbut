@@ -5,19 +5,17 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast, Toaster } from "react-hot-toast";
 import {
   ArrowLeft,
-  ArrowRight,
   Search,
   ShoppingCart,
   Plus,
   Minus,
   X,
-  ChevronLeft,
-  ChevronRight,
   Eye,
   Video,
   ArrowLeftCircle,
   ShoppingBag,
-  ImageIcon
+  ImageIcon,
+  Loader
 } from "lucide-react";
 
 interface MenuItem {
@@ -69,9 +67,10 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
   // Image loading state
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(5);
+  // Infinite scroll state
+  const [displayedItemsCount, setDisplayedItemsCount] = useState(15);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
   
   // Filter state
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -128,7 +127,7 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
       ).filter((cat): cat is string => typeof cat === "string");
       
       setCategories(["all", ...uniqueCategories]);
-      setCurrentPage(1); // Reset to first page when items change
+      setDisplayedItemsCount(15); // Reset displayed count when items change
     } catch (e: any) {
       setError(e.message || "Failed to load menu items");
     } finally {
@@ -252,17 +251,49 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
     return matchesCategory && matchesSearch;
   });
 
-  // Pagination logic
-  const totalPages = Math.ceil(filteredMenuItems.length / itemsPerPage);
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = filteredMenuItems.slice(indexOfFirstItem, indexOfLastItem);
+  // Infinite scroll detection
+  useEffect(() => {
+    if (categoryFilter !== "all") return;
+    
+    const handleScroll = () => {
+      if (!contentRef.current || loadingMore) return;
+      
+      const { scrollTop, scrollHeight, clientHeight } = contentRef.current;
+      
+      // If scrolled to bottom (with 100px threshold)
+      if (scrollTop + clientHeight >= scrollHeight - 100) {
+        loadMoreItems();
+      }
+    };
+    
+    const currentRef = contentRef.current;
+    if (currentRef) {
+      currentRef.addEventListener("scroll", handleScroll);
+    }
+    
+    return () => {
+      if (currentRef) {
+        currentRef.removeEventListener("scroll", handleScroll);
+      }
+    };
+  }, [categoryFilter, loadingMore, filteredMenuItems.length]);
 
-  const paginate = (pageNumber: number) => {
-    if (pageNumber < 1) pageNumber = 1;
-    if (pageNumber > totalPages) pageNumber = totalPages;
-    setCurrentPage(pageNumber);
+  const loadMoreItems = () => {
+    if (loadingMore || categoryFilter !== "all" || displayedItemsCount >= filteredMenuItems.length) return;
+    
+    setLoadingMore(true);
+    
+    // Simulate loading delay for better UX
+    setTimeout(() => {
+      setDisplayedItemsCount(prev => prev + 10);
+      setLoadingMore(false);
+    }, 500);
   };
+
+  // Get items to display based on category and infinite scroll
+  const displayedItems = categoryFilter === "all" 
+    ? filteredMenuItems.slice(0, displayedItemsCount)
+    : filteredMenuItems;
 
   const totalItems = orderItems.reduce((sum, item) => sum + item.quantity, 0);
   const totalPrice = orderItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -270,6 +301,20 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
   const viewItemDetails = (item: MenuItem) => {
     setSelectedItem(item);
     setShowModal(true);
+  };
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setSearchTerm(value);
+    setCategoryFilter("all"); // Switch to ALL category when searching
+    setDisplayedItemsCount(15); // Reset to first 15 items
+  };
+
+  const handleCategoryChange = (category: string) => {
+    setCategoryFilter(category);
+    if (category === "all") {
+      setDisplayedItemsCount(15); // Reset to first 15 items for ALL category
+    }
   };
 
   return (
@@ -314,10 +359,7 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
             type="text"
             placeholder="Search menu..."
             value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              setCurrentPage(1); // Reset to first page when search changes
-            }}
+            onChange={handleSearchChange}
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all"
           />
         </div>
@@ -325,10 +367,7 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
           {categories.map(category => (
             <button
               key={category}
-              onClick={() => {
-                setCategoryFilter(category);
-                setCurrentPage(1); // Reset to first page when category changes
-              }}
+              onClick={() => handleCategoryChange(category)}
               className={`px-4 py-2 mr-2 rounded-full text-sm whitespace-nowrap transition-colors ${
                 categoryFilter === category
                   ? "bg-primary-500 text-white"
@@ -342,7 +381,10 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
       </div>
 
       {/* Content */}
-      <div className="flex-1 p-4 flex flex-col">
+      <div 
+        ref={contentRef}
+        className="flex-1 p-4 overflow-y-auto"
+      >
         {loading ? (
           <div className="flex items-center justify-center flex-1">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
@@ -363,107 +405,80 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
           </div>
         ) : (
           <>
-            {/* Menu Items - Carousel Style */}
-            <div className="flex-1 relative">
-              <AnimatePresence mode="wait">
-                <motion.div 
-                  key={currentPage}
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  transition={{ duration: 0.3 }}
-                  className="space-y-4"
+            {/* Menu Items - List View */}
+            <div className="space-y-4">
+              {displayedItems.map(item => (
+                <div 
+                  key={item.id} 
+                  className="bg-white rounded-lg shadow-md overflow-hidden flex flex-col md:flex-row"
                 >
-                  {currentItems.map(item => (
-                    <div 
-                      key={item.id} 
-                      className="bg-white rounded-lg shadow-md overflow-hidden flex flex-col md:flex-row"
-                    >
-                      {/* Image (Left on desktop, Top on mobile) */}
-                      <div className="h-48 md:h-auto md:w-1/3 md:max-w-xs overflow-hidden">
-                        {(!item.image || failedImages.has(item.image)) ? (
-                          <ImagePlaceholder name={item.name} />
-                        ) : (
-                          <img 
-                            src={item.image} 
-                            alt={item.name}
-                            className="w-full h-full object-cover"
-                            onError={() => handleImageError(item.image)}
-                          />
-                        )}
-                      </div>
-                      
-                      {/* Content (Right on desktop, Bottom on mobile) */}
-                      <div className="p-4 flex-1 flex flex-col justify-between">
-                        <div>
-                          <div className="flex justify-between items-start mb-2">
-                            <h3 className="text-lg font-medium text-gray-900">{item.name}</h3>
-                            <span className="text-lg font-semibold text-primary-600">
-                              ${Number(item.price).toFixed(2)}
-                            </span>
-                          </div>
-                          
-                          {item.category && (
-                            <p className="text-sm text-gray-500 mb-2">{item.category}</p>
-                          )}
-                          
-                          <p className="text-sm text-gray-600 line-clamp-2">
-                            {item.description || "No description available"}
-                          </p>
-                        </div>
-                        
-                        <div className="mt-4 flex space-x-2">
-                          <button
-                            onClick={() => viewItemDetails(item)}
-                            className="flex-1 py-2 border border-primary-500 text-primary-500 rounded-md hover:bg-primary-50 transition-colors flex items-center justify-center"
-                          >
-                            <Eye className="h-4 w-4 mr-1" /> View
-                          </button>
-                          <button
-                            onClick={() => addToOrder(item)}
-                            className="flex-1 py-2 bg-primary-500 text-white rounded-md hover:bg-primary-600 transition-colors flex items-center justify-center"
-                          >
-                            <Plus className="h-4 w-4 mr-1" /> Add to Order
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </motion.div>
-              </AnimatePresence>
-              
-              {/* Pagination Controls */}
-              {totalPages > 1 && (
-                <div className="flex justify-between items-center mt-6">
-                  <button 
-                    onClick={() => paginate(currentPage - 1)}
-                    disabled={currentPage === 1}
-                    className={`p-2 rounded-full ${
-                      currentPage === 1 
-                        ? "text-gray-300 cursor-not-allowed" 
-                        : "text-gray-600 hover:bg-gray-100"
-                    }`}
-                    aria-label="Previous page"
-                  >
-                    <ChevronLeft className="h-6 w-6" />
-                  </button>
-                  
-                  <div className="text-sm text-gray-500">
-                    Page {currentPage} of {totalPages}
+                  {/* Image (Left on desktop, Top on mobile) */}
+                  <div className="h-48 md:h-auto md:w-1/3 md:max-w-xs overflow-hidden">
+                    {(!item.image || failedImages.has(item.image)) ? (
+                      <ImagePlaceholder name={item.name} />
+                    ) : (
+                      <img 
+                        src={item.image} 
+                        alt={item.name}
+                        className="w-full h-full object-cover"
+                        onError={() => handleImageError(item.image)}
+                      />
+                    )}
                   </div>
                   
-                  <button 
-                    onClick={() => paginate(currentPage + 1)}
-                    disabled={currentPage === totalPages}
-                    className={`p-2 rounded-full ${
-                      currentPage === totalPages 
-                        ? "text-gray-300 cursor-not-allowed" 
-                        : "text-gray-600 hover:bg-gray-100"
-                    }`}
-                    aria-label="Next page"
-                  >
-                    <ChevronRight className="h-6 w-6" />
-                  </button>
+                  {/* Content (Right on desktop, Bottom on mobile) */}
+                  <div className="p-4 flex-1 flex flex-col justify-between">
+                    <div>
+                      <div className="flex justify-between items-start mb-2">
+                        <h3 className="text-lg font-medium text-gray-900">{item.name}</h3>
+                        <span className="text-lg font-semibold text-primary-600">
+                          ${Number(item.price).toFixed(2)}
+                        </span>
+                      </div>
+                      
+                      {item.category && (
+                        <p className="text-sm text-gray-500 mb-2">{item.category}</p>
+                      )}
+                      
+                      <p className="text-sm text-gray-600 line-clamp-2">
+                        {item.description || "No description available"}
+                      </p>
+                    </div>
+                    
+                    <div className="mt-4 flex space-x-2">
+                      <button
+                        onClick={() => viewItemDetails(item)}
+                        className="flex-1 py-2 border border-primary-500 text-primary-500 rounded-md hover:bg-primary-50 transition-colors flex items-center justify-center"
+                      >
+                        <Eye className="h-4 w-4 mr-1" /> View
+                      </button>
+                      <button
+                        onClick={() => addToOrder(item)}
+                        className="flex-1 py-2 bg-primary-500 text-white rounded-md hover:bg-primary-600 transition-colors flex items-center justify-center"
+                      >
+                        <Plus className="h-4 w-4 mr-1" /> Add to Order
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              
+              {/* Load more indicator for ALL category */}
+              {categoryFilter === "all" && displayedItems.length < filteredMenuItems.length && (
+                <div className="flex justify-center py-4">
+                  {loadingMore ? (
+                    <div className="flex items-center">
+                      <Loader className="h-5 w-5 animate-spin mr-2 text-primary-500" />
+                      <span className="text-gray-600">Loading more...</span>
+                    </div>
+                  ) : (
+                    <button 
+                      onClick={loadMoreItems}
+                      className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+                    >
+                      Load More
+                    </button>
+                  )}
                 </div>
               )}
             </div>
