@@ -11,6 +11,7 @@ import {
   Package,
   CreditCard,
   RefreshCcw,
+  ImageIcon
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -71,13 +72,14 @@ const statusIcons = {
   [OrderStatus.Paid]: CreditCard,
 };
 
-const nextStatus = {
-  [OrderStatus.New]: OrderStatus.Acknowledged,
-  [OrderStatus.Acknowledged]: OrderStatus.InProgress,
-  [OrderStatus.InProgress]: OrderStatus.Delivered,
-  [OrderStatus.Delivered]: OrderStatus.Paid,
-  [OrderStatus.Paid]: null,
-};
+const ImagePlaceholder = ({ name }: { name: string }) => (
+  <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">
+    <div className="flex flex-col items-center justify-center p-2 text-center">
+      <ImageIcon className="h-5 w-5 mb-1" />
+      <span className="text-xs">{name || "No Image"}</span>
+    </div>
+  </div>
+);
 
 const OrderManagement = () => {
   const [tableOrders, setTableOrders] = useState<TableOrders[]>([]);
@@ -85,6 +87,7 @@ const OrderManagement = () => {
   const [error, setError] = useState<string | null>(null);
   const [updating, setUpdating] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
   const token = typeof window !== "undefined" ? localStorage.getItem("redbutToken") || "" : "";
@@ -139,6 +142,10 @@ const OrderManagement = () => {
     );
   };
 
+  const handleImageError = (imageUrl: string) => {
+    setFailedImages(prev => new Set(prev).add(imageUrl));
+  };
+
   const updateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
     if (!token) {
       setError("Authentication token not found");
@@ -169,12 +176,9 @@ const OrderManagement = () => {
     }
   };
 
-  const handleStatusUpdate = (orderId: string, currentStatus: OrderStatus) => {
-    const next = nextStatus[currentStatus];
-    if (!next) return;
-    
-    if (window.confirm(`Update order status from ${currentStatus} to ${next}?`)) {
-      updateOrderStatus(orderId, next);
+  const handleStatusUpdate = (orderId: string, newStatus: OrderStatus) => {
+    if (window.confirm(`Update order status to ${newStatus}?`)) {
+      updateOrderStatus(orderId, newStatus);
     }
   };
 
@@ -203,6 +207,33 @@ const OrderManagement = () => {
         <Icon className="h-3.5 w-3.5 mr-1" />
         <span>{status}</span>
       </div>
+    );
+  };
+
+  const StatusDropdown = ({ order, onStatusChange }: { order: Order, onStatusChange: (status: OrderStatus) => void }) => {
+    const statuses = Object.values(OrderStatus);
+    const currentStatusIndex = statuses.indexOf(order.status);
+    
+    // Reorder statuses to put current status first
+    const orderedStatuses = [
+      order.status,
+      ...statuses.slice(0, currentStatusIndex),
+      ...statuses.slice(currentStatusIndex + 1)
+    ];
+    
+    return (
+      <select
+        value={order.status}
+        onChange={(e) => onStatusChange(e.target.value as OrderStatus)}
+        className="px-3 py-1 rounded-md text-sm font-medium border bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+        disabled={updating === order.id}
+      >
+        {orderedStatuses.map((status) => (
+          <option key={status} value={status}>
+            {status}
+          </option>
+        ))}
+      </select>
     );
   };
 
@@ -326,22 +357,10 @@ const OrderManagement = () => {
                           <span className="font-semibold">
                             ${getTotalPrice(order).toFixed(2)}
                           </span>
-                          {nextStatus[order.status] && (
-                            <button
-                              onClick={() => handleStatusUpdate(order.id, order.status)}
-                              disabled={updating === order.id}
-                              className={`px-3 py-1 rounded-md text-sm font-medium bg-primary-500 text-white hover:bg-primary-600 transition-colors flex items-center ${
-                                updating === order.id ? "opacity-50 cursor-not-allowed" : ""
-                              }`}
-                            >
-                              {updating === order.id ? (
-                                <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-1"></div>
-                              ) : (
-                                <ChevronsRight className="h-4 w-4 mr-1" />
-                              )}
-                              {nextStatus[order.status]}
-                            </button>
-                          )}
+                          <StatusDropdown 
+                            order={order}
+                            onStatusChange={(newStatus) => handleStatusUpdate(order.id, newStatus)}
+                          />
                         </div>
                       </div>
 
@@ -350,19 +369,15 @@ const OrderManagement = () => {
                         {order.orderItems.map(item => (
                           <div key={item.id} className="flex items-center">
                             <div className="w-12 h-12 rounded overflow-hidden mr-3 bg-white">
-                              {item.menuItem.image ? (
+                              {item.menuItem.image && !failedImages.has(item.menuItem.image) ? (
                                 <img
                                   src={item.menuItem.image}
                                   alt={item.menuItem.name}
                                   className="w-full h-full object-cover"
-                                  onError={(e) => {
-                                    (e.target as HTMLImageElement).src = "https://via.placeholder.com/60?text=No+Image";
-                                  }}
+                                  onError={() => handleImageError(item.menuItem.image!)}
                                 />
                               ) : (
-                                <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 text-xs">
-                                  No image
-                                </div>
+                                <ImagePlaceholder name={item.menuItem.name} />
                               )}
                             </div>
                             <div className="flex-1">
