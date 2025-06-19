@@ -16,7 +16,8 @@ import {
   Eye,
   Video,
   ArrowLeftCircle,
-  ShoppingBag
+  ShoppingBag,
+  ImageIcon
 } from "lucide-react";
 
 interface MenuItem {
@@ -49,12 +50,24 @@ interface FoodMenuProps {
   onCloseMenu: () => void;
 }
 
+const ImagePlaceholder = ({ name }: { name: string }) => (
+  <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">
+    <div className="flex flex-col items-center justify-center p-4 text-center">
+      <ImageIcon className="h-8 w-8 mb-2" />
+      <span className="text-xs">{name || "No Image"}</span>
+    </div>
+  </div>
+);
+
 const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMenuProps) => {
   // Menu state
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Image loading state
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -126,6 +139,10 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
   useEffect(() => {
     fetchMenuItems();
   }, [fetchMenuItems]);
+
+  const handleImageError = (imageUrl: string) => {
+    setFailedImages(prev => new Set(prev).add(imageUrl));
+  };
 
   const addToOrder = (item: MenuItem) => {
     setOrderItems(prev => {
@@ -364,14 +381,16 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
                     >
                       {/* Image (Left on desktop, Top on mobile) */}
                       <div className="h-48 md:h-auto md:w-1/3 md:max-w-xs overflow-hidden">
-                        <img 
-                          src={item.image || "https://via.placeholder.com/300x200?text=No+Image"} 
-                          alt={item.name}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src = "https://via.placeholder.com/300x200?text=No+Image";
-                          }}
-                        />
+                        {(!item.image || failedImages.has(item.image)) ? (
+                          <ImagePlaceholder name={item.name} />
+                        ) : (
+                          <img 
+                            src={item.image} 
+                            alt={item.name}
+                            className="w-full h-full object-cover"
+                            onError={() => handleImageError(item.image)}
+                          />
+                        )}
                       </div>
                       
                       {/* Content (Right on desktop, Bottom on mobile) */}
@@ -471,14 +490,16 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
             >
               {/* Image Header */}
               <div className="relative h-56 w-full">
-                <img 
-                  src={selectedItem.image || "https://via.placeholder.com/600x400?text=No+Image"} 
-                  alt={selectedItem.name}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = "https://via.placeholder.com/600x400?text=No+Image";
-                  }}
-                />
+                {(!selectedItem.image || failedImages.has(selectedItem.image)) ? (
+                  <ImagePlaceholder name={selectedItem.name} />
+                ) : (
+                  <img 
+                    src={selectedItem.image} 
+                    alt={selectedItem.name}
+                    className="w-full h-full object-cover"
+                    onError={() => handleImageError(selectedItem.image)}
+                  />
+                )}
                 <button
                   onClick={() => setShowModal(false)}
                   className="absolute top-2 right-2 bg-white bg-opacity-70 p-1 rounded-full text-gray-700 hover:text-gray-900"
@@ -600,18 +621,18 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
                   <div className="space-y-4">
                     {orderItems.map(item => (
                       <div key={item.menuItemId} className="flex items-center">
-                        {item.image && (
-                          <div className="w-16 h-16 mr-3 rounded overflow-hidden flex-shrink-0">
+                        <div className="w-16 h-16 mr-3 rounded overflow-hidden flex-shrink-0">
+                          {(!item.image || failedImages.has(item.image)) ? (
+                            <ImagePlaceholder name={item.name} />
+                          ) : (
                             <img 
                               src={item.image} 
                               alt={item.name}
                               className="w-full h-full object-cover"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = "https://via.placeholder.com/100?text=No+Image";
-                              }}
+                              onError={() => handleImageError(item.image || "")}
                             />
-                          </div>
-                        )}
+                          )}
+                        </div>
                         <div className="flex-1">
                           <p className="font-medium">{item.name}</p>
                           <p className="text-sm text-gray-500">${Number(item.price).toFixed(2)} each</p>
