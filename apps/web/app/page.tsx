@@ -2,13 +2,23 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Star } from "lucide-react";
+import { Star, ShoppingCart } from "lucide-react";
 import ChatWindow from "../components/chat/ChatWindow";
 import BurgerMenu from "../components/ui/BurgerMenu";
 import RateYourWaiter from "../components/rating/RateYourWaiter";
 import MyRequests from "../components/requests/MyRequests";
 import MyBill from "../components/bill/MyBill";
-import FoodMenu from "../components/menu/FoodMenu"; // Import FoodMenu component
+import FoodMenu from "../components/menu/FoodMenu";
+
+// Define the OrderItem interface for cart items
+interface OrderItem {
+  menuItemId: string;
+  name: string;
+  price: number;
+  quantity: number;
+  image?: string;
+  selectedOptions?: string[];
+}
 
 export default function Home() {
   type Stage =
@@ -20,7 +30,7 @@ export default function Home() {
     | "requests"
     | "bill"
     | "rateWaiter"
-    | "foodMenu"; // Added "foodMenu" to Stage type
+    | "foodMenu";
 
   const [stage, setStage] = useState<Stage>("splash");
   const [loadingSession, setLoadingSession] = useState(false);
@@ -28,8 +38,29 @@ export default function Home() {
     userId: string;
     tableNumber: number;
     token: string;
-    sessionId: string; // Added sessionId
+    sessionId: string;
   } | null>(null);
+  
+  // Global cart state
+  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+  const [showCart, setShowCart] = useState(false);
+
+  // Load cart from localStorage on mount
+  useEffect(() => {
+    const savedCart = localStorage.getItem("redbutCart");
+    if (savedCart) {
+      try {
+        setOrderItems(JSON.parse(savedCart));
+      } catch (e) {
+        console.error("Failed to parse saved cart", e);
+      }
+    }
+  }, []);
+
+  // Save cart to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem("redbutCart", JSON.stringify(orderItems));
+  }, [orderItems]);
 
   // Hide splash screen after 3 seconds
   useEffect(() => {
@@ -53,7 +84,7 @@ export default function Home() {
             userId: data.userId,
             tableNumber: data.tableNumber,
             token: data.token,
-            sessionId: data.sessionId, // Set sessionId from localStorage
+            sessionId: data.sessionId,
           });
           return;
         } catch (e) {
@@ -92,7 +123,7 @@ export default function Home() {
             userId: data.userId,
             tableNumber: data.tableNumber,
             token: data.token,
-            sessionId: data.sessionId, // Set sessionId from API response
+            sessionId: data.sessionId,
           });
         } else {
           console.error("Failed to create session", data);
@@ -105,7 +136,7 @@ export default function Home() {
         setLoadingSession(false);
       }
     };
-    if (stage === "home" && !userData) { // Attempt to ensure session only when at home and no user data
+    if (stage === "home" && !userData) {
         ensureSession();
     }
   }, [stage, userData]);
@@ -128,10 +159,58 @@ export default function Home() {
   const handleWaiterRequested = async () => {
     // Show the waiter informed splash screen
     setStage("waiterInformed");
-    
-    // No need to make a request here as the ChatGateway already
-    // creates the request in the database when it detects a waiter request
   };
+
+  // Cart management functions
+  const addToCart = (item: OrderItem) => {
+    setOrderItems(prev => {
+      const existingItem = prev.find(orderItem => 
+        orderItem.menuItemId === item.menuItemId && 
+        JSON.stringify(orderItem.selectedOptions || []) === JSON.stringify(item.selectedOptions || [])
+      );
+      
+      if (existingItem) {
+        return prev.map(orderItem => 
+          orderItem.menuItemId === item.menuItemId && 
+          JSON.stringify(orderItem.selectedOptions || []) === JSON.stringify(item.selectedOptions || [])
+            ? { ...orderItem, quantity: orderItem.quantity + item.quantity }
+            : orderItem
+        );
+      } else {
+        return [...prev, item];
+      }
+    });
+  };
+
+  const removeFromCart = (itemId: string, selectedOptions?: string[]) => {
+    setOrderItems(prev => {
+      const existingItem = prev.find(item => 
+        item.menuItemId === itemId && 
+        JSON.stringify(item.selectedOptions || []) === JSON.stringify(selectedOptions || [])
+      );
+      
+      if (existingItem && existingItem.quantity > 1) {
+        return prev.map(item => 
+          item.menuItemId === itemId && 
+          JSON.stringify(item.selectedOptions || []) === JSON.stringify(selectedOptions || [])
+            ? { ...item, quantity: item.quantity - 1 }
+            : item
+        );
+      } else {
+        return prev.filter(item => 
+          !(item.menuItemId === itemId && 
+          JSON.stringify(item.selectedOptions || []) === JSON.stringify(selectedOptions || []))
+        );
+      }
+    });
+  };
+
+  const clearCart = () => {
+    setOrderItems([]);
+  };
+
+  // Calculate total items in cart
+  const totalCartItems = orderItems.reduce((sum, item) => sum + item.quantity, 0);
 
   /* ------------------------------------------------------------------
    *  Burger-menu navigation callbacks
@@ -139,7 +218,19 @@ export default function Home() {
   const openRequests = () => setStage("requests");
   const openBill = () => setStage("bill");
   const openRateWaiter = () => setStage("rateWaiter");
-  const openFoodMenu = () => setStage("foodMenu"); // Added openFoodMenu function
+  const openFoodMenu = () => setStage("foodMenu");
+  const openCart = () => {
+    if (stage === "foodMenu") {
+      setShowCart(true);
+    } else {
+      setStage("foodMenu");
+      // Set a small delay to show cart after menu loads
+      setTimeout(() => setShowCart(true), 100);
+    }
+  };
+
+  // Check if we should show the cart icon (not on splash screens)
+  const showCartIcon = !["splash", "agentSplash", "waiterInformed"].includes(stage) && totalCartItems > 0;
 
   return (
     <>
@@ -164,14 +255,13 @@ export default function Home() {
             userId={userData.userId}
             tableNumber={userData.tableNumber}
             token={userData.token}
-            // sessionId={userData.sessionId} // ChatWindow might not need sessionId directly if it's for general chat
             inputPlaceholder="e.g Tell me about your specials"
             headerText="Waiter Assistant"
             showCloseButton={true}
             className="w-full h-full md:w-[500px] md:h-[600px] md:rounded-xl"
           />
         </div>
-      ) : stage === "foodMenu" && userData ? ( // Added foodMenu stage rendering
+      ) : stage === "foodMenu" && userData ? (
         <div className="fixed inset-0 bg-background z-40 p-0 md:p-4 overflow-y-auto">
           <FoodMenu
             userId={userData.userId}
@@ -179,6 +269,13 @@ export default function Home() {
             tableNumber={userData.tableNumber}
             token={userData.token}
             onCloseMenu={() => setStage("home")}
+            orderItems={orderItems}
+            setOrderItems={setOrderItems}
+            addToCart={addToCart}
+            removeFromCart={removeFromCart}
+            clearCart={clearCart}
+            showCart={showCart}
+            setShowCart={setShowCart}
           />
         </div>
       ) : stage === "requests" && userData ? (
@@ -254,7 +351,7 @@ export default function Home() {
             {/* ───────────────────────── Burger Menu ───────────────────────── */}
             <div className="mt-6 flex justify-center">
               <BurgerMenu
-                onFoodMenuClick={openFoodMenu} // Pass onFoodMenuClick to BurgerMenu
+                onFoodMenuClick={openFoodMenu}
                 onMyRequestsClick={openRequests}
                 onMyBillClick={openBill}
                 onRateWaiterClick={openRateWaiter}
@@ -275,6 +372,24 @@ export default function Home() {
             </button>
           </motion.div>
         </div>
+      )}
+
+      {/* Floating Cart Icon - Shows on all screens except splash screens when cart has items */}
+      {showCartIcon && (
+        <motion.button
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          className="fixed bottom-6 right-6 p-3 bg-primary-500 text-white rounded-full shadow-lg z-50 flex items-center justify-center"
+          onClick={openCart}
+          aria-label="View cart"
+        >
+          <ShoppingCart className="h-6 w-6" />
+          {totalCartItems > 0 && (
+            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+              {totalCartItems}
+            </span>
+          )}
+        </motion.button>
       )}
     </>
   );

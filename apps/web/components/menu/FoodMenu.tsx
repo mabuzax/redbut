@@ -15,7 +15,8 @@ import {
   ArrowLeftCircle,
   ShoppingBag,
   ImageIcon,
-  Loader
+  Loader,
+  Check
 } from "lucide-react";
 
 interface MenuItem {
@@ -38,6 +39,7 @@ interface OrderItem {
   price: number;
   quantity: number;
   image?: string;
+  selectedOptions?: string[];
 }
 
 interface FoodMenuProps {
@@ -46,6 +48,14 @@ interface FoodMenuProps {
   tableNumber: number;
   token: string;
   onCloseMenu: () => void;
+  // New props for cart management
+  orderItems: OrderItem[];
+  setOrderItems?: React.Dispatch<React.SetStateAction<OrderItem[]>>;
+  addToCart: (item: OrderItem) => void;
+  removeFromCart: (itemId: string, selectedOptions?: string[]) => void;
+  clearCart: () => void;
+  showCart: boolean;
+  setShowCart: (show: boolean) => void;
 }
 
 const ImagePlaceholder = ({ name }: { name: string }) => (
@@ -57,7 +67,19 @@ const ImagePlaceholder = ({ name }: { name: string }) => (
   </div>
 );
 
-const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMenuProps) => {
+const FoodMenu = ({ 
+  userId, 
+  sessionId, 
+  tableNumber, 
+  token, 
+  onCloseMenu,
+  orderItems,
+  addToCart,
+  removeFromCart,
+  clearCart,
+  showCart,
+  setShowCart
+}: FoodMenuProps) => {
   // Menu state
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
@@ -76,33 +98,17 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState<string>("");
   
-  // Cart state
-  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
-  const [showCart, setShowCart] = useState(false);
-  const [submittingOrder, setSubmittingOrder] = useState(false);
-  
   // Modal state
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [showModal, setShowModal] = useState(false);
+  
+  // Selected options state
+  const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
+  
+  // Order submission state
+  const [submittingOrder, setSubmittingOrder] = useState(false);
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
-
-  // Load cart from localStorage on mount
-  useEffect(() => {
-    const savedCart = localStorage.getItem("redbutCart");
-    if (savedCart) {
-      try {
-        setOrderItems(JSON.parse(savedCart));
-      } catch (e) {
-        console.error("Failed to parse saved cart", e);
-      }
-    }
-  }, []);
-
-  // Save cart to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem("redbutCart", JSON.stringify(orderItems));
-  }, [orderItems]);
 
   const fetchMenuItems = useCallback(async () => {
     setLoading(true);
@@ -126,7 +132,13 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
         new Set(activeItems.map((item: MenuItem) => item.category))
       ).filter((cat): cat is string => typeof cat === "string");
       
-      setCategories(["all", ...uniqueCategories]);
+      // Add "Extras" category if it doesn't exist
+      const categoriesWithExtras = ["all", ...uniqueCategories];
+      if (!categoriesWithExtras.includes("Extras")) {
+        categoriesWithExtras.push("Extras");
+      }
+      
+      setCategories(categoriesWithExtras);
       setDisplayedItemsCount(15); // Reset displayed count when items change
     } catch (e: any) {
       setError(e.message || "Failed to load menu items");
@@ -143,48 +155,25 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
     setFailedImages(prev => new Set(prev).add(imageUrl));
   };
 
-  const addToOrder = (item: MenuItem) => {
-    setOrderItems(prev => {
-      const existingItem = prev.find(orderItem => orderItem.menuItemId === item.id);
-      
-      if (existingItem) {
-        return prev.map(orderItem => 
-          orderItem.menuItemId === item.id 
-            ? { ...orderItem, quantity: orderItem.quantity + 1 } 
-            : orderItem
-        );
-      } else {
-        toast.success(`Added ${item.name} to your cart`, {
-          position: "bottom-center",
-          duration: 2000,
-          icon: '🛒'
-        });
-        
-        return [...prev, {
-          menuItemId: item.id,
-          name: item.name,
-          price: item.price,
-          quantity: 1,
-          image: item.image
-        }];
-      }
+  const handleAddToOrder = (item: MenuItem, options: string[] = []) => {
+    addToCart({
+      menuItemId: item.id,
+      name: item.name,
+      price: item.price,
+      quantity: 1,
+      image: item.image,
+      selectedOptions: options.length > 0 ? options : undefined
+    });
+    
+    toast.success(`Added ${item.name} to your cart`, {
+      position: "bottom-center",
+      duration: 2000,
+      icon: '🛒'
     });
   };
 
-  const removeFromOrder = (itemId: string) => {
-    setOrderItems(prev => {
-      const existingItem = prev.find(item => item.menuItemId === itemId);
-      
-      if (existingItem && existingItem.quantity > 1) {
-        return prev.map(item => 
-          item.menuItemId === itemId 
-            ? { ...item, quantity: item.quantity - 1 } 
-            : item
-        );
-      } else {
-        return prev.filter(item => item.menuItemId !== itemId);
-      }
-    });
+  const handleRemoveFromOrder = (itemId: string, selectedOptions?: string[]) => {
+    removeFromCart(itemId, selectedOptions);
   };
 
   const submitOrder = async () => {
@@ -208,7 +197,8 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
           items: orderItems.map(item => ({
             menuItemId: item.menuItemId,
             quantity: item.quantity,
-            price: item.price
+            price: item.price,
+            selectedOptions: item.selectedOptions
           }))
         })
       });
@@ -218,7 +208,7 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
       }
       
       // Clear cart after successful order
-      setOrderItems([]);
+      clearCart();
       setShowCart(false);
       toast.success("Order placed successfully!", {
         position: "bottom-center",
@@ -300,6 +290,8 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
 
   const viewItemDetails = (item: MenuItem) => {
     setSelectedItem(item);
+    // Initialize selected options with empty array
+    setSelectedOptions([]);
     setShowModal(true);
   };
 
@@ -315,6 +307,14 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
     if (category === "all") {
       setDisplayedItemsCount(15); // Reset to first 15 items for ALL category
     }
+  };
+
+  const toggleOption = (option: string) => {
+    setSelectedOptions(prev => 
+      prev.includes(option) 
+        ? prev.filter(o => o !== option) 
+        : [...prev, option]
+    );
   };
 
   return (
@@ -453,7 +453,7 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
                         <Eye className="h-4 w-4 mr-1" /> View
                       </button>
                       <button
-                        onClick={() => addToOrder(item)}
+                        onClick={() => handleAddToOrder(item)}
                         className="flex-1 py-2 bg-primary-500 text-white rounded-md hover:bg-primary-600 transition-colors flex items-center justify-center"
                       >
                         <Plus className="h-4 w-4 mr-1" /> Add to Order
@@ -551,14 +551,28 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
                 {selectedItem.available_options && selectedItem.available_options.length > 0 && (
                   <div className="mb-4">
                     <h3 className="text-sm font-medium text-gray-700 mb-1">Available Options</h3>
-                    <div className="flex flex-wrap gap-1">
+                    <div className="grid grid-cols-2 gap-2">
                       {selectedItem.available_options.map((option, index) => (
-                        <span 
+                        <button 
                           key={index} 
-                          className="px-2 py-1 bg-gray-100 text-xs rounded-full text-gray-600"
+                          className={`flex items-center p-2 rounded-md border ${
+                            selectedOptions.includes(option) 
+                              ? 'bg-primary-50 border-primary-500 text-primary-700' 
+                              : 'border-gray-200 hover:bg-gray-50'
+                          }`}
+                          onClick={() => toggleOption(option)}
                         >
-                          {option.replace('_', ' ')}
-                        </span>
+                          <div className={`w-5 h-5 rounded-md mr-2 flex items-center justify-center ${
+                            selectedOptions.includes(option) 
+                              ? 'bg-primary-500' 
+                              : 'border border-gray-300'
+                          }`}>
+                            {selectedOptions.includes(option) && (
+                              <Check className="h-3 w-3 text-white" />
+                            )}
+                          </div>
+                          <span className="text-sm">{option.replace('_', ' ')}</span>
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -586,7 +600,7 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
                 </button>
                 <button
                   onClick={() => {
-                    addToOrder(selectedItem);
+                    handleAddToOrder(selectedItem, selectedOptions);
                     setShowModal(false);
                   }}
                   className="flex-1 py-3 bg-primary-500 text-white rounded-md hover:bg-primary-600 transition-colors flex items-center justify-center"
@@ -634,8 +648,8 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {orderItems.map(item => (
-                      <div key={item.menuItemId} className="flex items-center">
+                    {orderItems.map((item, index) => (
+                      <div key={`${item.menuItemId}-${index}`} className="flex items-center">
                         <div className="w-16 h-16 mr-3 rounded overflow-hidden flex-shrink-0">
                           {(!item.image || failedImages.has(item.image)) ? (
                             <ImagePlaceholder name={item.name} />
@@ -651,10 +665,15 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
                         <div className="flex-1">
                           <p className="font-medium">{item.name}</p>
                           <p className="text-sm text-gray-500">${Number(item.price).toFixed(2)} each</p>
+                          {item.selectedOptions && item.selectedOptions.length > 0 && (
+                            <p className="text-xs text-gray-500">
+                              Options: {item.selectedOptions.join(', ')}
+                            </p>
+                          )}
                         </div>
                         <div className="flex items-center">
                           <button 
-                            onClick={() => removeFromOrder(item.menuItemId)}
+                            onClick={() => handleRemoveFromOrder(item.menuItemId, item.selectedOptions)}
                             className="p-1 rounded-full bg-gray-200 hover:bg-gray-300 transition-colors"
                           >
                             <Minus className="h-4 w-4" />
@@ -663,7 +682,9 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
                           <button 
                             onClick={() => {
                               const menuItem = menuItems.find(mi => mi.id === item.menuItemId);
-                              if (menuItem) addToOrder(menuItem);
+                              if (menuItem) {
+                                handleAddToOrder(menuItem, item.selectedOptions);
+                              }
                             }}
                             className="p-1 rounded-full bg-gray-200 hover:bg-gray-300 transition-colors"
                           >
