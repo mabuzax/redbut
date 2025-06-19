@@ -5,6 +5,7 @@ import { PrismaService } from '../common/prisma.service';
 import { AuthModule } from '../auth/auth.module';
 import { RequestsModule } from '../requests/requests.module';
 import { OrdersModule } from '../orders/orders.module';
+import { OrdersService } from '../orders/orders.service';
 import { UsersModule } from '../users/users.module';
 
 /**
@@ -22,6 +23,7 @@ import { UsersModule } from '../users/users.module';
   providers: [
     WaiterService,
     PrismaService, // Provided globally, but explicitly listed here for clarity if needed
+    OrdersService,
   ],
   exports: [WaiterService], // Export if other modules need to inject WaiterService
 })

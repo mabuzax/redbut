@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
-import { Order, Shift } from '@prisma/client';
 import {
   CurrentShiftOrdersDataPoint,
   DailyOrdersDataPoint,
@@ -178,17 +177,29 @@ export class AdminOrdersService {
 
 
     const todaysOrders = await this.prisma.order.findMany({
-        where: {
-            createdAt: {
-                gte: startOfToday,
-                lte: now, // up to current time
-            },
+      where: {
+        createdAt: {
+          gte: startOfToday,
+          lte: now, // up to current time
         },
+      },
+      include: {
+        orderItems: {
+          include: { menuItem: { select: { name: true } } },
+        },
+      },
     });
 
-    const totalRevenueToday = todaysOrders.reduce((sum, order) => sum + order.price.toNumber(), 0);
+    // ─── Revenue & AOV ──────────────────────────────────────────────────────
+    let totalRevenueToday = 0;
+    todaysOrders.forEach(order => {
+      order.orderItems.forEach(oi => {
+        totalRevenueToday += oi.price.toNumber() * oi.quantity;
+      });
+    });
     const totalOrdersToday = todaysOrders.length;
-    const averageOrderValue = totalOrdersToday > 0 ? totalRevenueToday / totalOrdersToday : 0;
+    const averageOrderValue =
+      totalOrdersToday > 0 ? totalRevenueToday / totalOrdersToday : 0;
 
     const ordersByHour: { [hour: number]: number } = {};
     for (let i = 0; i < 24; i++) ordersByHour[i] = 0;
@@ -211,15 +222,19 @@ export class AdminOrdersService {
         : "N/A (No orders today)";
 
 
-    const itemCounts: { [item: string]: number } = {};
+    // ─── Top-Selling Items ─────────────────────────────────────────────────
+    const itemCounts: Record<string, number> = {};
     todaysOrders.forEach(order => {
-        itemCounts[order.item] = (itemCounts[order.item] || 0) + 1;
+      order.orderItems.forEach(oi => {
+        const name = oi.menuItem.name;
+        itemCounts[name] = (itemCounts[name] || 0) + oi.quantity;
+      });
     });
 
     const topSellingItems: TopSellingItem[] = Object.entries(itemCounts)
-        .map(([item, count]) => ({ item, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5);
+      .map(([item, count]) => ({ item, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
 
     return {
       totalRevenueToday: parseFloat(totalRevenueToday.toFixed(2)),

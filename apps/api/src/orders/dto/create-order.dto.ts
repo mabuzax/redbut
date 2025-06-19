@@ -1,11 +1,54 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsInt, IsNotEmpty, IsString, IsNumber, Min, Max, Length } from 'class-validator';
+import {
+  IsInt,
+  IsNotEmpty,
+  IsString,
+  IsNumber,
+  Min,
+  Max,
+  Length,
+  IsArray,
+  ValidateNested,
+  IsOptional,
+} from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 
 /**
  * DTO for creating a new order item
  * Contains table number, session ID, item description, and price
  */
+export class CreateOrderItemDto {
+  @ApiProperty({
+    description: 'Referenced MenuItem ID',
+    example: 'd290f1ee-6c54-4b01-90e6-d701748f0851',
+  })
+  @IsNotEmpty()
+  @IsString()
+  menuItemId: string;
+
+  @ApiProperty({
+    description: 'Quantity of the menu item ordered',
+    example: 2,
+    minimum: 1,
+  })
+  @IsNotEmpty()
+  @IsInt()
+  @Min(1)
+  quantity: number;
+
+  @ApiProperty({
+    description: 'Item price at the moment of ordering',
+    example: 12.99,
+    type: Number,
+    minimum: 0.01,
+  })
+  @IsNotEmpty()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  @Type(() => Number)
+  price: number;
+}
+
 export class CreateOrderDto {
   @ApiProperty({
     description: 'Restaurant table number',
@@ -30,30 +73,21 @@ export class CreateOrderDto {
   sessionId: string;
 
   @ApiProperty({
-    description: 'Item description',
-    example: 'Margherita Pizza',
-    minLength: 2,
-    maxLength: 100,
+    description: 'Optional user ID if the diner is registered',
+    example: 'b3c9d851-4f1f-4dd2-9fbd-0c42d6e9c2ee',
+    required: false,
   })
-  @IsNotEmpty({ message: 'Item description is required' })
-  @IsString({ message: 'Item description must be a string' })
-  @Length(2, 100, {
-    message: 'Item description must be between 2 and 100 characters',
-  })
-  item: string;
+  @IsOptional()
+  @IsString()
+  userId?: string;
 
   @ApiProperty({
-    description: 'Item price',
-    example: 12.99,
-    type: Number,
-    minimum: 0.01,
+    description: 'Array of items included in the order',
+    type: () => [CreateOrderItemDto],
   })
-  @IsNotEmpty({ message: 'Price is required' })
-  @IsNumber(
-    { maxDecimalPlaces: 2 },
-    { message: 'Price must be a number with at most 2 decimal places' }
-  )
-  @Min(0.01, { message: 'Price must be at least 0.01' })
-  @Type(() => Number)
-  price: number;
+  @IsNotEmpty()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateOrderItemDto)
+  items: CreateOrderItemDto[];
 }

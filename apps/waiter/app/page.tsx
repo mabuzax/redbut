@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Loader2, Star, User, Bot, MessageSquare, RefreshCw, X } from "lucide-react";
+import { Loader2, Star, User, Bot, MessageSquare, RefreshCw, X, ShoppingBag } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import TimeAgo from "react-timeago";
 import { waiterApi, WaiterRequest, RequestsSummary, ReviewsSummary, Review, AIAnalysisResponse, LoginResponse } from "../lib/api";
 import LoginForm from "../components/auth/LoginForm";
 import ChangePasswordForm from "../components/auth/ChangePasswordForm";
+import OrderManagement from "../components/orders/OrderManagement";
 
 /* -------------------------------------------------------------------------- */
 /* Utility helpers                                                            */
@@ -451,6 +452,70 @@ function RequestsSummaryCard({ token, onOpen }: RequestsSummaryCardProps) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Orders Summary Card                                                        */
+/* -------------------------------------------------------------------------- */
+interface OrdersSummaryCardProps {
+  token: string;
+  onOpen?: () => void;
+}
+
+function OrdersSummaryCard({ token, onOpen }: OrdersSummaryCardProps) {
+  const [newOrdersCount, setNewOrdersCount] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    const fetchOrdersCount = async () => {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/waiter/orders/by-table`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          const newCount = data.reduce((sum: number, table: any) => sum + (table.newOrdersCount || 0), 0);
+          setNewOrdersCount(newCount);
+        }
+      } catch (error) {
+        console.error("Failed to fetch orders count", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchOrdersCount();
+  }, [token]);
+  
+  return (
+    <div className="bg-white text-gray-900 rounded-lg shadow-md p-6 border border-gray-200 flex flex-col items-center justify-center text-center">
+      <ShoppingBag className="h-12 w-12 text-primary-500 mb-4" />
+      <h2 className="text-xl font-semibold tracking-tight text-gray-900 mb-4">Orders</h2>
+      {loading ? (
+        <Loader2 className="h-5 w-5 animate-spin text-primary-500" />
+      ) : (
+        <div className="relative">
+          <p className="text-lg text-gray-900">
+            Manage table orders
+          </p>
+          {newOrdersCount > 0 && (
+            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+              {newOrdersCount}
+            </span>
+          )}
+        </div>
+      )}
+      <button
+        onClick={onOpen}
+        className="inline-flex items-center justify-center px-4 py-2 font-medium text-gray-900 bg-gray-100 rounded-full hover:bg-gray-200 active:bg-gray-300 transition-all mt-4"
+      >
+        Manage Orders
+      </button>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /* AI Analysis Card                                                           */
 /* -------------------------------------------------------------------------- */
 function AIAnalysisCard({ token }: { token: string }) {
@@ -665,10 +730,10 @@ function ReviewsSummaryCard({ token }: { token: string }) {
 /* Page root – splash → session → dashboard                                  */
 /* -------------------------------------------------------------------------- */
 
-type Stage = "splash" | "dashboard" | "requests";
+type Stage = "splash" | "dashboard" | "requests" | "orders";
 
 export default function WaiterDashboard() {
-  /* ───── stage control (splash ➜ dashboard / requests) ───── */
+  /* ───── stage control (splash ➜ dashboard / requests / orders) ───── */
   const [stage, setStage] = useState<Stage>("splash");
   /* simple router-like view switch (after splash/session) */
   const [view, setView] = useState<Stage>("dashboard");
@@ -756,13 +821,18 @@ export default function WaiterDashboard() {
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
       <header className="mb-8">
-        <h1 className="text-2xl font-bold text-center">{view === "dashboard" ? "Dashboard" : "Requests"}</h1>
+        <h1 className="text-2xl font-bold text-center">
+          {view === "dashboard" ? "Dashboard" : view === "requests" ? "Requests" : "Orders"}
+        </h1>
       </header>
 
       {view === "dashboard" && (
         <div className="grid grid-cols-1 gap-6 max-w-md mx-auto">
           {/* Requests Summary Card */}
           <RequestsSummaryCard token={userData.token} onOpen={() => setView("requests")} />
+          
+          {/* Orders Summary Card */}
+          <OrdersSummaryCard token={userData.token} onOpen={() => setView("orders")} />
         
           {/* AI Analysis Card */}
           <AIAnalysisCard token={userData.token} />
@@ -783,6 +853,20 @@ export default function WaiterDashboard() {
             </button>
           </div>
           <AllRequestsView token={userData.token} />
+        </div>
+      )}
+      
+      {view === "orders" && (
+        <div>
+          <div className="flex justify-end mb-4">
+            <button
+              onClick={() => setView("dashboard")}
+              className="inline-flex items-center justify-center px-4 py-2 font-medium text-gray-900 bg-gray-100 rounded-full hover:bg-gray-200 active:bg-gray-300 transition-all"
+            >
+              Back to Dashboard
+            </button>
+          </div>
+          <OrderManagement />
         </div>
       )}
     </div>

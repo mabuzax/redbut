@@ -73,6 +73,7 @@ export interface LoginResponse {
   waiterId: string;
   name: string;
   token: string;
+  requiresPasswordChange?: boolean;
 }
 
 export interface ChangePasswordRequest {

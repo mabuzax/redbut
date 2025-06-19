@@ -125,14 +125,43 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
     );
 
     const createOrderTool = tool(
-      async (input: { item: string; price: number }) => {
+      async (input: { menuItemId: string; quantity?: number; price?: number }) => {
         if (this.currentTableNumber === undefined || !this.currentSessionId) throw new Error("Table Number and Session ID are required for createOrderTool");
-        return this.toSafeContent(await this.ordersService.create({ tableNumber: this.currentTableNumber, sessionId: this.currentSessionId, item: input.item, price: input.price }));
+        return this.toSafeContent(
+          await this.ordersService.create({
+            tableNumber: this.currentTableNumber,
+            sessionId: this.currentSessionId,
+            items: [
+              {
+                menuItemId: input.menuItemId,
+                quantity: input.quantity ?? 1,
+                price: input.price ?? 0, // TODO: replace with real price lookup if needed
+              },
+            ],
+          }),
+        );
       },
       {
         name: 'createOrder',
-        description: 'Creates a new order for a menu item. Requires item name and price. The system will automatically use the current table number and session ID.',
+        description:
+          'Creates a new order for the specified menu item ID. Quantity defaults to 1 and price is optional (placeholder if omitted).',
         schema: z.object({
+          menuItemId: z
+            .string()
+            .uuid()
+            .describe('The MenuItem ID to order.'),
+          quantity: z
+            .number()
+            .int()
+            .min(1)
+            .optional()
+            .describe('Quantity of the item (default 1).'),
+          price: z
+            .number()
+            .optional()
+            .describe(
+              'Price of the item at order time (optional; placeholder used if omitted).',
+            ),
         }),
       },
     );

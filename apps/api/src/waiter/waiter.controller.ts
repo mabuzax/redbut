@@ -28,6 +28,7 @@ import { WaiterService } from './waiter.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles, RolesGuard } from '../auth/guards/role.guard';
 import { RequestStatus } from '@prisma/client'; // Import RequestStatus from Prisma client
+import { OrderStatus } from '@prisma/client';
 import {
   IsInt,
   IsOptional,
@@ -36,6 +37,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { IsEnum } from 'class-validator';
 
 /**
  * DTO used for submitting a waiter rating from the client app.
@@ -66,6 +68,11 @@ class WaiterRatingDto {
   @IsOptional()
   @IsString()
   comment?: string | null;
+}
+
+class UpdateOrderStatusDto {
+  @IsEnum(OrderStatus)
+  status!: OrderStatus;
 }
 
 @ApiTags('waiter')
@@ -200,6 +207,40 @@ export class WaiterController {
     @Body('status') newStatus: 'Acknowledged' | 'InProgress' | 'Completed',
   ): Promise<any> {
     return this.waiterService.updateRequestStatus(id, newStatus);
+  }
+
+  @Get('orders')
+  @Roles('waiter')
+  @ApiOperation({ summary: 'Get all orders for allocated tables' })
+  @ApiQuery({ name: 'status', required: false, enum: [...Object.values(OrderStatus), 'all'] })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'pageSize', required: false, type: Number, example: 20 })
+  async getOrders(
+    @Query('page',     new DefaultValuePipe(1),  ParseIntPipe) page     = 1,
+    @Query('pageSize', new DefaultValuePipe(20), ParseIntPipe) pageSize = 20,
+    @Query('status') status?: string,
+  ): Promise<any> {
+    return this.waiterService.getOrders({ page, pageSize, status });
+  }
+
+  @Get('orders/by-table')
+  @Roles('waiter')
+  @ApiOperation({ summary: 'Get orders grouped by table' })
+  async getOrdersByTable(): Promise<any> {
+    return this.waiterService.getOrdersByTable();
+  }
+
+  @Put('orders/:id/status')
+  @Roles('waiter')
+  @ApiOperation({ summary: 'Update order status' })
+  @ApiParam({ name: 'id', required: true, description: 'Order ID' })
+  @ApiBody({ type: UpdateOrderStatusDto })
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async updateOrderStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderStatusDto,
+  ) {
+    return this.waiterService.updateOrderStatus(id, dto.status);
   }
 
   @Get('requests/summary')

@@ -1,29 +1,88 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
-import { RequestsService } from '../requests/requests.service';
-import { RequestStatus, Prisma } from '@prisma/client'; // Import RequestStatus and Prisma from Prisma client
+import { OrderStatus, Prisma, RequestStatus } from '@prisma/client';
+import { OrdersService } from '../orders/orders.service';
 
-/**
- * Service for managing waiter-specific operations and dashboard data.
- * Handles retrieving active requests, updating request status, fetching summaries,
- * reviews, and AI analysis.
- */
 @Injectable()
 export class WaiterService {
   private readonly logger = new Logger(WaiterService.name);
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly requestsService: RequestsService,
+    private readonly ordersService: OrdersService,
   ) {}
 
   /**
-   * Get a list of active requests for the waiter dashboard.
-   * Active requests are those with status 'New', 'Acknowledged', or 'InProgress'.
-   * @returns Array of active requests.
+   * Get all requests with filtering and pagination
+   * @param options Filter and pagination options
+   * @returns Array of requests
+   */
+  async getAllRequests(options: {
+    status?: string;
+    sort?: 'time' | 'status';
+    search?: string;
+    page: number;
+    pageSize: number;
+  }): Promise<any[]> {
+    const { status, sort, search, page, pageSize } = options;
+
+    // Build the where clause based on filters
+    const where: Prisma.RequestWhereInput = {};
+
+    // Filter by status if provided and not 'all'
+    if (status && status !== 'all') {
+      where.status = status as RequestStatus;
+    }
+
+    // Add search filter if provided
+    if (search) {
+      where.content = {
+        contains: search,
+        mode: 'insensitive', // Case-insensitive search
+      };
+    }
+
+    // Calculate pagination
+    const skip = (page - 1) * pageSize;
+
+    // Determine sort order
+    const orderBy: Prisma.RequestOrderByWithRelationInput = {};
+    if (sort === 'status') {
+      orderBy.status = 'asc';
+      orderBy.createdAt = 'desc'; // Secondary sort by creation time
+    } else {
+      // Default sort by time (newest first)
+      orderBy.createdAt = 'desc';
+    }
+
+    try {
+      const requests = await this.prisma.request.findMany({
+        where,
+        orderBy,
+        skip,
+        take: pageSize,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      return requests;
+    } catch (error) {
+      this.logger.error(`Error retrieving requests: ${error.message}`, error.stack);
+      return [];
+    }
+  }
+
+  /**
+   * Get active requests (New, Acknowledged, InProgress)
+   * @returns Array of active requests
    */
   async getActiveRequests(): Promise<any[]> {
-    this.logger.log('Fetching active requests for waiter dashboard');
     try {
       const requests = await this.prisma.request.findMany({
         where: {
@@ -31,118 +90,125 @@ export class WaiterService {
             in: [RequestStatus.New, RequestStatus.Acknowledged, RequestStatus.InProgress],
           },
         },
-        orderBy: {
-          createdAt: 'desc',
-        },
-        select: {
-          id: true,
-          content: true,
-          status: true,
-          createdAt: true,
-          tableNumber: true,
+        orderBy: [
+          { status: 'asc' }, // New first, then Acknowledged, then InProgress
+          { createdAt: 'asc' }, // Oldest first within each status
+        ],
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
         },
       });
-      return requests.map(req => ({
-        ...req,
-        content: req.content.substring(0, 50) + (req.content.length > 50 ? '...' : ''),
+
+      return requests.map((request) => ({
+        ...request,
+        // Truncate content to first 50 characters for preview
+        content:
+          request.content.length > 50
+            ? `${request.content.substring(0, 50)}...`
+            : request.content,
       }));
     } catch (error) {
-      this.logger.error(`Failed to fetch active requests: ${error.message}`);
+      this.logger.error(`Error retrieving active requests: ${error.message}`, error.stack);
       return [];
     }
   }
 
   /**
-   * Update the status of a specific request.
-   * @param requestId The ID of the request to update.
-   * @param newStatus The new status for the request ('Acknowledged', 'InProgress', 'Completed').
-   * @returns The updated request.
-   * @throws NotFoundException if the request is not found.
-   * @throws BadRequestException if the status transition is invalid.
+   * Update the status of a request
+   * @param id Request ID
+   * @param newStatus New status to set
+   * @returns Updated request
    */
-  async updateRequestStatus(requestId: string, newStatus: 'Acknowledged' | 'InProgress' | 'Completed'): Promise<any> {
-    this.logger.log(`Updating request ${requestId} status to ${newStatus}`);
+  async updateRequestStatus(
+    id: string,
+    newStatus: 'Acknowledged' | 'InProgress' | 'Completed',
+  ): Promise<any> {
     try {
-      // Use the existing requestsService to handle the update logic and validation
-      const updatedRequest = await this.requestsService.update(requestId, { status: newStatus });
+      // Validate that the request exists
+      const request = await this.prisma.request.findUnique({
+        where: { id },
+      });
+
+      if (!request) {
+        throw new NotFoundException(`Request with ID ${id} not found`);
+      }
+
+      // Validate status transitions
+      const validTransitions: Record<RequestStatus, RequestStatus[]> = {
+        [RequestStatus.New]: [
+          RequestStatus.Acknowledged,
+          RequestStatus.InProgress,
+          RequestStatus.Completed,
+        ],
+        [RequestStatus.Acknowledged]: [RequestStatus.InProgress, RequestStatus.Completed],
+        [RequestStatus.InProgress]: [RequestStatus.Completed],
+        [RequestStatus.Completed]: [], // Cannot transition from Completed
+        [RequestStatus.OnHold]: [RequestStatus.InProgress, RequestStatus.Completed],
+        [RequestStatus.Cancelled]: [], // Cannot transition from Cancelled
+        [RequestStatus.Done]: [], // Cannot transition from Done
+      };
+
+      const targetStatus = newStatus as RequestStatus;
+      const currentStatus = request.status;
+
+      if (!validTransitions[currentStatus].includes(targetStatus)) {
+        throw new Error(
+          `Invalid status transition from ${currentStatus} to ${targetStatus}`,
+        );
+      }
+
+      // Update the request status
+      const updatedRequest = await this.prisma.$transaction(async (tx) => {
+        // Update the request
+        const updated = await tx.request.update({
+          where: { id },
+          data: { status: targetStatus },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        });
+
+        // Log the status change
+        await tx.requestLog.create({
+          data: {
+            requestId: id,
+            action: `Status changed from ${currentStatus} to ${targetStatus}`,
+          },
+        });
+
+        return updated;
+      });
+
       return updatedRequest;
     } catch (error) {
-      this.logger.error(`Failed to update request status: ${error.message}`);
-      throw error; // Re-throw specific exceptions from requestsService
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(
+        `Error updating request status: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to update request status: ${error.message}`);
     }
   }
 
   /**
-   * Get a flexible list of **all** requests for the waiter wall.
-   * Supports filtering by status, full-text search, custom sorting and
-   * basic pagination.
-   */
-  async getAllRequests(opts: {
-    status?: string;
-    sort?: 'time' | 'status';
-    search?: string;
-    page?: number;
-    pageSize?: number;
-  }): Promise<any[]> {
-    const {
-      status = 'all',
-      sort = 'time',
-      search,
-      page = 1,
-      pageSize = 20,
-    } = opts;
-
-    this.logger.log(
-      `Fetching all requests – status=${status} sort=${sort} search=${search ?? '∅'} page=${page}`,
-    );
-
-    /* ------------------------------------------------------------ */
-    /* Build dynamic Prisma query                                    */
-    /* ------------------------------------------------------------ */
-    const where: any = {};
-
-    // Status filter (unless 'all')
-    if (status && status !== 'all') {
-      where.status = status;
-    }
-
-    // Full-text search in content (simple contains for MVP)
-    if (search && search.trim().length > 0) {
-      where.content = {
-        contains: search.trim(),
-        mode: 'insensitive',
-      };
-    }
-
-    // Sorting
-    const orderBy =
-      sort === 'status'
-        ? [{ status: Prisma.SortOrder.asc }, { createdAt: Prisma.SortOrder.desc }]
-        : [{ createdAt: Prisma.SortOrder.desc }]; // newest first (default)
-
-    const skip = (Math.max(page, 1) - 1) * Math.max(pageSize, 1);
-
-    try {
-      return await this.prisma.request.findMany({
-        where,
-        orderBy,
-        skip,
-        take: pageSize,
-      });
-    } catch (error) {
-      this.logger.error(`Failed to fetch requests: ${error.message}`);
-      return [];
-    }
-  }
-
-  /**
-   * Get a summary of open and closed requests.
-   * @returns Object with counts of open and closed requests.
+   * Get a summary of open and closed requests
+   * @returns Counts of open and closed requests
    */
   async getRequestsSummary(): Promise<{ open: number; closed: number }> {
-    this.logger.log('Fetching requests summary');
     try {
-      const openRequests = await this.prisma.request.count({
+      const openCount = await this.prisma.request.count({
         where: {
           status: {
             in: [RequestStatus.New, RequestStatus.Acknowledged, RequestStatus.InProgress],
@@ -150,7 +216,7 @@ export class WaiterService {
         },
       });
 
-      const closedRequests = await this.prisma.request.count({
+      const closedCount = await this.prisma.request.count({
         where: {
           status: {
             in: [RequestStatus.Completed, RequestStatus.Cancelled, RequestStatus.Done],
@@ -158,121 +224,148 @@ export class WaiterService {
         },
       });
 
-      return { open: openRequests, closed: closedRequests };
+      return { open: openCount, closed: closedCount };
     } catch (error) {
-      this.logger.error(`Failed to fetch requests summary: ${error.message}`);
+      this.logger.error(
+        `Error retrieving requests summary: ${error.message}`,
+        error.stack,
+      );
       return { open: 0, closed: 0 };
     }
   }
 
   /**
-   * Get a summary of reviews (average rating and total count).
-   * @returns Object with average rating and total reviews.
+   * Get a summary of reviews (average rating and total count)
+   * @returns Average rating and total reviews
    */
   async getReviewsSummary(): Promise<{ averageRating: number; totalReviews: number }> {
-    this.logger.log('Fetching reviews summary');
     try {
-      const result = await this.prisma.review.aggregate({
-        _avg: {
-          rating: true,
-        },
-        _count: {
-          id: true,
-        },
+      const reviews = await this.prisma.review.findMany({
+        select: { rating: true },
       });
 
-      const averageRating = result._avg.rating ? parseFloat(result._avg.rating.toFixed(1)) : 0;
-      const totalReviews = result._count.id;
+      if (reviews.length === 0) {
+        return { averageRating: 0, totalReviews: 0 };
+      }
 
-      return { averageRating, totalReviews };
+      const totalRating = reviews.reduce((sum, review) => sum + review.rating, 0);
+      const averageRating = parseFloat((totalRating / reviews.length).toFixed(1));
+
+      return { averageRating, totalReviews: reviews.length };
     } catch (error) {
-      this.logger.error(`Failed to fetch reviews summary: ${error.message}`);
+      this.logger.error(
+        `Error retrieving reviews summary: ${error.message}`,
+        error.stack,
+      );
       return { averageRating: 0, totalReviews: 0 };
     }
   }
 
   /**
-   * Get a paginated list of reviews.
-   * @param page The page number to retrieve.
-   * @param pageSize The number of reviews per page.
-   * @returns Array of reviews.
+   * Get a paginated list of reviews
+   * @param page Page number (default: 1)
+   * @param pageSize Number of reviews per page (default: 10)
+   * @returns Paginated list of reviews
    */
-  async getPaginatedReviews(page: number = 1, pageSize: number = 10): Promise<any[]> {
-    this.logger.log(`Fetching reviews - Page: ${page}, PageSize: ${pageSize}`);
+  async getPaginatedReviews(
+    page = 1,
+    pageSize = 10,
+  ): Promise<any[]> {
     try {
       const skip = (page - 1) * pageSize;
+
       const reviews = await this.prisma.review.findMany({
         skip,
         take: pageSize,
-        orderBy: {
-          createdAt: 'desc',
-        },
-        select: {
-          id: true,
-          rating: true,
-          content: true,
-          createdAt: true,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
         },
       });
+
       return reviews;
     } catch (error) {
-      this.logger.error(`Failed to fetch paginated reviews: ${error.message}`);
+      this.logger.error(
+        `Error retrieving paginated reviews: ${error.message}`,
+        error.stack,
+      );
       return [];
     }
   }
 
   /**
-   * Get AI analysis of waiter performance for today.
-   * This is a placeholder and will return static data for now.
-   * @returns AI analysis text.
+   * Get AI analysis of waiter performance for today
+   * @returns AI analysis text
    */
   async getAIAnalysis(): Promise<string> {
-    this.logger.log('Fetching AI analysis of waiter performance');
-    // Placeholder for actual AI analysis logic
-    return 'Based on current data, your performance today is excellent! Keep up the great work. Average response time is low, and customer satisfaction is high.';
+    try {
+      // This is a placeholder. In a real implementation, this would call an AI service
+      // or use a more sophisticated algorithm to analyze performance data.
+      const today = new Date();
+      const todayString = today.toISOString().split('T')[0];
+
+      // Get some basic metrics for today
+      const requestsHandled = await this.prisma.request.count({
+        where: {
+          status: RequestStatus.Completed,
+          updatedAt: {
+            gte: new Date(`${todayString}T00:00:00Z`),
+            lt: new Date(`${todayString}T23:59:59Z`),
+          },
+        },
+      });
+
+      const averageRating = await this.prisma.review.aggregate({
+        where: {
+          createdAt: {
+            gte: new Date(`${todayString}T00:00:00Z`),
+            lt: new Date(`${todayString}T23:59:59Z`),
+          },
+        },
+        _avg: {
+          rating: true,
+        },
+      });
+
+      // Generate a simple analysis based on the metrics
+      let analysis = `Today (${today.toLocaleDateString()}), you have handled ${requestsHandled} requests. `;
+
+      if (averageRating._avg.rating) {
+        analysis += `Your average rating is ${averageRating._avg.rating.toFixed(
+          1,
+        )} out of 5. `;
+      } else {
+        analysis += `You haven't received any ratings yet today. `;
+      }
+
+      if (requestsHandled > 10) {
+        analysis += `You're doing a great job handling a high volume of requests!`;
+      } else if (requestsHandled > 5) {
+        analysis += `You're maintaining a steady pace with request handling.`;
+      } else {
+        analysis += `It's been a quiet day so far.`;
+      }
+
+      return analysis;
+    } catch (error) {
+      this.logger.error(`Error generating AI analysis: ${error.message}`, error.stack);
+      return 'Unable to generate performance analysis at this time.';
+    }
   }
 
-  /* ------------------------------------------------------------------
-   *  createRating – store “Rate your Waiter” feedback
-   * ----------------------------------------------------------------- */
   /**
-   * Store a detailed waiter rating submitted from the client section.
-   * All star–fields must be integers in the range 1-5.
+   * Create a new waiter rating
+   * @param dto Rating data
+   * @returns Created rating
    */
-  async createRating(dto: {
-    userId: string;
-    waiterId: string;
-    friendliness: number;
-    orderAccuracy: number;
-    speed: number;
-    attentiveness: number;
-    knowledge: number;
-    comment?: string | null;
-  }) {
-    this.logger.log(
-      `Creating waiter rating – user=${dto.userId} waiter=${dto.waiterId}`,
-    );
-
-    /* Basic runtime validation (controller already validated but we add a
-       final safeguard here so this method can be re-used elsewhere). */
-    const stars: (keyof typeof dto)[] = [
-      'friendliness',
-      'orderAccuracy',
-      'speed',
-      'attentiveness',
-      'knowledge',
-    ];
-    for (const key of stars) {
-      const val = dto[key] as unknown as number;
-      if (!Number.isInteger(val) || val < 1 || val > 5) {
-        throw new BadRequestException(
-          `Field "${key}" must be an integer between 1 and 5.`,
-        );
-      }
-    }
-
+  async createRating(dto: any): Promise<any> {
     try {
-      return await this.prisma.waiterRating.create({
+      const rating = await this.prisma.waiterRating.create({
         data: {
           userId: dto.userId,
           waiterId: dto.waiterId,
@@ -281,12 +374,172 @@ export class WaiterService {
           speed: dto.speed,
           attentiveness: dto.attentiveness,
           knowledge: dto.knowledge,
-          comment: dto.comment?.trim() || null,
+          comment: dto.comment,
         },
       });
+
+      return rating;
     } catch (error) {
-      this.logger.error(`Failed to store waiter rating: ${error.message}`);
-      throw new BadRequestException('Failed to store rating');
+      this.logger.error(`Error creating waiter rating: ${error.message}`, error.stack);
+      throw new Error(`Failed to create waiter rating: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get allocated tables for the current waiter
+   * @param waiterId Waiter ID
+   * @returns Array of table numbers
+   */
+  private async getWaiterAllocatedTables(waiterId: string): Promise<number[]> {
+    try {
+      const now = new Date();
+      
+      const allocation = await this.prisma.tableAllocation.findFirst({
+        where: {
+          waiterId,
+          shift: {
+            startTime: { lte: now },
+            endTime: { gte: now },
+          },
+        },
+        select: {
+          tableNumbers: true,
+        },
+      });
+
+      return allocation?.tableNumbers || [];
+    } catch (error) {
+      this.logger.error(`Error getting allocated tables: ${error.message}`, error.stack);
+      return [];
+    }
+  }
+
+  /**
+   * Get orders with pagination and optional status filter
+   * @param params Filter and pagination options
+   * @returns Paginated list of orders
+   */
+  async getOrders(params: { page: number; pageSize: number; status?: string }): Promise<any> {
+    const { page, pageSize, status } = params;
+    const skip = (page - 1) * pageSize;
+    
+    try {
+      // For demo purposes, get all tables (in production, filter by waiter's allocated tables)
+      // const waiterId = '3c4d8be2-85bd-4c72-9b6e-748d6e1abf42'; // This should come from JWT token
+      // const allocatedTables = await this.getWaiterAllocatedTables(waiterId);
+      
+      const where: Prisma.OrderWhereInput = {
+        // tableNumber: { in: allocatedTables }, // Uncomment in production
+      };
+      
+      if (status && status !== 'all') {
+        where.status = status as OrderStatus;
+      }
+      
+      const [orders, total] = await Promise.all([
+        this.prisma.order.findMany({
+          where,
+          skip,
+          take: pageSize,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            orderItems: {
+              include: {
+                menuItem: {
+                  select: {
+                    name: true,
+                    image: true,
+                  },
+                },
+              },
+            },
+          },
+        }),
+        this.prisma.order.count({ where }),
+      ]);
+      
+      return {
+        data: orders,
+        meta: {
+          total,
+          page,
+          pageSize,
+          totalPages: Math.ceil(total / pageSize),
+        },
+      };
+    } catch (error) {
+      this.logger.error(`Error getting orders: ${error.message}`, error.stack);
+      return {
+        data: [],
+        meta: { total: 0, page, pageSize, totalPages: 0 },
+      };
+    }
+  }
+
+  /**
+   * Get orders grouped by table number with count badges
+   * @returns Orders grouped by table
+   */
+  async getOrdersByTable(): Promise<any> {
+    try {
+      // For demo purposes, get all tables (in production, filter by waiter's allocated tables)
+      // const waiterId = '3c4d8be2-85bd-4c72-9b6e-748d6e1abf42'; // This should come from JWT token
+      // const allocatedTables = await this.getWaiterAllocatedTables(waiterId);
+      
+      const orders = await this.prisma.order.findMany({
+        // where: { tableNumber: { in: allocatedTables } }, // Uncomment in production
+        include: {
+          orderItems: {
+            include: {
+              menuItem: {
+                select: {
+                  name: true,
+                  image: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      
+      const groupedByTable: Record<number, any> = {};
+      
+      orders.forEach(order => {
+        if (!groupedByTable[order.tableNumber]) {
+          groupedByTable[order.tableNumber] = {
+            tableNumber: order.tableNumber,
+            orders: [],
+            newOrdersCount: 0,
+          };
+        }
+        
+        groupedByTable[order.tableNumber].orders.push(order);
+        
+        if (order.status === OrderStatus.New) {
+          groupedByTable[order.tableNumber].newOrdersCount++;
+        }
+      });
+      
+      return Object.values(groupedByTable);
+    } catch (error) {
+      this.logger.error(`Error getting orders by table: ${error.message}`, error.stack);
+      return [];
+    }
+  }
+
+  /**
+   * Update order status
+   * @param id Order ID
+   * @param status New status
+   * @returns Updated order
+   */
+  async updateOrderStatus(id: string, status: OrderStatus): Promise<any> {
+    try {
+      return this.ordersService.updateOrderStatus(id, status);
+    } catch (error) {
+      this.logger.error(`Error updating order status: ${error.message}`, error.stack);
+      throw error;
     }
   }
 }
