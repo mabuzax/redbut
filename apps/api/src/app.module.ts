@@ -12,6 +12,7 @@ import { PrismaService } from './common/prisma.service';
 import { ChatModule } from './chat/chat.module';
 import { WaiterModule } from './waiter/waiter.module';
 import { AdminModule } from './admin/admin.module';
+import { MenuModule } from './menu/menu.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { AdminModule } from './admin/admin.module';
     ChatModule, // WebSocket AI chat functionality
     WaiterModule, // Waiter dashboard & endpoints
     AdminModule, // Admin dashboard & endpoints
+    MenuModule, // Public menu endpoints
   ],
   controllers: [
     HealthController,

@@ -93,21 +93,11 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
   }, [orderItems]);
 
   const fetchMenuItems = useCallback(async () => {
-    if (!token) {
-      setError("Authentication token not found.");
-      setLoading(false);
-      return;
-    }
-    
     setLoading(true);
     setError(null);
     
     try {
-      const response = await fetch(`${apiBase}/api/v1/menu?status=Active`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
+      const response = await fetch(`${apiBase}/api/v1/menu?status=Active`);
       
       if (!response.ok) {
         throw new Error(`Failed to fetch menu items: ${response.status}`);
@@ -131,7 +121,7 @@ const FoodMenu = ({ userId, sessionId, tableNumber, token, onCloseMenu }: FoodMe
     } finally {
       setLoading(false);
     }
-  }, [token, apiBase]);
+  }, [apiBase]);
 
   useEffect(() => {
     fetchMenuItems();
