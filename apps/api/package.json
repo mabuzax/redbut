@@ -5,7 +5,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "nest build",
+    "build": "nest build -b webpack --webpackPath apps/api/webpack.config.js",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "dev": "nest start --watch",
@@ -21,6 +21,7 @@
     "prisma:generate": "prisma generate --schema ../../prisma/schema.prisma",
     "prisma:migrate": "prisma migrate dev --schema ../../prisma/schema.prisma",
     "prisma:studio": "prisma studio --schema ../../prisma/schema.prisma",
+    "prisma:reset": "prisma migrate reset --schema ../../prisma/schema.prisma",
     "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
@@ -44,6 +45,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.0",
     "helmet": "^7.1.0",
+    "ioredis": "^5.3.2",
     "openai": "^4.104.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
@@ -62,8 +64,10 @@
     "@nestjs/cli": "^10.0.0",
     "@nestjs/schematics": "^10.0.0",
     "@nestjs/testing": "^10.0.0",
+    "@swc/core": "^1.13.4",
     "@types/bcrypt": "^5.0.2",
     "@types/express": "^4.17.17",
+    "@types/ioredis": "^5.0.0",
     "@types/jest": "^29.5.2",
     "@types/node": "^20.3.1",
     "@types/passport-jwt": "^3.0.13",
@@ -79,6 +83,7 @@
     "prisma": "^6.9.0",
     "source-map-support": "^0.5.21",
     "supertest": "^6.3.3",
+    "swc-loader": "^0.2.6",
     "ts-jest": "^29.1.0",
     "ts-loader": "^9.4.3",
     "ts-node": "^10.9.2",
