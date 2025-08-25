@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import TimeAgo from "react-timeago";
 import { waiterApi, WaiterRequest, RequestsSummary, ReviewsSummary, Review, AIAnalysisResponse, LoginResponse } from "../lib/api";
+import { RequestStatusConfigService } from "../lib/request-status-config";
 import LoginForm from "../components/auth/LoginForm";
 import ChangePasswordForm from "../components/auth/ChangePasswordForm";
 import OrderManagement from "../components/orders/OrderManagement";
@@ -29,6 +30,8 @@ function MyRequests({ token }: { token: string }) {
   const [status, setStatus] = useState<"Acknowledged" | "InProgress" | "Completed">(
     "Acknowledged"
   );
+  const [statusOptions, setStatusOptions] = useState<{ value: string; label: string }[]>([]);
+  const [statusOptionsLoading, setStatusOptionsLoading] = useState(false);
 
   /* fetch */
   const fetchRequests = useCallback(async () => {
@@ -199,6 +202,9 @@ function AllRequestsView({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<WaiterRequest | null>(null);
   const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<WaiterRequest['status']>('Acknowledged');
+  const [statusOptions, setStatusOptions] = useState<{ value: string; label: string }[]>([]);
+  const [statusOptionsLoading, setStatusOptionsLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortOrder, setSortOrder] = useState<'createdAt' | 'status'>('createdAt');
   const [searchTerm, setSearchTerm] = useState('');
@@ -228,7 +234,7 @@ function AllRequestsView({ token }: { token: string }) {
     if (!selected) return;
     setSaving(true);
     try {
-      const updated = await waiterApi.updateRequestStatus(selected.id, selected.status as any, token); // Status is already updated in local state
+      const updated = await waiterApi.updateRequestStatus(selected.id, status as any, token);
       setRequests((d) => d.map((r) => (r.id === updated.id ? updated : r)));
       setSelected(null);
     } catch (e: any) {
@@ -258,18 +264,6 @@ function AllRequestsView({ token }: { token: string }) {
         return 'bg-gray-200 text-gray-600';
     }
   };
-
-  const getStatusOptions = (currentStatus: WaiterRequest['status']) => {
-    // Waiter can only change to Acknowledged, InProgress, Completed
-    return [
-      { value: 'Acknowledged', label: 'Acknowledged' },
-      { value: 'InProgress', label: 'In Progress' },
-      { value: 'Completed', label: 'Completed' },
-    ];
-  };
-
-  const isEditable = selected && !['Completed', 'Cancelled', 'Done'].includes(selected.status);
-  const statusOptions = selected ? getStatusOptions(selected.status) : [];
 
   return (
     <div className="p-4 bg-white rounded-lg shadow-md h-full flex flex-col">
@@ -334,7 +328,23 @@ function AllRequestsView({ token }: { token: string }) {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="border border-gray-200 rounded-lg p-4 bg-white shadow-sm cursor-pointer"
-              onClick={() => { setSelected(r); }}
+              onClick={async () => {
+                setSelected(r);
+                setStatus(r.status as any);
+                setStatusOptions([]);
+                setStatusOptionsLoading(true);
+                const opts = await RequestStatusConfigService.getStatusOptions(
+                  r.status as any,
+                  'waiter',
+                  token
+                );
+                setStatusOptions(
+                  opts.length > 0
+                    ? opts
+                    : RequestStatusConfigService.getDefaultStatusOptions(r.status as any)
+                );
+                setStatusOptionsLoading(false);
+              }}
             >
               <div className="flex justify-between items-center mb-2">
                 <span className="text-sm text-gray-500">
@@ -383,19 +393,26 @@ function AllRequestsView({ token }: { token: string }) {
               </p>
               <p className="mb-4 whitespace-pre-wrap text-gray-900">{selected.content}</p>
 
-              <select
-                value={selected.status}
-                onChange={(e) =>
-                  setSelected({...selected, status: e.target.value as any})
-                }
-                className="w-full border border-gray-200 rounded-md p-2 mb-4 bg-white text-gray-900"
-              >
-                {statusOptions.map(option => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+              {statusOptionsLoading ? (
+                <div className="flex items-center justify-center p-2">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary-500 mr-2" />
+                  <span>Loading options…</span>
+                </div>
+              ) : (
+                <select
+                  value={status}
+                  onChange={(e) =>
+                    setStatus(e.target.value as typeof status)
+                  }
+                  className="w-full border border-gray-200 rounded-md p-2 mb-4 bg-white text-gray-900"
+                >
+                  {statusOptions.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              )}
 
               <button
                 onClick={handleSave}

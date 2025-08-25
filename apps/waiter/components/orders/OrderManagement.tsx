@@ -11,9 +11,11 @@ import {
   Package,
   CreditCard,
   RefreshCcw,
-  ImageIcon
+  ImageIcon,
+  Loader2
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { OrderStatus, OrderStatusConfigService } from "../../lib/order-status-config";
 
 interface MenuItem {
   id: string;
@@ -28,14 +30,6 @@ interface OrderItem {
   price: number;
   status: OrderStatus;
   menuItem: MenuItem;
-}
-
-enum OrderStatus {
-  New = "New",
-  Acknowledged = "Acknowledged",
-  InProgress = "InProgress",
-  Delivered = "Delivered",
-  Paid = "Paid",
 }
 
 interface Order {
@@ -56,20 +50,29 @@ interface TableOrders {
   expanded: boolean;
 }
 
+interface StatusOption {
+  value: string;
+  label: string;
+}
+
 const statusColors = {
   [OrderStatus.New]: "bg-red-100 text-red-800 border-red-200",
   [OrderStatus.Acknowledged]: "bg-blue-100 text-blue-800 border-blue-200",
   [OrderStatus.InProgress]: "bg-yellow-100 text-yellow-800 border-yellow-200",
+  [OrderStatus.Complete]: "bg-purple-100 text-purple-800 border-purple-200",
   [OrderStatus.Delivered]: "bg-green-100 text-green-800 border-green-200",
   [OrderStatus.Paid]: "bg-gray-100 text-gray-800 border-gray-200",
+  [OrderStatus.Cancelled]: "bg-red-100 text-red-800 border-red-200",
 };
 
 const statusIcons = {
   [OrderStatus.New]: AlertCircle,
   [OrderStatus.Acknowledged]: Clock,
   [OrderStatus.InProgress]: RefreshCcw,
+  [OrderStatus.Complete]: CheckCircle,
   [OrderStatus.Delivered]: Package,
   [OrderStatus.Paid]: CreditCard,
+  [OrderStatus.Cancelled]: AlertCircle,
 };
 
 const ImagePlaceholder = ({ name }: { name: string }) => (
@@ -88,6 +91,8 @@ const OrderManagement = () => {
   const [updating, setUpdating] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
+  const [statusOptions, setStatusOptions] = useState<Record<string, StatusOption[]>>({});
+  const [loadingStatusOptions, setLoadingStatusOptions] = useState<Record<string, boolean>>({});
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
   const token = typeof window !== "undefined" ? localStorage.getItem("redbutToken") || "" : "";
@@ -146,6 +151,35 @@ const OrderManagement = () => {
     setFailedImages(prev => new Set(prev).add(imageUrl));
   };
 
+  const loadStatusOptions = async (orderId: string, currentStatus: OrderStatus) => {
+    if (!token) return;
+    
+    try {
+      setLoadingStatusOptions(prev => ({ ...prev, [orderId]: true }));
+      
+      const options = await OrderStatusConfigService.getStatusOptions(
+        currentStatus,
+        'waiter',
+        token
+      );
+      
+      setStatusOptions(prev => ({
+        ...prev,
+        [orderId]: options.length > 0 
+          ? options 
+          : OrderStatusConfigService.getDefaultStatusOptions(currentStatus)
+      }));
+    } catch (error) {
+      console.error('Error loading status options:', error);
+      setStatusOptions(prev => ({
+        ...prev,
+        [orderId]: OrderStatusConfigService.getDefaultStatusOptions(currentStatus)
+      }));
+    } finally {
+      setLoadingStatusOptions(prev => ({ ...prev, [orderId]: false }));
+    }
+  };
+
   const updateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
     if (!token) {
       setError("Authentication token not found");
@@ -164,13 +198,21 @@ const OrderManagement = () => {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to update order status: ${response.status}`);
+        // Attempt to extract a user-friendly message from the API response
+        let friendly = `Unable to update order status.`;
+        try {
+          const data = await response.json();
+          friendly = data?.message ?? data?.error ?? friendly;
+        } catch {
+          // ignore JSON parse errors and use fallback
+        }
+        throw new Error(friendly);
       }
 
       // Trigger a refresh of the orders
       setRefreshTrigger(prev => prev + 1);
     } catch (e: any) {
-      setError(`Failed to update order: ${e.message}`);
+      setError(e?.message || "Unable to update order status at this time.");
     } finally {
       setUpdating(null);
     }
@@ -201,9 +243,9 @@ const OrderManagement = () => {
   };
 
   const StatusBadge = ({ status }: { status: OrderStatus }) => {
-    const Icon = statusIcons[status];
+    const Icon = statusIcons[status] || AlertCircle;
     return (
-      <div className={`px-3 py-1 rounded-full border flex items-center space-x-1 text-sm ${statusColors[status]}`}>
+      <div className={`px-3 py-1 rounded-full border flex items-center space-x-1 text-sm ${statusColors[status] || "bg-gray-100 text-gray-800 border-gray-200"}`}>
         <Icon className="h-3.5 w-3.5 mr-1" />
         <span>{status}</span>
       </div>
@@ -211,29 +253,42 @@ const OrderManagement = () => {
   };
 
   const StatusDropdown = ({ order, onStatusChange }: { order: Order, onStatusChange: (status: OrderStatus) => void }) => {
-    const statuses = Object.values(OrderStatus);
-    const currentStatusIndex = statuses.indexOf(order.status);
+    const isLoading = loadingStatusOptions[order.id] || false;
+    const options = statusOptions[order.id] || [];
     
-    // Reorder statuses to put current status first
-    const orderedStatuses = [
-      order.status,
-      ...statuses.slice(0, currentStatusIndex),
-      ...statuses.slice(currentStatusIndex + 1)
-    ];
+    // Load status options when dropdown is focused
+    const handleFocus = () => {
+      if (!options.length && !isLoading) {
+        loadStatusOptions(order.id, order.status);
+      }
+    };
     
     return (
-      <select
-        value={order.status}
-        onChange={(e) => onStatusChange(e.target.value as OrderStatus)}
-        className="px-3 py-1 rounded-md text-sm font-medium border bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-        disabled={updating === order.id}
-      >
-        {orderedStatuses.map((status) => (
-          <option key={status} value={status}>
-            {status}
-          </option>
-        ))}
-      </select>
+      <div className="relative">
+        {isLoading && (
+          <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
+            <Loader2 className="h-4 w-4 animate-spin text-primary-500" />
+          </div>
+        )}
+        <select
+          value={order.status}
+          onChange={(e) => onStatusChange(e.target.value as OrderStatus)}
+          onFocus={handleFocus}
+          onClick={handleFocus}
+          className="px-3 py-1 rounded-md text-sm font-medium border bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 pr-8"
+          disabled={updating === order.id || isLoading}
+        >
+          {options.length > 0 ? (
+            options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))
+          ) : (
+            <option value={order.status}>{order.status}</option>
+          )}
+        </select>
+      </div>
     );
   };
 
@@ -359,7 +414,7 @@ const OrderManagement = () => {
                           </span>
                           <StatusDropdown 
                             order={order}
-                            onStatusChange={(newStatus) => handleStatusUpdate(order.id, newStatus)}
+                            onStatusChange={(newStatus) => handleStatusUpdate(order.id, newStatus as OrderStatus)}
                           />
                         </div>
                       </div>

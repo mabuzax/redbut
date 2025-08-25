@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { Request, RequestStatus, Prisma } from '@prisma/client'; // Updated import
 import { CreateRequestDto } from './dto/create-request.dto';
 import { UpdateRequestDto } from './dto/update-request.dto';
+import { RequestStatusConfigService } from '../common/request-status-config.service';
 
 /**
  * Service for managing waiter requests
@@ -12,7 +13,10 @@ import { UpdateRequestDto } from './dto/update-request.dto';
 export class RequestsService {
   private readonly logger = new Logger(RequestsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly requestStatusConfigService: RequestStatusConfigService,
+  ) {}
 
   /**
    * Create a new waiter request
@@ -146,9 +150,13 @@ export class RequestsService {
     
     const currentRequest = await this.findOne(id);
     
-    const newStatus = this.validateStatusTransition(
+    const userRole = this.getUserRole();
+    const newStatus = updateRequestDto.status ?? currentRequest.status;
+
+    await this.requestStatusConfigService.validateTransition(
       currentRequest.status,
-      updateRequestDto.status,
+      newStatus,
+      userRole,
     );
     
     try {
@@ -179,65 +187,8 @@ export class RequestsService {
     }
   }
 
-  /**
-   * Validate status transitions based on business rules
-   * @param currentStatus Current request status
-   * @param newStatus Requested new status
-   * @returns Valid new status
-   * @throws BadRequestException for invalid status transitions
-   */
-  private validateStatusTransition(
-    currentStatus: RequestStatus, // Changed to use enum from @prisma/client
-    newStatus?: RequestStatus,   // Changed to use enum from @prisma/client
-  ): RequestStatus {
-    if (!newStatus || newStatus === currentStatus) {
-      return currentStatus;
-    }
-
-    switch (currentStatus) {
-      case RequestStatus.OnHold:
-        if (newStatus === RequestStatus.New || newStatus === RequestStatus.Cancelled) {
-          return newStatus;
-        }
-        throw new BadRequestException(
-          `Invalid status transition from ${currentStatus} to ${newStatus}. Only 'New' or 'Cancelled' allowed.`,
-        );
-
-      case RequestStatus.Done:
-      case RequestStatus.Cancelled:
-      case RequestStatus.Completed:
-        throw new BadRequestException(
-          `Cannot change status from ${currentStatus}. Request is already in a final state.`,
-        );
-
-      case RequestStatus.New:
-        if (
-          newStatus === RequestStatus.Acknowledged ||
-          newStatus === RequestStatus.InProgress ||
-          newStatus === RequestStatus.OnHold ||
-          newStatus === RequestStatus.Cancelled
-        ) {
-          return newStatus;
-        }
-        throw new BadRequestException(
-          `Cannot move from ${currentStatus} to ${newStatus}. Only 'Cancelled', 'Hold', 'Acknowledged' or 'In Progress' from here.`,
-        );
-
-      case RequestStatus.InProgress:
-        if (
-          newStatus === RequestStatus.Completed ||
-          newStatus === RequestStatus.Cancelled ||
-          newStatus === RequestStatus.Done
-        ) {
-          return newStatus;
-        }
-        throw new BadRequestException(
-          `Cannot change from ${currentStatus} to ${newStatus}. Only 'Completed', 'Cancelled' or 'Done' from here.`,
-        );
-
-      default:
-        return newStatus;
-    }
+  private getUserRole(): string {
+    return 'client';
   }
 
   /**

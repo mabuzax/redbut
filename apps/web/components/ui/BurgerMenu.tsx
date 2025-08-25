@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X, Utensils } from 'lucide-react'; // Added Utensils for Food Menu icon
+import { Menu, X, Utensils, Receipt } from 'lucide-react';
 
 interface BurgerMenuProps {
   onFoodMenuClick: () => void; // Added Food Menu click handler
+  onMyOrdersClick: () => void;
   onMyRequestsClick: () => void;
   onMyBillClick: () => void;
   onRateWaiterClick: () => void;
@@ -11,6 +12,7 @@ interface BurgerMenuProps {
 
 const BurgerMenu: React.FC<BurgerMenuProps> = ({
   onFoodMenuClick, // Destructure new prop
+  onMyOrdersClick,
   onMyRequestsClick,
   onMyBillClick,
   onRateWaiterClick,
@@ -88,6 +90,15 @@ const BurgerMenu: React.FC<BurgerMenuProps> = ({
                   >
                     <Utensils className="h-5 w-5 mr-3 text-primary-500" /> {/* Added icon */}
                     Food Menu
+                  </button>
+                </li>
+                <li className="mb-2">
+                  <button
+                    onClick={() => handleMenuItemClick(onMyOrdersClick)}
+                    className="block w-full text-left p-3 rounded-md text-lg font-medium text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-300 flex items-center"
+                  >
+                    <Receipt className="h-5 w-5 mr-3 text-primary-500" />
+                    My Orders
                   </button>
                 </li>
                 <li className="mb-2">

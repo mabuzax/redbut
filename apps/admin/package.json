@@ -13,6 +13,7 @@
     "format": "prettier --write \"**/*.{js,ts,tsx,md}\""
   },
   "dependencies": {
+    "@hookform/resolvers": "^5.1.1",
     "@tailwindcss/forms": "^0.5.7",
     "@tailwindcss/typography": "^0.5.10",
     "@types/uuid": "^10.0.0",
@@ -32,6 +33,7 @@
     "tailwind-merge": "^2.1.0",
     "uuid": "^11.1.0",
     "xlsx": "^0.18.5",
+    "zod": "^3.25.64",
     "zustand": "^4.4.7"
   },
   "devDependencies": {

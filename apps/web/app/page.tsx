@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Star, ShoppingCart } from "lucide-react";
+import { Star, ShoppingCart, ArrowLeft } from "lucide-react";
 import ChatWindow from "../components/chat/ChatWindow";
 import BurgerMenu from "../components/ui/BurgerMenu";
 import RateYourWaiter from "../components/rating/RateYourWaiter";
 import MyRequests from "../components/requests/MyRequests";
 import MyBill from "../components/bill/MyBill";
 import FoodMenu from "../components/menu/FoodMenu";
+import MyOrders from "../components/orders/MyOrders";
 
 // Define the OrderItem interface for cart items
 interface OrderItem {
@@ -30,7 +31,8 @@ export default function Home() {
     | "requests"
     | "bill"
     | "rateWaiter"
-    | "foodMenu";
+    | "foodMenu"
+    | "myOrders";
 
   const [stage, setStage] = useState<Stage>("splash");
   const [loadingSession, setLoadingSession] = useState(false);
@@ -219,6 +221,7 @@ export default function Home() {
   const openBill = () => setStage("bill");
   const openRateWaiter = () => setStage("rateWaiter");
   const openFoodMenu = () => setStage("foodMenu");
+  const openMyOrders = () => setStage("myOrders");
   const openCart = () => {
     if (stage === "foodMenu") {
       setShowCart(true);
@@ -278,6 +281,26 @@ export default function Home() {
             setShowCart={setShowCart}
           />
         </div>
+      ) : stage === "myOrders" && userData ? (
+        <div className="fixed inset-0 bg-background z-40 p-0 md:p-4 overflow-y-auto">
+          <div className="bg-white shadow-sm p-4 flex justify-between items-center mb-4">
+            <div className="flex items-center">
+              <button 
+                onClick={() => setStage("home")} 
+                className="mr-3 text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                <ArrowLeft className="h-6 w-6" />
+              </button>
+              <h1 className="text-xl font-semibold">My Orders</h1>
+            </div>
+          </div>
+          <MyOrders
+            userId={userData.userId}
+            sessionId={userData.sessionId}
+            tableNumber={userData.tableNumber}
+            token={userData.token}
+          />
+        </div>
       ) : stage === "requests" && userData ? (
          <div className="fixed inset-0 bg-background z-40 p-4 overflow-y-auto">
           <MyRequests userId={userData.userId} token={userData.token} />
@@ -334,33 +357,51 @@ export default function Home() {
             className="text-center"
           >
             <h1 className="text-4xl md:text-6xl font-bold text-primary-500 mb-6">
-              Hello RedBut
+              Hello!
             </h1>
             <p className="text-lg md:text-xl text-secondary-600 max-w-md mx-auto">
-              Restaurant Waiter Assistant Application
+              Press Button to Call Your Waiter
             </p>
-            <div className="mt-8">
+            <div className="mt-8 flex justify-center">
               <button
-                className="red-button text-lg md:text-xl h-24 w-24 md:h-32 md:w-32 rounded-full"
-                onClick={() => setStage("agentSplash")}
-                disabled={loadingSession || !userData}
+                className="h-40 w-40 rounded-full overflow-hidden p-0 flex items-center justify-center shadow-xl hover:shadow-2xl transition-shadow duration-300"
               >
-                Buzz Waiter
-              </button>
+                <img
+                  src="/buzzwaiter_btn.png"
+                  alt="Buzz Waiter"
+                  className="h-full w-full object-contain"
+                  onClick={() => setStage("agentSplash")}
+                />
+                </button>
             </div>
             {/* ───────────────────────── Burger Menu ───────────────────────── */}
             <div className="mt-6 flex justify-center">
+              <span className="text-red-600 font-semibold mr-2 drop-shadow">View</span>
+              <div className="shadow-lg rounded-full bg-white">
               <BurgerMenu
                 onFoodMenuClick={openFoodMenu}
+                onMyOrdersClick={openMyOrders}
                 onMyRequestsClick={openRequests}
                 onMyBillClick={openBill}
                 onRateWaiterClick={openRateWaiter}
               />
+              </div>
+              <span className="text-red-600 font-semibold ml-2 drop-shadow">Menu</span>
             </div>
             <p className="mt-8 text-sm text-secondary-400">
-              {loadingSession
+                {loadingSession
                 ? "Setting up your session..."
-                : userData ? "Phase 4 – AI Chat Integration" : "Please enter table number to start."}
+                : userData ? (
+                  <>
+                  Simply chat to our{" "}
+                  <span className="text-red-600 drop-shadow font-semibold">
+                    AI Waiter Assistant
+                  </span>
+                  . If you still need a waiter, tell the AI Assistant to call the waiter for you.
+
+                  
+                  </>
+                ) : "Please enter table number to start."}
             </p>
             {/* top-left star button */}
             <button

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import TimeAgo from 'react-timeago';
 import { Loader2, Edit, CheckCircle, XCircle, PauseCircle, RefreshCw, X } from 'lucide-react';
+import { RequestStatusConfigService } from '../../lib/request-status-config';
 
 // Define interfaces for data structures
 interface Request {
@@ -9,7 +10,7 @@ interface Request {
   userId: string;
   tableNumber: number;
   content: string;
-  status: 'New' | 'OnHold' | 'Cancelled' | 'Done';
+  status: 'New' | 'OnHold' | 'Cancelled' | 'Done' | 'Acknowledged' | 'InProgress' | 'Completed';
   createdAt: string;
   updatedAt: string;
 }
@@ -30,6 +31,8 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
   const [editContent, setEditContent] = useState('');
   const [editStatus, setEditStatus] = useState<Request['status'] | ''>('');
   const [updatingRequest, setUpdatingRequest] = useState(false);
+  const [statusOptions, setStatusOptions] = useState<{ value: string; label: string }[]>([]);
+  const [statusOptionsLoading, setStatusOptionsLoading] = useState(false);
 
   /**
    * Fetch waiter requests for the current user.
@@ -80,11 +83,27 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
     fetchRequests();
   }, [fetchRequests, userId, token]);
 
-  const handleRowClick = (request: Request) => {
+  const handleRowClick = async (request: Request) => {
     setSelectedRequest(request);
     setEditContent(request.content);
     setEditStatus(request.status);
     setIsModalOpen(true);
+    
+    // Load status options for the selected request
+    setStatusOptionsLoading(true);
+    try {
+      const options = await RequestStatusConfigService.getStatusOptions(
+        request.status,
+        'client',
+        token
+      );
+      setStatusOptions(options.length > 0 ? options : RequestStatusConfigService.getDefaultStatusOptions(request.status));
+    } catch (err) {
+      console.error('Error loading status options:', err);
+      setStatusOptions(RequestStatusConfigService.getDefaultStatusOptions(request.status));
+    } finally {
+      setStatusOptionsLoading(false);
+    }
   };
 
   const handleModalClose = () => {
@@ -92,6 +111,7 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
     setSelectedRequest(null);
     setEditContent('');
     setEditStatus('');
+    setStatusOptions([]);
   };
 
   const handleUpdateSubmit = async () => {
@@ -145,29 +165,6 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
     }
   };
 
-  const getStatusOptions = (currentStatus: Request['status']) => {
-    switch (currentStatus) {
-      case 'New':
-        return [
-          { value: 'New', label: 'New' },
-          { value: 'OnHold', label: 'Hold' },
-          { value: 'Cancelled', label: 'Cancel' },
-          { value: 'Done', label: 'Done' },
-        ];
-      case 'OnHold':
-        return [
-          { value: 'OnHold', label: 'On Hold' },
-          { value: 'New', label: 'Activate' },
-          { value: 'Cancelled', label: 'Cancel' },
-        ];
-      case 'Cancelled':
-      case 'Done':
-        return [{ value: currentStatus, label: currentStatus }]; // Not editable
-      default:
-        return [];
-    }
-  };
-
   const getStatusClass = (status: Request['status']) => {
     switch (status) {
       case 'New':
@@ -178,13 +175,18 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
         return 'bg-red-200 text-red-600';
       case 'Done':
         return 'bg-green-200 text-green-600';
+      case 'Acknowledged':
+        return 'bg-purple-200 text-purple-600';
+      case 'InProgress':
+        return 'bg-indigo-200 text-indigo-600';
+      case 'Completed':
+        return 'bg-green-200 text-green-600';
       default:
         return 'bg-gray-200 text-gray-600';
     }
   };
 
-  const isEditable = selectedRequest && ['New', 'OnHold'].includes(selectedRequest.status);
-  const statusOptions = selectedRequest ? getStatusOptions(selectedRequest.status) : [];
+  const isEditable = selectedRequest && ['New', 'OnHold', 'Acknowledged'].includes(selectedRequest.status);
 
   return (
     <div className="p-4 bg-white rounded-lg shadow-md h-full flex flex-col">
@@ -384,17 +386,22 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
                 <label htmlFor="requestStatus" className="block text-gray-700 text-sm font-bold mb-2">
                   Status:
                 </label>
-                {['Cancelled', 'Done'].includes(selectedRequest.status) ? (
+                {['Cancelled', 'Done', 'InProgress', 'Completed'].includes(selectedRequest.status) ? (
                   <p className={`p-3 rounded-md font-medium ${getStatusClass(selectedRequest.status)}`}>
                     {selectedRequest.status}
                   </p>
+                ) : statusOptionsLoading ? (
+                  <div className="flex items-center p-2">
+                    <Loader2 className="h-5 w-5 animate-spin text-primary-500 mr-2" />
+                    <span className="text-gray-600">Loading options...</span>
+                  </div>
                 ) : (
                   <select
                     id="requestStatus"
                     value={editStatus}
                     onChange={(e) => setEditStatus(e.target.value as Request['status'])}
                     className="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                    disabled={updatingRequest}
+                    disabled={updatingRequest || statusOptionsLoading}
                   >
                     {statusOptions.map((option) => (
                       <option key={option.value} value={option.value}>

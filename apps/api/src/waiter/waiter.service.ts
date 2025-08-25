@@ -2,6 +2,8 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { OrderStatus, Prisma, RequestStatus } from '@prisma/client';
 import { OrdersService } from '../orders/orders.service';
+import { RequestStatusConfigService } from '../common/request-status-config.service';
+import { OrderStatusConfigService } from '../common/order-status-config.service';
 
 @Injectable()
 export class WaiterService {
@@ -10,6 +12,8 @@ export class WaiterService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ordersService: OrdersService,
+    private readonly requestStatusConfigService: RequestStatusConfigService,
+    private readonly orderStatusConfigService: OrderStatusConfigService,
   ) {}
 
   /**
@@ -138,29 +142,16 @@ export class WaiterService {
         throw new NotFoundException(`Request with ID ${id} not found`);
       }
 
-      // Validate status transitions
-      const validTransitions: Record<RequestStatus, RequestStatus[]> = {
-        [RequestStatus.New]: [
-          RequestStatus.Acknowledged,
-          RequestStatus.InProgress,
-          RequestStatus.Completed,
-        ],
-        [RequestStatus.Acknowledged]: [RequestStatus.InProgress, RequestStatus.Completed],
-        [RequestStatus.InProgress]: [RequestStatus.Completed],
-        [RequestStatus.Completed]: [], // Cannot transition from Completed
-        [RequestStatus.OnHold]: [RequestStatus.InProgress, RequestStatus.Completed],
-        [RequestStatus.Cancelled]: [], // Cannot transition from Cancelled
-        [RequestStatus.Done]: [], // Cannot transition from Done
-      };
-
       const targetStatus = newStatus as RequestStatus;
       const currentStatus = request.status;
 
-      if (!validTransitions[currentStatus].includes(targetStatus)) {
-        throw new Error(
-          `Invalid status transition from ${currentStatus} to ${targetStatus}`,
-        );
-      }
+      // Validate transition using centralized config
+      const userRole = this.getUserRole();
+      await this.requestStatusConfigService.validateTransition(
+        currentStatus,
+        targetStatus,
+        userRole,
+      );
 
       // Update the request status
       const updatedRequest = await this.prisma.$transaction(async (tx) => {
@@ -200,6 +191,10 @@ export class WaiterService {
       );
       throw new Error(`Failed to update request status: ${error.message}`);
     }
+  }
+
+  private getUserRole(): string {
+    return 'waiter';
   }
 
   /**
@@ -536,6 +531,22 @@ export class WaiterService {
    */
   async updateOrderStatus(id: string, status: OrderStatus): Promise<any> {
     try {
+      const order = await this.prisma.order.findUnique({
+        where: { id },
+      });
+
+      if (!order) {
+        throw new NotFoundException(`Order with ID ${id} not found`);
+      }
+
+      // Validate transition using centralized config
+      const userRole = this.getUserRole();
+      await this.orderStatusConfigService.validateTransition(
+        order.status,
+        status,
+        userRole,
+      );
+
       return this.ordersService.updateOrderStatus(id, status);
     } catch (error) {
       this.logger.error(`Error updating order status: ${error.message}`, error.stack);

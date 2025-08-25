@@ -3,26 +3,16 @@
   "collection": "@nestjs/schematics",
   "sourceRoot": "src",
   "compilerOptions": {
-    "deleteOutDir": true,
+    "builder": "tsc",
     "webpack": false,
+    "deleteOutDir": true,
     "tsConfigPath": "tsconfig.json",
     "assets": [
-      {
-        "include": "**/*.proto",
-        "outDir": "dist"
-      },
-      {
-        "include": "**/*.hbs",
-        "outDir": "dist"
-      },
-      {
-        "include": "**/*.sql",
-        "outDir": "dist"
-      }
+      { "include": "**/*.proto", "outDir": "dist" },
+      { "include": "**/*.hbs",   "outDir": "dist" },
+      { "include": "**/*.sql",   "outDir": "dist" }
     ],
     "watchAssets": true
   },
-  "generateOptions": {
-    "spec": true
-  }
+  "generateOptions": { "spec": true }
 }

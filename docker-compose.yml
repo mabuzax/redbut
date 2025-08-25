@@ -1,0 +1,89 @@
+version: "3.9"
+
+services:
+  db:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: redbut_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: redbut
+    ports:
+      - "5433:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: redbut_api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgres://postgres:postgres@db:5432/redbut?schema=public
+      JWT_SECRET: change_me_in_prod
+      OPENAI_API_KEY: ${OPENAI_API_KEY-}
+      FRONTEND_URL: http://localhost:3000
+      FRONTEND_URL_ADMIN: http://localhost:3002
+      FRONTEND_URL_WAITER: http://localhost:3003
+    ports:
+      - "3001:3001"
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3001
+    container_name: redbut_web
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+
+  admin:
+    build:
+      context: ./apps/admin
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3001
+    container_name: redbut_admin
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    depends_on:
+      - api
+    ports:
+      - "3002:3000"
+
+  waiter:
+    build:
+      context: ./apps/waiter
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3001
+    container_name: redbut_waiter
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    depends_on:
+      - api
+    ports:
+      - "3003:3000"
+
+volumes:
+  db_data:

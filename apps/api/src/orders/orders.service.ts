@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from "@nes
 import { PrismaService } from "../common/prisma.service";
 import { Order, OrderStatus, Prisma } from "@prisma/client"; // Added Prisma for types
 import { CreateOrderDto } from "./dto/create-order.dto";
+import { OrderStatusConfigService } from "../common/order-status-config.service";
 
 /**
  * Service for managing orders and bill calculations
@@ -11,7 +12,10 @@ import { CreateOrderDto } from "./dto/create-order.dto";
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly orderStatusConfigService: OrderStatusConfigService,
+  ) {}
 
   /**
    * Create a new order with multiple items
@@ -205,11 +209,19 @@ export class OrdersService {
   }
 
   async updateOrderStatus(id: string, status: OrderStatus) {
+    const userRole = this.getUserRole();
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({ where: { id }, include: { orderItems: true } });
       if (!order) throw new NotFoundException(`Order ${id} not found`);
       if (order.status === OrderStatus.Paid) throw new BadRequestException('Paid order cannot change status');
       if (order.status === status) return order;
+
+      // Validate transition against config
+      await this.orderStatusConfigService.validateTransition(
+        order.status,
+        status,
+        userRole,
+      );
 
       await tx.order.update({ where: { id }, data: { status } });
       await tx.orderItem.updateMany({ where: { orderId: id }, data: { status } });
@@ -219,17 +231,34 @@ export class OrdersService {
   }
 
   async updateOrderItemStatus(orderId: string, itemId: string, status: OrderStatus) {
+    const userRole = this.getUserRole();
     return this.prisma.$transaction(async (tx) => {
       const item = await tx.orderItem.findUnique({ where: { id: itemId } });
       if (!item || item.orderId !== orderId) throw new NotFoundException('Order item not found');
       const order = await tx.order.findUnique({ where: { id: orderId } });
       if (!order) throw new NotFoundException('Order not found');
       if (order.status === OrderStatus.Paid) throw new BadRequestException('Paid order cannot change');
+
+      // Validate transition for the item
+      await this.orderStatusConfigService.validateTransition(
+        item.status,
+        status,
+        userRole,
+      );
+
       await tx.orderItem.update({ where: { id: itemId }, data: { status } });
       const remaining = await tx.orderItem.count({ where: { orderId, NOT: { status } } });
       if (remaining === 0) await tx.order.update({ where: { id: orderId }, data: { status } });
       return { success: true };
     });
+  }
+
+  /**
+   * Placeholder for deriving user role (e.g., from request context/JWT)
+   * Currently defaults to 'client'
+   */
+  private getUserRole(): string {
+    return 'client';
   }
 
   async canModifyOrder(id: string) {

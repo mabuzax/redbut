@@ -55,6 +55,44 @@ model Request {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  STATUS TRANSITION CONFIGURATION                                           */
+/* -------------------------------------------------------------------------- */
+
+model RequestStatusConfig {
+  id            String        @id @default(uuid())
+  currentStatus RequestStatus
+  targetStatus  RequestStatus
+  userRole      String
+  label         String
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  @@index([currentStatus])
+  @@index([userRole])
+  @@index([currentStatus, userRole])
+  @@map("request_status_config")
+}
+
+/* -------------------------------------------------------------------------- */
+/*  ORDER STATUS TRANSITION CONFIGURATION                                     */
+/* -------------------------------------------------------------------------- */
+
+model OrderStatusConfig {
+  id            String      @id @default(uuid())
+  currentStatus OrderStatus
+  targetStatus  OrderStatus
+  userRole      String
+  label         String
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  @@index([currentStatus])
+  @@index([userRole])
+  @@index([currentStatus, userRole])
+  @@map("order_status_config")
+}
+
+/* -------------------------------------------------------------------------- */
 /*  REQUESTS LOG – audit trail of all request state changes                   */
 /* -------------------------------------------------------------------------- */
 
@@ -146,7 +184,8 @@ enum OrderStatus {
   InProgress   // Order is being prepared
   Delivered    // Order has been delivered to the table
   Paid         // Order has been paid
-  // Cancelled // Optional: if orders can be cancelled
+  Cancelled    // Order was cancelled by customer
+  Complete     // Customer marked the order as complete
 }
 
 enum SortOrder {
