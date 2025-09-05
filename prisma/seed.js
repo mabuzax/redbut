@@ -1,23 +1,15 @@
 // Use CommonJS require to avoid "SyntaxError: Cannot use import statement
 // outside a module" when Prisma executes this seed script with plain Node.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { PrismaClient } = require('@prisma/client');
+const { PrismaClient } = require('../apps/api/node_modules/.prisma/client');
 
 const prisma = new PrismaClient();
 
 async function main() {
   console.log('Start seeding...');
 
-  // Create Menu Categories
-  const appetizersCategory = await prisma.menuCategory.upsert({
-    where: { id: 'cat_appetizers' },
-    update: {},
-    create: {
-      id: 'cat_appetizers',
-      description: 'Appetizers',
-    },
-  });
-
+  // Create Menu Items with categories
+  const menuItems = [
   const mainCoursesCategory = await prisma.menuCategory.upsert({
     where: { id: 'cat_main_courses' },
     update: {},

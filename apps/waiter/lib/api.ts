@@ -1,4 +1,4 @@
-import { RequestStatus } from '@prisma/client';
+import { RequestStatus } from './types';
 
 // Define interfaces for API data structures
 // These should ideally be shared from a common `packages/types` or similar
@@ -21,7 +21,7 @@ export interface WaiterRequest {
  * DTO for updating a request status.
  */
 export interface UpdateRequestStatusDto {
-  status: 'Acknowledged' | 'InProgress' | 'Completed';
+  status: string;
 }
 
 /**
@@ -52,10 +52,47 @@ export interface Review {
 }
 
 /**
+ * Service Analysis data structure from service_analysis table
+ */
+export interface ServiceAnalysis {
+  id: string;
+  sessionId: string;
+  userId: string;
+  waiterId: string;
+  rating: number;
+  analysis: {
+    happiness: string;
+    reason: string;
+    suggested_improvement: string;
+    overall_sentiment: string;
+  };
+  createdAt: string;
+  user?: {
+    id: string;
+    tableNumber: number;
+  };
+}
+
+/**
+ * Summary of service analysis reviews for a waiter
+ */
+export interface ServiceAnalysisSummary {
+  averageRating: number;
+  totalReviews: number;
+  ratingDistribution: {
+    rating: number;
+    count: number;
+  }[];
+}
+
+/**
  * AI performance analysis response.
  */
 export interface AIAnalysisResponse {
-  analysis: string;
+  overall_sentiment: string;
+  happiness_breakdown: Record<string, string>;
+  improvement_points: string[];
+  overall_analysis: string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -83,6 +120,40 @@ export interface ChangePasswordRequest {
   confirmPassword: string;
 }
 
+/* -------------------------------------------------------------------------- */
+/*  OTP Authentication DTOs                                                    */
+/* -------------------------------------------------------------------------- */
+
+export interface OTPGenerationRequest {
+  identifier: string; // email or phone
+  userType: string; // 'ADMIN' or 'WAITER'
+}
+
+export interface OTPGenerationResponse {
+  success: boolean;
+  message: string;
+  username: string;
+}
+
+export interface OTPVerificationRequest {
+  identifier: string; // email or phone  
+  userType: string; // 'ADMIN' or 'WAITER'
+  code: string; // 6-digit OTP
+}
+
+export interface OTPVerificationResponse {
+  success: boolean;
+  message?: string;
+  waiter?: {
+    id: string;
+    name: string;
+    email?: string;
+    phone?: string;
+    userType: string;
+  };
+  token?: string;
+}
+
 // Base URL for the API, defaulting to localhost for development
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -107,6 +178,7 @@ async function callApi<T>(
   };
 
   console.log(`Preparing API request to: ${API_BASE_URL}/api/v1${endpoint}`);
+  console.log(`Token being used: ${token ? token.substring(0, 20) + '...' : 'NO TOKEN'}`);
   const config: RequestInit = {
     method,
     headers,
@@ -123,6 +195,16 @@ async function callApi<T>(
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ message: response.statusText }));
+    
+    // If we get a 401, the token is invalid - clear the session
+    if (response.status === 401) {
+      // Clear invalid auth data
+      localStorage.removeItem("redBut_waiterSession");
+      localStorage.removeItem("redBut_token");
+      // Optionally redirect to login
+      window.location.href = '/';
+    }
+    
     throw new Error(errorData.message || `API call failed with status ${response.status}`);
   }
 
@@ -183,6 +265,38 @@ export const waiterApi = {
    */
   checkPassword: (password: string): boolean => password === '__new__pass',
 
+  /* ---------------------------------------------------------------------- */
+  /*  OTP Authentication                                                     */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Generate OTP for waiter authentication.
+   */
+  generateOTP: async (
+    emailOrPhone: string,
+    userType: 'admin' | 'waiter' | 'manager'
+  ): Promise<OTPGenerationResponse> => {
+    return callPublicApi<OTPGenerationResponse>('/auth/otp/generate', 'POST', {
+      emailOrPhone,
+      userType,
+    });
+  },
+
+  /**
+   * Verify OTP and authenticate waiter.
+   */
+  verifyOTP: async (
+    username: string,
+    otp: string,
+    userType: 'admin' | 'waiter' | 'manager'
+  ): Promise<OTPVerificationResponse> => {
+    return callPublicApi<OTPVerificationResponse>('/auth/otp/verify', 'POST', {
+      username,
+      otp,
+      userType,
+    });
+  },
+
   /**
    * Fetches a list of active requests for the waiter dashboard.
    * @param token The JWT authentication token.
@@ -234,7 +348,7 @@ export const waiterApi = {
    */
   updateRequestStatus: async (
     requestId: string,
-    newStatus: UpdateRequestStatusDto['status'],
+    newStatus: string,
     token: string,
   ): Promise<WaiterRequest> => {
     return callApi<WaiterRequest>(
@@ -255,27 +369,59 @@ export const waiterApi = {
   },
 
   /**
-   * Fetches a summary of reviews (average rating and total count).
+   * Fetches a summary of service analysis reviews (average rating and total count) for the waiter.
    * @param token The JWT authentication token.
    * @returns A promise that resolves to an object with average rating and total reviews.
    */
-  getReviewsSummary: async (token: string): Promise<ReviewsSummary> => {
-    return callApi<ReviewsSummary>('/waiter/reviews/summary', token);
+  getReviewsSummary: async (token: string): Promise<ServiceAnalysisSummary> => {
+    // Get the waiter ID from the token payload
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    const waiterId = payload.userId;
+    
+    // Fetch service analysis data for this waiter
+    const serviceAnalysisData = await callApi<ServiceAnalysis[]>(`/service-analysis/waiter/${waiterId}`, token);
+    
+    // Debug logging
+    console.log('Service Analysis Data:', serviceAnalysisData);
+    console.log('Ratings:', serviceAnalysisData.map(item => item.rating));
+    
+    // Calculate summary statistics
+    const totalReviews = serviceAnalysisData.length;
+    const ratingSum = serviceAnalysisData.reduce((sum, item) => sum + item.rating, 0);
+    const averageRating = totalReviews > 0 ? ratingSum / totalReviews : 0;
+    
+    console.log('Total Reviews:', totalReviews);
+    console.log('Rating Sum:', ratingSum);
+    console.log('Average Rating:', averageRating);
+    
+    // Calculate rating distribution
+    const ratingCounts = [1, 2, 3, 4, 5].map(rating => ({
+      rating,
+      count: serviceAnalysisData.filter(item => item.rating === rating).length
+    }));
+    
+    console.log('Rating Distribution:', ratingCounts);
+
+    return {
+      averageRating: Math.round(averageRating * 10) / 10, // Round to 1 decimal place
+      totalReviews,
+      ratingDistribution: ratingCounts
+    };
   },
 
   /**
-   * Fetches a paginated list of reviews.
+   * Fetches service analysis reviews for the waiter.
    * @param token The JWT authentication token.
-   * @param page The page number to retrieve (defaults to 1).
-   * @param pageSize The number of reviews per page (defaults to 10).
-   * @returns A promise that resolves to an array of reviews.
+   * @returns A promise that resolves to an array of service analysis reviews.
    */
   getPaginatedReviews: async (
     token: string,
-    page: number = 1,
-    pageSize: number = 10,
-  ): Promise<Review[]> => {
-    return callApi<Review[]>(`/waiter/reviews?page=${page}&pageSize=${pageSize}`, token);
+  ): Promise<ServiceAnalysis[]> => {
+    // Get the waiter ID from the token payload
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    const waiterId = payload.userId;
+    
+    return callApi<ServiceAnalysis[]>(`/service-analysis/waiter/${waiterId}`, token);
   },
 
   /**
@@ -285,5 +431,37 @@ export const waiterApi = {
    */
   getAIAnalysis: async (token: string): Promise<AIAnalysisResponse> => {
     return callApi<AIAnalysisResponse>('/waiter/ai/performance-today', token);
+  },
+
+  /**
+   * Fetches requests for a specific session.
+   * @param sessionId The session ID to get requests for.
+   * @param token The JWT authentication token.
+   * @returns A promise that resolves to an array of requests for the session.
+   */
+  getRequestsBySession: async (sessionId: string, token: string): Promise<WaiterRequest[]> => {
+    return callApi<WaiterRequest[]>(`/waiter/requests/session/${sessionId}`, token);
+  },
+
+  /**
+   * Fetches allowed status transitions for a request.
+   * @param currentStatus The current status of the request.
+   * @param token The JWT authentication token.
+   * @returns A promise that resolves to an array of allowed transitions.
+   */
+  getRequestStatusTransitions: async (
+    currentStatus: string,
+    token: string
+  ): Promise<{ targetStatus: string; label: string }[]> => {
+    const params = new URLSearchParams({
+      currentStatus,
+      userRole: 'waiter'
+    });
+    const response = await callApi<{
+      currentStatus: string;
+      userRole: string;
+      transitions: { targetStatus: string; label: string }[];
+    }>(`/request-status-config/transitions?${params.toString()}`, token);
+    return response.transitions;
   },
 };

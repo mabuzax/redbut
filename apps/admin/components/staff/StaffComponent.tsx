@@ -27,7 +27,7 @@ export interface StaffComponentProps {
 }
 
 const StaffComponent = ({ onBack }: StaffComponentProps) => {
-  const token = typeof window !== 'undefined' ? localStorage.getItem("redbutToken") || "" : "";
+  const token = typeof window !== 'undefined' ? localStorage.getItem("redBut_token") || "" : "";
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -134,7 +134,7 @@ const StaffComponent = ({ onBack }: StaffComponentProps) => {
   return (
     <div>
       <button onClick={onBack} className="mb-6 inline-flex items-center text-primary-600 hover:underline">
-        <ArrowLeft className="h-4 w-4 mr-1" /> Back to Dashboard
+        <ArrowLeft className="mr-3 text-red-800 hover:text-red-900 transition-colors" strokeWidth={4} /> Dashboard
       </button>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-900">Staff Management</h2>

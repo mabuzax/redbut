@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { api } from '@/lib/api';
 
 interface OrderModificationResponse {
   canModify: boolean;
@@ -25,15 +26,12 @@ const useOrderModification = (
 ): UseOrderModificationReturn => {
   const [canModify, setCanModify] = useState<boolean>(true);
   const [reason, setReason] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-  
-  const checkOrderStatus = async (orderId: string): Promise<void> => {
-    if (!orderId || !token) {
-      setCanModify(true);
-      setReason(null);
+  const checkOrderStatus = async (orderId: string) => {
+    if (!token) {
+      setError('Authentication token is required');
       return;
     }
     
@@ -41,11 +39,7 @@ const useOrderModification = (
     setError(null);
     
     try {
-      const response = await fetch(`${apiBase}/api/v1/orders/${orderId}/can-modify`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
+      const response = await api.get(`/api/v1/orders/${orderId}/can-modify`);
       
       if (!response.ok) {
         if (response.status === 404) {

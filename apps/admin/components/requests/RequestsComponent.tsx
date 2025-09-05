@@ -34,7 +34,12 @@ export interface RequestsComponentProps {
 }
 
 const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
-  const token = typeof window !== 'undefined' ? localStorage.getItem("redbutToken") || "" : "";
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 10
+  });
+  
+  const token = typeof window !== 'undefined' ? localStorage.getItem("redBut_token") || "" : "";
   const todayISO = new Date().toISOString().split("T")[0];
 
   const [viewMode, setViewMode] = useState<"dashboard" | "wall">("dashboard");
@@ -212,7 +217,7 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
         onClick={onBack}
         className="mb-6 inline-flex items-center text-primary-600 hover:underline"
       >
-        <ArrowLeft className="h-4 w-4 mr-1" /> Back to Dashboard
+        <ArrowLeft className="mr-3 text-red-800 hover:text-red-900 transition-colors" strokeWidth={4} /> Dashboard
       </button>
       
       <h2 className="text-2xl font-bold text-gray-900 mb-6">Requests Management</h2>
@@ -427,7 +432,7 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
                 onClick={() => setViewMode("dashboard")}
                 className="inline-flex items-center justify-center px-4 py-2 font-medium text-gray-900 bg-gray-100 rounded-full hover:bg-gray-200 active:bg-gray-300 transition-all"
               >
-                <ArrowLeft className="h-4 w-4 mr-1" /> Dashboard View
+                <ArrowLeft className="mr-3 text-red-800 hover:text-red-900 transition-colors" strokeWidth={4} /> Dashboard
               </button>
               <button 
                 onClick={fetchList}

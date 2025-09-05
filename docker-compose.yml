@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: redbut_db
+    container_name: redbut
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -20,6 +20,20 @@ services:
       timeout: 3s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    container_name: redbut_redis
+    command: redis-server --appendonly yes --requirepass redis_password_change_in_prod
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   api:
     build:
       context: .
@@ -27,6 +41,8 @@ services:
     container_name: redbut_api
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     environment:
       NODE_ENV: development
@@ -37,6 +53,10 @@ services:
       FRONTEND_URL: http://localhost:3000
       FRONTEND_URL_ADMIN: http://localhost:3002
       FRONTEND_URL_WAITER: http://localhost:3003
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: redis_password_change_in_prod
+      SESSION_CACHE_TTL_MINUTES: 30
     ports:
       - "3001:3001"
 
@@ -87,3 +107,4 @@ services:
 
 volumes:
   db_data:
+  redis_data:

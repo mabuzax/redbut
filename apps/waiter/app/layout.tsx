@@ -32,7 +32,7 @@ export const metadata: Metadata = {
     icon: '/favicon.ico',
     apple: '/apple-icon.png',
   },
-  manifest: '/manifest.json',
+  manifest: '',
   themeColor: '#ff3b3b', // Main RedBut color
 };
 

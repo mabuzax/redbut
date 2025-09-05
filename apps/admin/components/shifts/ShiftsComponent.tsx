@@ -30,7 +30,7 @@ export interface ShiftsComponentProps {
 const daysOfWeek = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 const ShiftsComponent = ({ onBack }: ShiftsComponentProps) => {
-  const token = typeof window !== 'undefined' ? localStorage.getItem("redbutToken") || "" : "";
+  const token = typeof window !== 'undefined' ? localStorage.getItem("redBut_token") || "" : "";
 
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
@@ -177,7 +177,7 @@ const ShiftsComponent = ({ onBack }: ShiftsComponentProps) => {
   return (
     <div>
       <button onClick={onBack} className="mb-6 inline-flex items-center text-primary-600 hover:underline">
-        <ArrowLeft className="h-4 w-4 mr-1" /> Back to Dashboard
+        <ArrowLeft className="mr-3 text-red-800 hover:text-red-900 transition-colors" strokeWidth={4} /> Dashboard
       </button>
 
       <div className="flex justify-between items-center mb-6">

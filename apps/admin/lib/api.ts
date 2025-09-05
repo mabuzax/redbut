@@ -1,4 +1,6 @@
-import { UserType } from '@prisma/client';
+import { UserType } from './types';
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 export interface RestaurantMetrics {
   totalTables: number;
@@ -185,6 +187,18 @@ export interface LoginResponse {
   name: string;
   token: string;
   requiresPasswordChange: boolean;
+}
+
+export interface LoginResponse {
+  waiter: {
+    id: string;
+    name: string;
+    surname: string;
+    email: string;
+    phone?: string;
+    tag_nickname: string;
+  };
+  token: string;
 }
 
 
@@ -553,8 +567,49 @@ export type AiAnalyticsQueryResponse =
   | any; // For potentially mixed or custom AI responses
 
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+export interface OTPGenerationRequest {
+  identifier: string; // email or phone
+  userType: string; // 'ADMIN' or 'WAITER'
+}
 
+export interface OTPGenerationResponse {
+  success: boolean;
+  message: string;
+  username: string;
+}
+
+export interface OTPVerificationRequest {
+  identifier: string; // email or phone  
+  userType: string; // 'ADMIN' or 'WAITER'
+  code: string; // 6-digit OTP
+}
+
+export interface OTPVerificationResponse {
+  success: boolean;
+  message?: string;
+  user?: {
+    id: string;
+    name: string;
+    email?: string;
+    phone?: string;
+    userType: string;
+  };
+  waiter?: {
+    id: string;
+    name: string;
+    surname: string;
+    email: string;
+    phone?: string;
+  };
+  admin?: {
+    id: string;
+    name: string;
+    surname: string;
+    email: string;
+    phone?: string;
+  };
+  token: string;
+}
 
 async function callApi<T>(
   endpoint: string,
@@ -1004,5 +1059,28 @@ export const adminApi = {
       'POST',
       { items },
     );
+  },
+
+  // OTP Authentication Methods
+  generateOTP: async (
+    emailOrPhone: string,
+    userType: 'admin' | 'waiter' | 'manager'
+  ): Promise<OTPGenerationResponse> => {
+    return callPublicApi<OTPGenerationResponse>('/auth/otp/generate', 'POST', {
+      emailOrPhone,
+      userType,
+    });
+  },
+
+  verifyOTP: async (
+    username: string,
+    otp: string,
+    userType: 'admin' | 'waiter' | 'manager'
+  ): Promise<OTPVerificationResponse> => {
+    return callPublicApi<OTPVerificationResponse>('/auth/otp/verify', 'POST', {
+      username,
+      otp,
+      userType,
+    });
   },
 };

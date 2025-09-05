@@ -19,17 +19,42 @@ model User {
   name           String?
   tableNumber    Int            @map("table_number")
   sessionId      String         @map("session_id")
+  waiterId       String?        @map("waiter_id") // ID of assigned waiter
   createdAt      DateTime       @default(now()) @map("created_at")
 
   /* relations ------------------------------------------------------------- */
-  requests       Request[]
-  chatMessages   ChatMessage[]
-  reviews        Review[]
-  ratingsGiven   WaiterRating[] @relation("UserRatingAuthor")
-  orders         Order[] // Relation to Orders placed by this user
+  requests         Request[]
+  chatMessages     ChatMessage[]
+  reviews          Review[]
+  ratingsGiven     WaiterRating[] @relation("UserRatingAuthor")
+  orders           Order[] // Relation to Orders placed by this user
+  serviceAnalysis  ServiceAnalysis[]
+  waiter           Waiter?        @relation(fields: [waiterId], references: [id]) // Relation to assigned waiter
 
   @@index([sessionId])
   @@map("users")
+}
+
+/* -------------------------------------------------------------------------- */
+/*  CLOSED SESSIONS (for audit purposes)                                     */
+/* -------------------------------------------------------------------------- */
+
+model ClosedSession {
+  id             String         @id @default(uuid())
+  originalUserId String         @map("original_user_id") // Reference to original user ID
+  name           String?
+  tableNumber    Int            @map("table_number")
+  sessionId      String         @map("session_id")
+  waiterId       String?        @map("waiter_id") // ID of assigned waiter
+  createdAt      DateTime       @map("created_at") // Original session creation time
+  closedAt       DateTime       @default(now()) @map("closed_at") // When session was closed
+
+  /* relations ------------------------------------------------------------- */
+  waiter         Waiter?        @relation(fields: [waiterId], references: [id]) // Relation to assigned waiter
+
+  @@index([createdAt])
+  @@index([closedAt])
+  @@map("closed_sessions")
 }
 
 /* -------------------------------------------------------------------------- */
@@ -40,6 +65,7 @@ model Request {
   id          String        @id @default(uuid())
   userId      String        @map("user_id")
   tableNumber Int           @map("table_number")
+  sessionId   String        @map("session_id") // Added for consistency with orders
   content     String
   status      RequestStatus @default(New)
   createdAt   DateTime      @default(now()) @map("created_at")
@@ -51,6 +77,7 @@ model Request {
 
   @@index([tableNumber, status])
   @@index([userId])
+  @@index([sessionId]) // Added index for session-based queries
   @@map("requests")
 }
 
@@ -146,6 +173,9 @@ model OrderItem {
   quantity    Int         @default(1)
   price       Decimal     // Price of the item at the time of order
   status      OrderStatus @default(New) // Status of the individual item, typically matches order status
+  selectedOptions Json?   @map("selected_options") // JSON array of selected options
+  selectedExtras Json?    @map("selected_extras")  // JSON array of selected extras
+  specialInstructions String? @map("special_instructions") // Special cooking instructions
   createdAt   DateTime    @default(now()) @map("created_at")
   updatedAt   DateTime    @updatedAt @map("updated_at")
 
@@ -182,10 +212,11 @@ enum OrderStatus {
   New          // Order created by customer, not yet seen by staff
   Acknowledged // Staff has seen the order
   InProgress   // Order is being prepared
+  Complete     // Order preparation is complete
   Delivered    // Order has been delivered to the table
   Paid         // Order has been paid
-  Cancelled    // Order was cancelled by customer
-  Complete     // Customer marked the order as complete
+  Cancelled    // Order was cancelled by customer or staff
+  Rejected     // Order was rejected by customer after delivery
 }
 
 enum SortOrder {
@@ -208,17 +239,46 @@ enum UserType {
 /* -------------------------------------------------------------------------- */
 
 model ChatMessage {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  role            ChatRole
+  content         String
+  parentMessageId String?  @map("parent_message_id") // Links AI responses to the user message that triggered them
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  /* relations ------------------------------------------------------------- */
+  user            User     @relation(fields: [userId], references: [id])
+  parentMessage   ChatMessage? @relation("MessageThread", fields: [parentMessageId], references: [id])
+  childMessages   ChatMessage[] @relation("MessageThread")
+
+  @@index([userId])
+  @@index([parentMessageId])
+  @@index([userId, parentMessageId])
+  @@map("chat_messages")
+}
+
+/* -------------------------------------------------------------------------- */
+/*  SERVICE ANALYSIS                                                          */
+/* -------------------------------------------------------------------------- */
+
+model ServiceAnalysis {
   id        String   @id @default(uuid())
+  sessionId String   @map("session_id")
   userId    String   @map("user_id")
-  role      ChatRole
-  content   String
+  waiterId  String   @map("waiter_id")
+  rating    Int      // 1-5 rating derived from analysis
+  analysis  Json     // Full analysis data
   createdAt DateTime @default(now()) @map("created_at")
 
   /* relations ------------------------------------------------------------- */
   user      User     @relation(fields: [userId], references: [id])
+  waiter    Waiter   @relation(fields: [waiterId], references: [id])
 
+  @@index([sessionId])
   @@index([userId])
-  @@map("chat_messages")
+  @@index([waiterId])
+  @@index([createdAt])
+  @@map("service_analysis")
 }
 
 /* -------------------------------------------------------------------------- */
@@ -284,14 +344,19 @@ model Waiter {
   updatedAt DateTime @updatedAt @map("updated_at") 
 
   /* waiter-centric analytics & feedback ----------------------------------- */
-  metrics   WaiterMetric[]
-  ratings   WaiterRating[]
+  metrics          WaiterMetric[]
+  ratings          WaiterRating[]
+  serviceAnalysis  ServiceAnalysis[]
 
   /* one-to-one credential record used for dashboard login */
   accessAccount AccessUser?
 
   /* relations to table allocations */
   tableAllocations TableAllocation[]
+
+  /* relations to users assigned to this waiter */
+  users     User[]
+  closedSessions ClosedSession[]
 
   @@map("waiter")
 }
@@ -350,7 +415,7 @@ model AccessUser {
 
   /* Credentials */
   username String @unique
-  password String                      // default handled in application logic
+  code     String?                     // OTP code for authentication (6 digits)
 
   /* Role of this account (admin / waiter / manager) */
   userType UserType @default(waiter)

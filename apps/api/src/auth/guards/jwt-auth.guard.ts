@@ -22,6 +22,8 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   canActivate(
     context: ExecutionContext,
   ): boolean | Promise<boolean> | Observable<boolean> {
+    console.log('[JWT Auth Guard] canActivate called');
+    
     // Check for public route metadata
     const isPublic = this.reflector.getAllAndOverride<boolean>('isPublic', [
       context.getHandler(),
@@ -30,9 +32,11 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
     // If route is marked as public, allow access
     if (isPublic) {
+      console.log('[JWT Auth Guard] Route is public, allowing access');
       return true;
     }
 
+    console.log('[JWT Auth Guard] Route requires authentication, calling super.canActivate');
     // Otherwise, use the JWT authentication strategy
     return super.canActivate(context);
   }
@@ -44,8 +48,11 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
    * @returns Never - throws UnauthorizedException
    */
   handleRequest(err: any, user: any, _info: any): any {
+    console.log('[JWT Auth Guard] handleRequest called with err:', err, 'user:', user, 'info:', _info);
+    
     // If there's an error or no user, throw an unauthorized exception
     if (err || !user) {
+      console.log('[JWT Auth Guard] Throwing UnauthorizedException - err exists:', !!err, 'user exists:', !!user);
       throw err || new UnauthorizedException('Authentication required');
     }
     

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast, Toaster } from "react-hot-toast";
+import { api } from '@/lib/api';
 import {
   ArrowLeft,
   Search,
@@ -16,7 +17,9 @@ import {
   ShoppingBag,
   ImageIcon,
   Loader,
-  Check
+  Check,
+  Circle,
+  CheckCircle2
 } from "lucide-react";
 
 interface MenuItem {
@@ -29,8 +32,8 @@ interface MenuItem {
   status: string;
   video?: string;
   served_info?: string;
-  available_options: string[];
-  available_extras: string[];
+  available_options: string[] | string | null;
+  available_extras: string[] | string | null;
 }
 
 interface OrderItem {
@@ -56,16 +59,35 @@ interface FoodMenuProps {
   clearCart: () => void;
   showCart: boolean;
   setShowCart: (show: boolean) => void;
+  // New prop for initial search
+  initialSearchTerm?: string;
 }
 
 const ImagePlaceholder = ({ name }: { name: string }) => (
-  <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">
-    <div className="flex flex-col items-center justify-center p-4 text-center">
-      <ImageIcon className="h-8 w-8 mb-2" />
-      <span className="text-xs">{name || "No Image"}</span>
+  <div className="w-full h-full flex items-center justify-center bg-gray-50 text-gray-400">
+    <div className="flex flex-col items-center justify-center p-2 text-center">
+      <ImageIcon className="h-6 w-6 mb-1" />
+      <span className="text-xs leading-tight">{name || "No Image"}</span>
     </div>
   </div>
 );
+
+// Helper function to safely parse options/extras that might be strings or arrays
+const parseOptionsArray = (options: string[] | string | null | undefined): string[] => {
+  if (!options) return [];
+  if (Array.isArray(options)) return options;
+  if (typeof options === 'string') {
+    try {
+      // Try to parse as JSON first
+      const parsed = JSON.parse(options);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      // If JSON parsing fails, split by comma
+      return options.split(',').map(opt => opt.trim()).filter(opt => opt.length > 0);
+    }
+  }
+  return [];
+};
 
 const FoodMenu = ({ 
   userId, 
@@ -78,7 +100,8 @@ const FoodMenu = ({
   removeFromCart,
   clearCart,
   showCart,
-  setShowCart
+  setShowCart,
+  initialSearchTerm = ""
 }: FoodMenuProps) => {
   // Menu state
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -96,7 +119,7 @@ const FoodMenu = ({
   
   // Filter state
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [searchTerm, setSearchTerm] = useState<string>(initialSearchTerm);
   
   // Modal state
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
@@ -104,18 +127,18 @@ const FoodMenu = ({
   
   // Selected options state
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
+  const [selectedOption, setSelectedOption] = useState<string>(''); // Single selection for options
+  const [selectedExtras, setSelectedExtras] = useState<string[]>([]); // Multiple selection for extras
   
   // Order submission state
   const [submittingOrder, setSubmittingOrder] = useState(false);
-
-  const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
   const fetchMenuItems = useCallback(async () => {
     setLoading(true);
     setError(null);
     
     try {
-      const response = await fetch(`${apiBase}/api/v1/menu?status=Active`);
+      const response = await api.get('/api/v1/menu?status=Active');
       
       if (!response.ok) {
         throw new Error(`Failed to fetch menu items: ${response.status}`);
@@ -145,7 +168,16 @@ const FoodMenu = ({
     } finally {
       setLoading(false);
     }
-  }, [apiBase]);
+  }, []);
+
+  // Use initial search term effect
+  useEffect(() => {
+    if (initialSearchTerm) {
+      setSearchTerm(initialSearchTerm);
+      setCategoryFilter("all"); // Switch to ALL category when there's a search
+      setDisplayedItemsCount(15); // Reset display count
+    }
+  }, [initialSearchTerm]);
 
   useEffect(() => {
     fetchMenuItems();
@@ -156,13 +188,21 @@ const FoodMenu = ({
   };
 
   const handleAddToOrder = (item: MenuItem, options: string[] = []) => {
+    // Combine single option and multiple extras into final selection
+    const finalOptions = [];
+    if (selectedOption) finalOptions.push(selectedOption);
+    finalOptions.push(...selectedExtras);
+    
+    // Use combined options if we're in modal, otherwise use passed options
+    const optionsToUse = (selectedOption || selectedExtras.length > 0) ? finalOptions : options;
+    
     addToCart({
       menuItemId: item.id,
       name: item.name,
       price: item.price,
       quantity: 1,
       image: item.image,
-      selectedOptions: options.length > 0 ? options : undefined
+      selectedOptions: optionsToUse.length > 0 ? optionsToUse : undefined
     });
     
     toast.success(`Added ${item.name} to your cart`, {
@@ -184,23 +224,16 @@ const FoodMenu = ({
     setSubmittingOrder(true);
     
     try {
-      const response = await fetch(`${apiBase}/api/v1/orders`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          userId,
-          sessionId,
-          tableNumber,
-          items: orderItems.map(item => ({
-            menuItemId: item.menuItemId,
-            quantity: item.quantity,
-            price: item.price,
-            selectedOptions: item.selectedOptions
-          }))
-        })
+      const response = await api.post('/api/v1/orders', {
+        userId,
+        sessionId,
+        tableNumber,
+        items: orderItems.map(item => ({
+          menuItemId: item.menuItemId,
+          quantity: item.quantity,
+          price: item.price,
+          selectedOptions: item.selectedOptions
+        }))
       });
       
       if (!response.ok) {
@@ -236,7 +269,8 @@ const FoodMenu = ({
     const matchesCategory = categoryFilter === "all" || item.category === categoryFilter;
     const matchesSearch = searchTerm === "" || 
       item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.description.toLowerCase().includes(searchTerm.toLowerCase());
+      item.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (item.category && item.category.toLowerCase().includes(searchTerm.toLowerCase()));
     
     return matchesCategory && matchesSearch;
   });
@@ -292,6 +326,8 @@ const FoodMenu = ({
     setSelectedItem(item);
     // Initialize selected options with empty array
     setSelectedOptions([]);
+    setSelectedOption(''); // Clear single option selection
+    setSelectedExtras([]); // Clear extras selection
     setShowModal(true);
   };
 
@@ -317,33 +353,47 @@ const FoodMenu = ({
     );
   };
 
+  // Radio button behavior for available_options (single selection)
+  const selectOption = (option: string) => {
+    setSelectedOption(option);
+  };
+
+  // Checkbox behavior for available_extras (multiple selection)
+  const toggleExtra = (extra: string) => {
+    setSelectedExtras(prev => 
+      prev.includes(extra) 
+        ? prev.filter(e => e !== extra) 
+        : [...prev, extra]
+    );
+  };
+
   return (
     <div className="flex flex-col h-full bg-gray-50">
       {/* Toast Container */}
       <Toaster />
       
       {/* Header */}
-      <div className="bg-white shadow-sm p-4 flex justify-between items-center">
+      <div className="bg-white shadow-sm px-4 py-3 flex justify-between items-center border-b border-gray-100">
         <div className="flex items-center">
           <button 
             onClick={onCloseMenu} 
             className="mr-3 text-gray-600 hover:text-gray-900 transition-colors"
           >
-            <ArrowLeft className="h-6 w-6" />
+            <ArrowLeft className="mr-2 text-red-800 hover:text-red-900 transition-colors" strokeWidth={3} />
           </button>
-          <h1 className="text-xl font-semibold">Food Menu</h1>
+          <h1 className="text-lg font-semibold text-gray-900">Menu</h1>
         </div>
         <button 
           onClick={() => setShowCart(true)}
-          className="relative p-2 text-gray-600 hover:text-gray-900 transition-colors"
+          className="relative p-2 text-gray-600 hover:text-gray-900 transition-colors rounded-lg hover:bg-gray-100"
           aria-label="Shopping cart"
         >
-          <ShoppingCart className="h-6 w-6" />
+          <ShoppingCart className="h-5 w-5" />
           {totalItems > 0 && (
             <motion.span 
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
-              className="absolute -top-1 -right-1 bg-primary-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center"
+              className="absolute -top-1 -right-1 bg-primary-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center font-medium"
             >
               {totalItems}
             </motion.span>
@@ -352,7 +402,7 @@ const FoodMenu = ({
       </div>
 
       {/* Search and Filter */}
-      <div className="p-4 bg-white shadow-sm">
+      <div className="px-4 py-3 bg-white shadow-sm border-b border-gray-100">
         <div className="flex items-center mb-3 relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
           <input
@@ -360,18 +410,18 @@ const FoodMenu = ({
             placeholder="Search menu..."
             value={searchTerm}
             onChange={handleSearchChange}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all"
+            className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all text-sm"
           />
         </div>
-        <div className="flex overflow-x-auto pb-2 hide-scrollbar">
+        <div className="flex overflow-x-auto pb-1 hide-scrollbar gap-2">
           {categories.map(category => (
             <button
               key={category}
               onClick={() => handleCategoryChange(category)}
-              className={`px-4 py-2 mr-2 rounded-full text-sm whitespace-nowrap transition-colors ${
+              className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-200 ${
                 categoryFilter === category
-                  ? "bg-primary-500 text-white"
-                  : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                  ? "bg-primary-500 text-white shadow-sm"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-800"
               }`}
             >
               {category === "all" ? "All" : category}
@@ -383,37 +433,37 @@ const FoodMenu = ({
       {/* Content */}
       <div 
         ref={contentRef}
-        className="flex-1 p-4 overflow-y-auto"
+        className="flex-1 px-3 py-2 overflow-y-auto"
       >
         {loading ? (
-          <div className="flex items-center justify-center flex-1">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-primary-500"></div>
           </div>
         ) : error ? (
-          <div className="text-center py-10 flex-1">
-            <p className="text-red-500 mb-4">{error}</p>
+          <div className="text-center py-8">
+            <p className="text-red-500 mb-3 text-sm">{error}</p>
             <button 
               onClick={fetchMenuItems}
-              className="px-4 py-2 bg-primary-500 text-white rounded-md hover:bg-primary-600 transition-colors"
+              className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors text-sm font-medium"
             >
               Retry
             </button>
           </div>
         ) : filteredMenuItems.length === 0 ? (
-          <div className="text-center py-10 flex-1">
-            <p className="text-gray-500">No menu items found. Try adjusting your filters.</p>
+          <div className="text-center py-8">
+            <p className="text-gray-500 text-sm">No menu items found. Try adjusting your filters.</p>
           </div>
         ) : (
           <>
             {/* Menu Items - List View */}
-            <div className="space-y-4">
+            <div className="space-y-3">
               {displayedItems.map(item => (
                 <div 
                   key={item.id} 
-                  className="bg-white rounded-lg shadow-md overflow-hidden flex flex-col md:flex-row"
+                  className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col md:flex-row hover:shadow-md transition-all duration-200"
                 >
                   {/* Image (Left on desktop, Top on mobile) */}
-                  <div className="h-48 md:h-auto md:w-1/3 md:max-w-xs overflow-hidden">
+                  <div className="h-32 md:h-28 md:w-1/3 md:max-w-xs overflow-hidden">
                     {(!item.image || failedImages.has(item.image)) ? (
                       <ImagePlaceholder name={item.name} />
                     ) : (
@@ -430,33 +480,29 @@ const FoodMenu = ({
                   <div className="p-4 flex-1 flex flex-col justify-between">
                     <div>
                       <div className="flex justify-between items-start mb-2">
-                        <h3 className="text-lg font-medium text-gray-900">{item.name}</h3>
-                        <span className="text-lg font-semibold text-primary-600">
+                        <h3 className="text-base font-semibold text-gray-900 leading-tight">{item.name}</h3>
+                        <span className="text-base font-bold text-primary-600 ml-2 flex-shrink-0">
                           ${Number(item.price).toFixed(2)}
                         </span>
                       </div>
                       
                       {item.category && (
-                        <p className="text-sm text-gray-500 mb-2">{item.category}</p>
+                        <span className="inline-block px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full mb-2">
+                          {item.category}
+                        </span>
                       )}
                       
-                      <p className="text-sm text-gray-600 line-clamp-2">
+                      <p className="text-xs text-gray-600 line-clamp-2 leading-relaxed">
                         {item.description || "No description available"}
                       </p>
                     </div>
                     
-                    <div className="mt-4 flex space-x-2">
+                    <div className="mt-10 relative">
                       <button
                         onClick={() => viewItemDetails(item)}
-                        className="flex-1 py-2 border border-primary-500 text-primary-500 rounded-md hover:bg-primary-50 transition-colors flex items-center justify-center"
+                        className="absolute bottom-0 right-0 py-1.5 px-3 bg-white text-red-700 rounded-lg hover:bg-gray-50 transition-all duration-200 flex items-center justify-center text-sm font-semibold shadow-lg"
                       >
-                        <Eye className="h-4 w-4 mr-1" /> View
-                      </button>
-                      <button
-                        onClick={() => handleAddToOrder(item)}
-                        className="flex-1 py-2 bg-primary-500 text-white rounded-md hover:bg-primary-600 transition-colors flex items-center justify-center"
-                      >
-                        <Plus className="h-4 w-4 mr-1" /> Add to Order
+                        <Eye className="h-3.5 w-3.5 mr-1" /> Detail
                       </button>
                     </div>
                   </div>
@@ -465,16 +511,16 @@ const FoodMenu = ({
               
               {/* Load more indicator for ALL category */}
               {categoryFilter === "all" && displayedItems.length < filteredMenuItems.length && (
-                <div className="flex justify-center py-4">
+                <div className="flex justify-center py-3">
                   {loadingMore ? (
                     <div className="flex items-center">
-                      <Loader className="h-5 w-5 animate-spin mr-2 text-primary-500" />
-                      <span className="text-gray-600">Loading more...</span>
+                      <Loader className="h-4 w-4 animate-spin mr-2 text-primary-500" />
+                      <span className="text-gray-600 text-sm">Loading more...</span>
                     </div>
                   ) : (
                     <button 
                       onClick={loadMoreItems}
-                      className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+                      className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
                     >
                       Load More
                     </button>
@@ -548,30 +594,62 @@ const FoodMenu = ({
                   </div>
                 )}
                 
-                {selectedItem.available_options && selectedItem.available_options.length > 0 && (
+                {parseOptionsArray(selectedItem.available_options).length > 0 && (
                   <div className="mb-4">
-                    <h3 className="text-sm font-medium text-gray-700 mb-1">Available Options</h3>
-                    <div className="grid grid-cols-2 gap-2">
-                      {selectedItem.available_options.map((option, index) => (
+                    <h3 className="text-sm font-semibold text-red-700 mb-1">How do you want it?</h3>
+                    <div className="grid grid-cols-1 gap-2">
+                      {parseOptionsArray(selectedItem.available_options).map((option: string, index: number) => (
                         <button 
                           key={index} 
                           className={`flex items-center p-2 rounded-md border ${
-                            selectedOptions.includes(option) 
+                            selectedOption === option 
                               ? 'bg-primary-50 border-primary-500 text-primary-700' 
                               : 'border-gray-200 hover:bg-gray-50'
                           }`}
-                          onClick={() => toggleOption(option)}
+                          onClick={() => selectOption(option)}
                         >
-                          <div className={`w-5 h-5 rounded-md mr-2 flex items-center justify-center ${
-                            selectedOptions.includes(option) 
-                              ? 'bg-primary-500' 
-                              : 'border border-gray-300'
+                          <div className={`w-5 h-5 rounded-full mr-2 flex items-center justify-center ${
+                            selectedOption === option 
+                              ? 'text-primary-500' 
+                              : 'text-gray-300'
                           }`}>
-                            {selectedOptions.includes(option) && (
-                              <Check className="h-3 w-3 text-white" />
+                            {selectedOption === option ? (
+                              <CheckCircle2 className="h-5 w-5" />
+                            ) : (
+                              <Circle className="h-5 w-5" />
                             )}
                           </div>
                           <span className="text-sm">{option.replace('_', ' ')}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {parseOptionsArray(selectedItem.available_extras).length > 0 && (
+                  <div className="mb-4">
+                    <h3 className="text-sm font-semibold text-red-700 mb-1">Some Extras?</h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {parseOptionsArray(selectedItem.available_extras).map((extra: string, index: number) => (
+                        <button 
+                          key={index} 
+                          className={`flex items-center p-2 rounded-md border ${
+                            selectedExtras.includes(extra) 
+                              ? 'bg-primary-50 border-primary-500 text-primary-700' 
+                              : 'border-gray-200 hover:bg-gray-50'
+                          }`}
+                          onClick={() => toggleExtra(extra)}
+                        >
+                          <div className={`w-5 h-5 rounded-md mr-2 flex items-center justify-center ${
+                            selectedExtras.includes(extra) 
+                              ? 'bg-primary-500' 
+                              : 'border border-gray-300'
+                          }`}>
+                            {selectedExtras.includes(extra) && (
+                              <Check className="h-3 w-3 text-white" />
+                            )}
+                          </div>
+                          <span className="text-sm">{extra.replace('_', ' ')}</span>
                         </button>
                       ))}
                     </div>
@@ -591,21 +669,15 @@ const FoodMenu = ({
               </div>
               
               {/* Footer Buttons */}
-              <div className="p-4 border-t border-gray-200 flex space-x-3">
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="flex-1 py-3 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors flex items-center justify-center"
-                >
-                  <ArrowLeftCircle className="h-4 w-4 mr-2" /> Back
-                </button>
+              <div className="p-4 border-t border-gray-200 flex justify-end">
                 <button
                   onClick={() => {
-                    handleAddToOrder(selectedItem, selectedOptions);
+                    handleAddToOrder(selectedItem);
                     setShowModal(false);
                   }}
-                  className="flex-1 py-3 bg-primary-500 text-white rounded-md hover:bg-primary-600 transition-colors flex items-center justify-center"
+                  className="py-2 px-4 bg-white text-red-700 rounded-lg hover:bg-gray-50 transition-colors flex items-center justify-center text-sm font-bold shadow-lg"
                 >
-                  <ShoppingBag className="h-4 w-4 mr-2" /> Add to Order
+                  <ShoppingBag className="h-3.5 w-3.5 mr-1" /> Add to Order
                 </button>
               </div>
             </motion.div>

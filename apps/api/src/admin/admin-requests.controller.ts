@@ -1,11 +1,16 @@
 import {
   Controller,
   Get,
+  Put,
+  Body,
+  Param,
   UseGuards,
   HttpStatus,
   Query,
   ParseIntPipe,
   DefaultValuePipe,
+  ValidationPipe,
+  UsePipes,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -13,10 +18,15 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiQuery,
+  ApiParam,
+  ApiBody,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles, RolesGuard } from '../auth/guards/role.guard';
 import { AdminRequestsService } from './admin-requests.service';
+import { RequestsService } from '../requests/requests.service';
+import { UpdateRequestDto } from '../requests/dto/update-request.dto';
+import { Request } from '@prisma/client';
 
 @ApiTags('admin-requests')
 @Controller('admin/requests')
@@ -24,7 +34,10 @@ import { AdminRequestsService } from './admin-requests.service';
 @UseGuards(JwtAuthGuard, RolesGuard) // Apply JWT and Role guards
 @Roles('admin') // Restrict to admin role
 export class AdminRequestsController {
-  constructor(private readonly adminRequestsService: AdminRequestsService) {}
+  constructor(
+    private readonly adminRequestsService: AdminRequestsService,
+    private readonly requestsService: RequestsService,
+  ) {}
 
   @Get('summary')
   @ApiOperation({ summary: 'Get summary of open and closed requests with average resolution time' })
@@ -354,5 +367,42 @@ export class AdminRequestsController {
       page,
       pageSize,
     });
+  }
+
+  @Put(':id')
+  @ApiOperation({ summary: 'Update a request (admin only)' })
+  @ApiParam({
+    name: 'id',
+    description: 'Request ID',
+    required: true,
+  })
+  @ApiBody({ type: UpdateRequestDto })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Request updated successfully',
+    type: Request,
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid status transition or request data',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Request not found',
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Unauthorized access',
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'Insufficient permissions',
+  })
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async updateRequest(
+    @Param('id') id: string,
+    @Body() updateRequestDto: UpdateRequestDto,
+  ): Promise<Request> {
+    return this.requestsService.update(id, updateRequestDto, 'admin');
   }
 }

@@ -27,6 +27,7 @@ import {
 import { WaiterService } from './waiter.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles, RolesGuard } from '../auth/guards/role.guard';
+import { GetUser } from '../auth/decorators/get-user.decorator';
 import { RequestStatus } from '@prisma/client'; // Import RequestStatus from Prisma client
 import { OrderStatus } from '@prisma/client';
 import {
@@ -93,7 +94,7 @@ export class WaiterController {
     name: 'status',
     required: false,
     description: 'Filter by status (New, Acknowledged, InProgress, Completed, OnHold, Cancelled, Done)',
-    enum: [...Object.values(RequestStatus), 'all'],
+    enum: [...Object.values(RequestStatus) as string[], 'all'],
   })
   @ApiQuery({
     name: 'sort',
@@ -128,13 +129,14 @@ export class WaiterController {
     },
   })
   async getAllRequests(
+    @GetUser() user: any,
     @Query('page',     new DefaultValuePipe(1),  ParseIntPipe) page     = 1,
     @Query('pageSize', new DefaultValuePipe(20), ParseIntPipe) pageSize = 20,
     @Query('status') status?: string,
     @Query('sort') sort?: 'time' | 'status',
     @Query('search') search?: string,
   ): Promise<any[]> {
-    return this.waiterService.getAllRequests({
+    return this.waiterService.getAllRequests(user.id, {
       status,
       sort,
       search,
@@ -148,7 +150,7 @@ export class WaiterController {
   @ApiOperation({ summary: 'Get a list of active requests for the waiter dashboard' })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Returns an array of active requests',
+    description: 'Returns an array of active requests for waiter allocated tables',
     schema: {
       type: 'array',
       items: {
@@ -163,8 +165,8 @@ export class WaiterController {
       },
     },
   })
-  async getActiveRequests(): Promise<any[]> {
-    return this.waiterService.getActiveRequests();
+  async getActiveRequests(@GetUser() user: any): Promise<any[]> {
+    return this.waiterService.getActiveRequests(user.id);
   }
 
   @Put('requests/:id/status')
@@ -212,22 +214,23 @@ export class WaiterController {
   @Get('orders')
   @Roles('waiter')
   @ApiOperation({ summary: 'Get all orders for allocated tables' })
-  @ApiQuery({ name: 'status', required: false, enum: [...Object.values(OrderStatus), 'all'] })
+  @ApiQuery({ name: 'status', required: false, enum: [...Object.values(OrderStatus) as string[], 'all'] })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'pageSize', required: false, type: Number, example: 20 })
   async getOrders(
+    @GetUser() user: any,
     @Query('page',     new DefaultValuePipe(1),  ParseIntPipe) page     = 1,
     @Query('pageSize', new DefaultValuePipe(20), ParseIntPipe) pageSize = 20,
     @Query('status') status?: string,
   ): Promise<any> {
-    return this.waiterService.getOrders({ page, pageSize, status });
+    return this.waiterService.getOrders(user.id, { page, pageSize, status });
   }
 
   @Get('orders/by-table')
   @Roles('waiter')
   @ApiOperation({ summary: 'Get orders grouped by table' })
-  async getOrdersByTable(): Promise<any> {
-    return this.waiterService.getOrdersByTable();
+  async getOrdersByTable(@GetUser() user: any): Promise<any> {
+    return this.waiterService.getOrdersByTable(user.id);
   }
 
   @Put('orders/:id/status')
@@ -243,12 +246,38 @@ export class WaiterController {
     return this.waiterService.updateOrderStatus(id, dto.status);
   }
 
+  @Get('orders/session/:sessionId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('waiter')
+  @ApiOperation({ summary: 'Get orders for a specific session' })
+  @ApiParam({ name: 'sessionId', description: 'Session ID to get orders for' })
+  @ApiResponse({ status: 200, description: 'Orders retrieved successfully' })
+  async getOrdersBySession(
+    @GetUser() user: any,
+    @Param('sessionId') sessionId: string,
+  ) {
+    return this.waiterService.getOrdersBySession(user.id, sessionId);
+  }
+
+  @Get('requests/session/:sessionId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('waiter')
+  @ApiOperation({ summary: 'Get requests for a specific session' })
+  @ApiParam({ name: 'sessionId', description: 'Session ID to get requests for' })
+  @ApiResponse({ status: 200, description: 'Requests retrieved successfully' })
+  async getRequestsBySession(
+    @GetUser() user: any,
+    @Param('sessionId') sessionId: string,
+  ) {
+    return this.waiterService.getRequestsBySession(user.id, sessionId);
+  }
+
   @Get('requests/summary')
   @Roles('waiter')
-  @ApiOperation({ summary: 'Get a summary of open and closed requests' })
+  @ApiOperation({ summary: 'Get a summary of open and closed requests for this waiter' })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Returns counts of open and closed requests',
+    description: 'Returns counts of open and closed requests for waiter sessions',
     schema: {
       type: 'object',
       properties: {
@@ -257,8 +286,8 @@ export class WaiterController {
       },
     },
   })
-  async getRequestsSummary(): Promise<{ open: number; closed: number }> {
-    return this.waiterService.getRequestsSummary();
+  async getRequestsSummary(@GetUser() user: any): Promise<{ open: number; closed: number }> {
+    return this.waiterService.getRequestsSummary(user.id);
   }
 
   @Get('reviews/summary')
@@ -313,17 +342,29 @@ export class WaiterController {
   @ApiOperation({ summary: 'Get AI analysis of waiter performance for today' })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Returns AI analysis text',
+    description: 'Returns structured AI analysis',
     schema: {
       type: 'object',
       properties: {
-        analysis: { type: 'string', example: 'Based on current data, your performance today is excellent!' },
+        customerSentiment: { type: 'string', example: 'Overall Positive' },
+        happinessBreakdown: {
+          type: 'object',
+          properties: {
+            'Extremely Happy': { type: 'string' },
+            'Very Happy': { type: 'string' },
+            'Just Ok': { type: 'string' },
+            'Unhappy': { type: 'string' },
+            'Horrible': { type: 'string' },
+          }
+        },
+        improvementPoints: { type: 'array', items: { type: 'string' } },
+        overallAnalysis: { type: 'string' },
       },
     },
   })
-  async getAIAnalysis(): Promise<{ analysis: string }> {
-    const analysis = await this.waiterService.getAIAnalysis();
-    return { analysis };
+  async getAIAnalysis(@GetUser() user: any): Promise<any> {
+    const analysis = await this.waiterService.getAIAnalysis(user.id);
+    return analysis;
   }
 
   /* ---------------------------------------------------------------------
@@ -347,6 +388,107 @@ export class WaiterController {
     } catch (e) {
       throw new HttpException(
         (e as Error).message || 'Failed to store rating',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /* Session Management Endpoints                                               */
+  /* -------------------------------------------------------------------------- */
+
+  @Get('all')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('waiter', 'admin')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get all waiters' })
+  @ApiResponse({ status: 200, description: 'List of all waiters' })
+  async getAllWaiters() {
+    return this.waiterService.getAllWaiters();
+  }
+
+  @Post('create-session')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('waiter', 'admin')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a table session' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        tableNumber: { type: 'number' },
+        waiterId: { type: 'string' },
+        sessionId: { type: 'string' }
+      }
+    }
+  })
+  @ApiResponse({ status: 201, description: 'Session created successfully' })
+  async createSession(@Body() dto: { tableNumber: number; waiterId: string; sessionId: string }) {
+    try {
+      return await this.waiterService.createSession(dto.tableNumber, dto.waiterId, dto.sessionId);
+    } catch (e) {
+      throw new HttpException(
+        (e as Error).message || 'Failed to create session',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  @Get('active-sessions')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('waiter', 'admin')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get all active table sessions' })
+  @ApiResponse({ status: 200, description: 'Active sessions retrieved successfully' })
+  async getActiveSessions() {
+    try {
+      return await this.waiterService.getActiveSessions();
+    } catch (e) {
+      throw new HttpException(
+        (e as Error).message || 'Failed to retrieve active sessions',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  @Get('sessions/:waiterId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('waiter', 'admin')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get active sessions for a specific waiter' })
+  @ApiParam({ name: 'waiterId', description: 'The waiter ID to get sessions for' })
+  @ApiResponse({ status: 200, description: 'Waiter sessions retrieved successfully' })
+  async getSessionsByWaiterId(@Param('waiterId') waiterId: string) {
+    try {
+      return await this.waiterService.getSessionsByWaiterId(waiterId);
+    } catch (e) {
+      throw new HttpException(
+        (e as Error).message || 'Failed to retrieve waiter sessions',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  @Post('close-session')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('waiter', 'admin')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Close a table session' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string' }
+      }
+    }
+  })
+  @ApiResponse({ status: 200, description: 'Session closed successfully' })
+  async closeSession(@Body() dto: { sessionId: string }) {
+    try {
+      return await this.waiterService.closeSession(dto.sessionId);
+    } catch (e) {
+      throw new HttpException(
+        (e as Error).message || 'Failed to close session',
         HttpStatus.BAD_REQUEST,
       );
     }

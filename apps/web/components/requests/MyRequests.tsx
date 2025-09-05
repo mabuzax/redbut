@@ -2,7 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import TimeAgo from 'react-timeago';
 import { Loader2, Edit, CheckCircle, XCircle, PauseCircle, RefreshCw, X } from 'lucide-react';
+import { api, serviceAnalysisApi } from '@/lib/api';
 import { RequestStatusConfigService } from '../../lib/request-status-config';
+import { RequestStatus } from '../../lib/types';
+import { ServiceAnalysisData } from '../../types/service-analysis';
+import { getWaiterIdFromLocalStorage } from '../../lib/session-utils';
+import ReviewComponent from '../feedback/ReviewComponent';
 
 // Define interfaces for data structures
 interface Request {
@@ -10,7 +15,7 @@ interface Request {
   userId: string;
   tableNumber: number;
   content: string;
-  status: 'New' | 'OnHold' | 'Cancelled' | 'Done' | 'Acknowledged' | 'InProgress' | 'Completed';
+  status: RequestStatus;
   createdAt: string;
   updatedAt: string;
 }
@@ -19,8 +24,6 @@ interface MyRequestsProps {
   userId: string;
   token: string;
 }
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
   const [requests, setRequests] = useState<Request[]>([]);
@@ -33,6 +36,17 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
   const [updatingRequest, setUpdatingRequest] = useState(false);
   const [statusOptions, setStatusOptions] = useState<{ value: string; label: string }[]>([]);
   const [statusOptionsLoading, setStatusOptionsLoading] = useState(false);
+  const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false);
+  
+  // Review component state
+  const [reviewDialog, setReviewDialog] = useState({
+    isOpen: false,
+    requestId: '',
+    newStatus: '' as RequestStatus | '',
+    sessionId: '',
+    userId: '',
+    waiterId: ''
+  });
 
   /**
    * Fetch waiter requests for the current user.
@@ -49,14 +63,8 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
         throw new Error('No authentication token found');
       }
 
-      const response = await fetch(
-        `${API_BASE_URL}/api/v1/requests?userId=${userId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        },
+      const response = await api.get(
+        `/api/v1/requests?userId=${userId}`
       );
 
       if (!response.ok) {
@@ -90,20 +98,50 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
     setIsModalOpen(true);
     
     // Load status options for the selected request
+    await loadStatusOptions(request.status);
+  };
+
+  const loadStatusOptions = async (currentStatus: Request['status']) => {
     setStatusOptionsLoading(true);
     try {
       const options = await RequestStatusConfigService.getStatusOptions(
-        request.status,
+        currentStatus,
         'client',
         token
       );
-      setStatusOptions(options.length > 0 ? options : RequestStatusConfigService.getDefaultStatusOptions(request.status));
+      
+      const finalOptions = options.length > 0 ? options : RequestStatusConfigService.getDefaultStatusOptions(currentStatus);
+      
+      // Ensure current status is always first in the dropdown
+      const sortedOptions = finalOptions.sort((a, b) => {
+        if (a.value === currentStatus) return -1;
+        if (b.value === currentStatus) return 1;
+        return 0;
+      });
+      
+      setStatusOptions(sortedOptions);
     } catch (err) {
       console.error('Error loading status options:', err);
-      setStatusOptions(RequestStatusConfigService.getDefaultStatusOptions(request.status));
+      const fallbackOptions = RequestStatusConfigService.getDefaultStatusOptions(currentStatus);
+      
+      // Ensure current status is first in fallback too
+      const sortedFallback = fallbackOptions.sort((a, b) => {
+        if (a.value === currentStatus) return -1;
+        if (b.value === currentStatus) return 1;
+        return 0;
+      });
+      
+      setStatusOptions(sortedFallback);
     } finally {
       setStatusOptionsLoading(false);
     }
+  };
+
+  const refreshStatusOptions = async () => {
+    if (!selectedRequest) return;
+    
+    // Reload status options with current request status
+    await loadStatusOptions(selectedRequest.status);
   };
 
   const handleModalClose = () => {
@@ -140,29 +178,94 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
         return;
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/v1/requests/${selectedRequest.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify(updatePayload),
-      });
+      // If status is being changed, validate the transition with fresh data from backend
+      // The backend will check the current database status and validate the transition
+      const response = await api.put(`/api/v1/requests/${selectedRequest.id}`, updatePayload);
 
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.message || 'Failed to update request.');
       }
 
+      // Check if status was changed to Done or Cancelled - show review dialog
+      const statusChanged = updatePayload.status;
+      if (statusChanged === 'Done' || statusChanged === 'Cancelled') {
+        // Get session and user data for review
+        const sessionId = localStorage.getItem('redBut_table_session') || '';
+        const currentUser = requests.find(r => r.id === selectedRequest.id);
+        const waiterId = getWaiterIdFromLocalStorage();
+        
+        setReviewDialog({
+          isOpen: true,
+          requestId: selectedRequest.id,
+          newStatus: statusChanged,
+          sessionId,
+          userId: currentUser?.userId || userId,
+          waiterId: waiterId || ''
+        });
+      }
+
       // Refresh requests after successful update
       fetchRequests();
       handleModalClose();
     } catch (err: any) {
-      setError(err.message || 'An unknown error occurred while updating the request.');
-      console.error('Failed to update request:', err);
+      const errorMessage = err.message || 'An unknown error occurred while updating the request.';
+      
+      // Check if this is a status change race condition error
+      if (errorMessage.includes('status may have changed while you were editing') || 
+          errorMessage.includes('Refresh for the latest status')) {
+        // Close the edit modal and show the status change dialog
+        handleModalClose();
+        setShowStatusChangeDialog(true);
+      } else {
+        // Show regular error in the modal
+        setError(errorMessage);
+        console.error('Failed to update request:', err);
+      }
     } finally {
       setUpdatingRequest(false);
     }
+  };
+
+  const handleStatusChangeDialogOk = () => {
+    setShowStatusChangeDialog(false);
+    // Refresh the whole listing page
+    fetchRequests();
+  };
+
+  // Review dialog functions
+  const handleReviewSubmit = async (reviewData: ServiceAnalysisData) => {
+    try {
+      await serviceAnalysisApi.submitAnalysis({
+        sessionId: reviewDialog.sessionId,
+        userId: reviewDialog.userId,
+        waiterId: reviewDialog.waiterId || undefined,
+        analysis: reviewData
+      });
+      
+      setReviewDialog({
+        isOpen: false,
+        requestId: '',
+        newStatus: '',
+        sessionId: '',
+        userId: '',
+        waiterId: ''
+      });
+    } catch (error) {
+      console.error('Failed to submit review:', error);
+      throw error; // Let the ReviewComponent handle the error display
+    }
+  };
+
+  const closeReviewDialog = () => {
+    setReviewDialog({
+      isOpen: false,
+      requestId: '',
+      newStatus: '',
+      sessionId: '',
+      userId: '',
+      waiterId: ''
+    });
   };
 
   const getStatusClass = (status: Request['status']) => {
@@ -186,7 +289,7 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
     }
   };
 
-  const isEditable = selectedRequest && ['New', 'OnHold', 'Acknowledged'].includes(selectedRequest.status);
+  const isEditable = selectedRequest && ['New', 'OnHold', 'Acknowledged', 'Completed'].includes(selectedRequest.status);
 
   return (
     <div className="p-4 bg-white rounded-lg shadow-md h-full flex flex-col">
@@ -383,10 +486,23 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
               </div>
 
               <div className="mb-6">
-                <label htmlFor="requestStatus" className="block text-gray-700 text-sm font-bold mb-2">
-                  Status:
-                </label>
-                {['Cancelled', 'Done', 'InProgress', 'Completed'].includes(selectedRequest.status) ? (
+                <div className="flex items-center justify-between mb-2">
+                  <label htmlFor="requestStatus" className="block text-gray-700 text-sm font-bold">
+                    Status:
+                  </label>
+                  {!['Cancelled', 'Done', 'InProgress'].includes(selectedRequest.status) && (
+                    <button
+                      onClick={refreshStatusOptions}
+                      disabled={statusOptionsLoading || updatingRequest}
+                      className="text-xs text-primary-600 hover:text-primary-800 disabled:opacity-50 flex items-center"
+                      title="Refresh status options"
+                    >
+                      <RefreshCw className={`w-3 h-3 mr-1 ${statusOptionsLoading ? 'animate-spin' : ''}`} />
+                      Refresh
+                    </button>
+                  )}
+                </div>
+                {['Cancelled', 'Done', 'InProgress'].includes(selectedRequest.status) ? (
                   <p className={`p-3 rounded-md font-medium ${getStatusClass(selectedRequest.status)}`}>
                     {selectedRequest.status}
                   </p>
@@ -414,7 +530,7 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
 
               {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
 
-              {isEditable && (
+              {isEditable && statusOptions.length > 0 && (
                 <button
                   onClick={handleUpdateSubmit}
                   className={`w-full bg-primary-500 text-white font-bold py-2 px-4 rounded-md transition-colors ${
@@ -434,6 +550,51 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Status Change Dialog */}
+      <AnimatePresence>
+        {showStatusChangeDialog && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          >
+            <motion.div
+              initial={{ y: -50, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 50, opacity: 0 }}
+              transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+              className="bg-white rounded-lg p-6 shadow-xl max-w-md w-full"
+            >
+              <div className="text-center">
+                <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 mb-4">
+                  <RefreshCw className="h-6 w-6 text-yellow-600" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Status Changed</h3>
+                <p className="text-sm text-gray-500 mb-6">
+                  The status of this item has changed. I will refresh for the latest state.
+                </p>
+                <button
+                  onClick={handleStatusChangeDialogOk}
+                  className="w-full bg-primary-500 hover:bg-primary-600 text-white font-bold py-2 px-4 rounded-md transition-colors"
+                >
+                  OK
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Review Component */}
+      <ReviewComponent
+        isOpen={reviewDialog.isOpen}
+        onClose={closeReviewDialog}
+        onSubmit={handleReviewSubmit}
+        title={`Your ${reviewDialog.newStatus === 'Done' ? 'completed' : 'cancelled'} request`}
+        type="request"
+      />
     </div>
   );
 };

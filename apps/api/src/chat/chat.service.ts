@@ -67,6 +67,23 @@ Interaction Flow:
 2. Before executing a create, update, or delete operation, show the information you are about to use and ask for user confirmation.
 3. When the user asks for menu information, always call getMenuItems first, rather than guessing.
 
+Important Tool Usage:
+- When users ask to "see", "show", "view", or "check" their REQUESTS, use openRequestsView tool instead of getMyRequests
+- When users ask to "see", "show", "view", or "check" their ORDERS, use openOrdersView tool instead of other order tools
+
+MENU INTERACTION RULES:
+- For INFORMATIONAL questions about dishes (ingredients, descriptions, recommendations, "what is", "tell me about", "what ... you offer", "do you offer ..."), use getMenuItems tool and respond in chat
+- For ORDER INTENT (user wants to place an order, "I want to order", "I'll have", "Can I get"), use openMenuSearch tool with the item name
+- For general menu browsing ("show me the menu", "what do you have", "see the menu"), use openMenuView tool
+- NEVER open menu tools for simple questions about dishes - answer in chat instead
+
+Examples:
+- "What's in the Caesar salad?" → Use getMenuItems, answer in chat
+- "Tell me about your steaks" → Use getMenuItems, answer in chat
+- "I want to order chicken" → Use openMenuSearch with "chicken"
+- "Can I get a pizza?" → Use openMenuSearch with "pizza"
+- "Show me the menu" → Use openMenuView
+
 Restaurant open times: Monday-Friday 11 AM - 10 PM, Saturday-Sunday 10 AM - 11 PM.
 Restaurant address: 123 Main Street, Anytown, USA.`;
 
@@ -98,6 +115,7 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
           whereClause.OR = [
             { name: { contains: input.search, mode: 'insensitive' } },
             { description: { contains: input.search, mode: 'insensitive' } },
+            { category: { contains: input.search, mode: 'insensitive' } },
           ];
         }
 
@@ -105,8 +123,11 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
       },
       {
         name: 'getMenuItems',
-        description: 'Retrieves a list of available menu items. Can be filtered by category or searched by name/description.',
-        schema: z.object( {}),
+        description: 'Retrieves menu items for answering questions about dishes, ingredients, or descriptions. Use this when user asks informational questions like "What is in...", "Tell me about...", "What desserts do you have?", or needs dish details. Supports both category and item-specific searches. DO NOT use this for ordering - only for providing information in chat.',
+        schema: z.object({
+          category: z.string().optional().describe('Filter by category if mentioned (e.g., "desserts", "drinks", "appetizers")'),
+          search: z.string().optional().describe('Search term for specific items by name or description'),
+        }),
       },
     );
 
@@ -219,10 +240,71 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
       },
     );
 
+    const openRequestsViewTool = tool(
+      async (_input: Record<string, never>) => {
+        return JSON.stringify({
+          action: 'open_requests_view',
+          message: 'I\'ll open your requests for you to view.',
+        });
+      },
+      {
+        name: 'openRequestsView',
+        description: 'Opens the requests view for the user to see their requests instead of listing them in chat. Use this when user asks to see, show, or view their requests.',
+        schema: z.object({}),
+      },
+    );
+
+    const openOrdersViewTool = tool(
+      async (_input: Record<string, never>) => {
+        return JSON.stringify({
+          action: 'open_orders_view',
+          message: 'I\'ll open your orders for you to view.',
+        });
+      },
+      {
+        name: 'openOrdersView',
+        description: 'Opens the orders view for the user to see their orders instead of listing them in chat. Use this when user asks to see, show, or view their orders.',
+        schema: z.object({}),
+      },
+    );
+
+    const openMenuSearchTool = tool(
+      async (input: { searchTerm: string; itemName?: string }) => {
+        return JSON.stringify({
+          action: 'open_menu_search',
+          searchTerm: input.searchTerm,
+          itemName: input.itemName || input.searchTerm,
+          message: `Finding "${input.searchTerm}" from the menu for you...`,
+        });
+      },
+      {
+        name: 'openMenuSearch',
+        description: 'Opens the menu interface with search filter. ONLY use this when user has clear ORDER INTENT - wants to place an order, buy, or get something. Keywords: "I want to order", "I\'ll have", "Can I get", "I want", "Give me". Supports searching by item name, description, or category (e.g., "dessert", "drinks", "appetizers"). DO NOT use for informational questions.',
+        schema: z.object({
+          searchTerm: z.string().describe('The search term to filter menu items - can be item name, description, or category'),
+          itemName: z.string().optional().describe('The specific item name the user mentioned'),
+        }),
+      },
+    );
+
+    const openMenuViewTool = tool(
+      async (_input: Record<string, never>) => {
+        return JSON.stringify({
+          action: 'open_menu_view',
+          message: 'I\'ll open the menu for you to browse.',
+        });
+      },
+      {
+        name: 'openMenuView',
+        description: 'Opens the full menu interface for browsing all items. Use this ONLY when user explicitly asks to see, view, or browse the entire menu generally. Do NOT use for questions about specific dishes.',
+        schema: z.object({}),
+      },
+    );
+
     const langchainTools = [
       createWaiterRequestTool, getMenuItemsTool, getRestaurantInfoTool,
       createOrderTool, getTableBillTool, getMyRequestsTool,
-      updateRequestTool, deleteRequestTool,
+      updateRequestTool, deleteRequestTool, openRequestsViewTool, openOrdersViewTool, openMenuSearchTool, openMenuViewTool,
     ];
 
     const model = new ChatOpenAI({ 
@@ -235,7 +317,16 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
 
     const workflow = new StateGraph<GraphState>(graphStateArgs)
       .addNode("agent", async (state: GraphState, config?: RunnableConfig) => {
-        const response = await this.boundModel.invoke(state.messages, config);
+        // Ensure system message is always first, but don't duplicate it
+        let messages = state.messages;
+        const hasSystemMessage = messages.length > 0 && messages[0].constructor.name === 'SystemMessage';
+        
+        if (!hasSystemMessage) {
+          const systemMsg = new SystemMessage(this.systemPromptContent);
+          messages = [systemMsg, ...messages];
+        }
+        
+        const response = await this.boundModel.invoke(messages, config);
         return { messages: [response], userId: state.userId, tableNumber: state.tableNumber, sessionId: state.sessionId };
       })
       .addNode("tools", toolNode)
@@ -262,46 +353,107 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
     this.currentSessionId = sessionId;
 
     this.logger.log(`Processing message for thread ${threadId} (User: ${userId}, Table: ${tableNumber}, Session: ${sessionId}): "${content}"`);
-    await this.storeMessage(userId, ChatRole.user, content);
+    
+    // Store user message and get its ID for linking
+    const userMessage = await this.storeMessage(userId, ChatRole.user, content);
 
     const config: RunnableConfig = { configurable: { thread_id: threadId } }; 
     this.logger.debug(`Config for AI model: ${JSON.stringify(config)}`);
-     const systemMsg = new SystemMessage(this.systemPromptContent);
+    
+    // Let LangGraph manage the conversation state and history, but include user context
     const userMsg = new HumanMessage(content);
 
-    const state: GraphState = {
-      messages: [systemMsg, userMsg],
+    const inputState: GraphState = {
+      messages: [userMsg],
       userId,
       tableNumber,
       sessionId,
     };
 
     try {
-      const { messages } = await this.persistentGraph.invoke(state, config);
+      const { messages } = await this.persistentGraph.invoke(inputState, config);
       this.logger.debug(`AI model returned messages: ${JSON.stringify(messages)}`);
+      
+      // Only check the latest messages from this conversation turn, not the entire history
+      // The latest response should be at the end of the messages array
+      const latestMessages = messages.slice(-5); // Get last 5 messages to include the latest AI response and any tools
+      
+      // Check for special tool actions in the latest messages only
+      for (const message of latestMessages) {
+        if (message.constructor.name === 'ToolMessage') {
+          try {
+            const toolResult = JSON.parse(message.content);
+            if (toolResult.action === 'open_menu_search') {
+              this.logger.debug(`Found special tool action: ${JSON.stringify(toolResult)}`);
+              // Store the AI response linked to the user message
+              await this.storeMessage(userId, ChatRole.assistant, toolResult.message, userMessage.id);
+              return toolResult;
+            }
+            if (toolResult.action === 'open_requests_view') {
+              this.logger.debug(`Found special tool action: ${JSON.stringify(toolResult)}`);
+              // Store the AI response linked to the user message
+              await this.storeMessage(userId, ChatRole.assistant, toolResult.message, userMessage.id);
+              return toolResult;
+            }
+            if (toolResult.action === 'open_orders_view') {
+              this.logger.debug(`Found special tool action: ${JSON.stringify(toolResult)}`);
+              // Store the AI response linked to the user message
+              await this.storeMessage(userId, ChatRole.assistant, toolResult.message, userMessage.id);
+              return toolResult;
+            }
+            if (toolResult.action === 'open_menu_view') {
+              this.logger.debug(`Found special tool action: ${JSON.stringify(toolResult)}`);
+              // Store the AI response linked to the user message
+              await this.storeMessage(userId, ChatRole.assistant, toolResult.message, userMessage.id);
+              return toolResult;
+            }
+          } catch {
+            // Not a JSON tool result, continue
+          }
+        }
+      }
+
       const final = messages[messages.length - 1];
+      let responseContent: string;
 
       if (typeof final.content === 'string') {
         try {
-          this.logger.debug(`Final AI response: ${final.content}`);
-          return JSON.parse(final.content); // JSON payloads
+          const parsedContent = JSON.parse(final.content);
+          responseContent = final.content; // Store the JSON as-is
+          this.logger.debug(`Final AI response (JSON): ${responseContent}`);
+          // Store AI response linked to the user message
+          await this.storeMessage(userId, ChatRole.assistant, responseContent, userMessage.id);
+          return parsedContent; // Return parsed for processing
         } catch {
-          this.logger.debug(`Returning natural language response: ${final.content}`);
-          return final.content; // natural-language answers
+          responseContent = final.content; // Natural language response
+          this.logger.debug(`Final AI response (text): ${responseContent}`);
+          // Store AI response linked to the user message
+          await this.storeMessage(userId, ChatRole.assistant, responseContent, userMessage.id);
+          return responseContent;
         }
       }
-      return "I'm not sure how to answer that.";
+
+      const fallbackResponse = "I'm not sure how to answer that.";
+      await this.storeMessage(userId, ChatRole.assistant, fallbackResponse, userMessage.id);
+      return fallbackResponse;
     } catch (err) {
       this.logger.error(err);
-      return `Error: ${(err as Error).message}`;
+      const errorResponse = `Error: ${(err as Error).message}`;
+      await this.storeMessage(userId, ChatRole.assistant, errorResponse, userMessage.id);
+      return errorResponse;
     }
   
   }
 
-  async storeMessage(userId: string, role: ChatRole, content: string): Promise<ChatMessage> {
+  async storeMessage(userId: string, role: ChatRole, content: string, parentMessageId?: string): Promise<ChatMessage> {
     try {
       return await this.prisma.chatMessage.create({
-        data: { userId, role, content },
+        data: { 
+          userId, 
+          role, 
+          content,
+          ...(parentMessageId && { parentMessageId })
+        },
       });
     } catch (error) {
       this.logger.error(`Failed to store chat message: ${error.message}`);
@@ -311,11 +463,15 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
 
   async getRecentMessages(userId: string, limit: number = 10): Promise<ChatMessage[]> {
     try {
-      return await this.prisma.chatMessage.findMany({
+      // Get the most recent messages by ordering desc first, then reverse for chronological display
+      const messages = await this.prisma.chatMessage.findMany({
         where: { userId },
-        orderBy: { createdAt: 'asc' }, 
+        orderBy: { createdAt: 'desc' }, // Get newest first
         take: limit,
       });
+      
+      // Reverse to show in chronological order (oldest to newest for chat display)
+      return messages.reverse();
     } catch (error) {
       this.logger.error(`Failed to get recent messages: ${error.message}`);
       return [];

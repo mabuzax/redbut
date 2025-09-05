@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Star, Loader2, CheckCircle } from 'lucide-react';
+import { api } from '@/lib/api';
 
 // Define interfaces for data structures
 interface RatingCategoryProps {
@@ -41,6 +42,13 @@ const StarRating: React.FC<RatingCategoryProps> = ({ label, prompt, value, onCha
   );
 };
 
+interface RateYourWaiterProps {
+  userId: string;
+  token: string;
+  waiterId: string; // Assuming a fixed waiter for now, or passed as prop
+  onRatingSubmitted?: () => void;
+}
+
 const RateYourWaiter: React.FC<RateYourWaiterProps> = ({ userId, token, waiterId, onRatingSubmitted }) => {
   const [friendliness, setFriendliness] = useState(0);
   const [orderAccuracy, setOrderAccuracy] = useState(0);
@@ -79,14 +87,7 @@ const RateYourWaiter: React.FC<RateYourWaiterProps> = ({ userId, token, waiterId
         })
 
         console.log('Submitting rating data:', data);
-      const response = await fetch(`${API_BASE_URL}/api/v1/waiter/ratings`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: data
-      });
+      const response = await api.post('/api/v1/waiter/ratings', JSON.parse(data));
 
       if (!response.ok) {
         const errorData = await response.json();

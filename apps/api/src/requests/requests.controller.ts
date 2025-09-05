@@ -176,15 +176,19 @@ export class RequestsController {
     @Body() updateRequestDto: UpdateRequestDto,
     @GetUser() user: any,
   ): Promise<Request> {
-    // Check if the request belongs to the authenticated user
+    // Check authorization based on user role
     const request = await this.requestsService.findOne(id);
     
-    if (request.userId !== user.id) {
-      // In a real app with roles, we would check for admin/waiter role here
-      // For now, we'll enforce that users can only update their own requests
+    // Determine user role - treat 'guest' the same as 'client'
+    const userRole = user.role || 'client';
+    
+    // Authorization logic: 
+    // - Clients and guests can only update their own requests
+    // - Admin and waiters can update any request
+    if ((userRole === 'client' || userRole === 'guest') && request.userId !== user.id) {
       throw new BadRequestException('You can only update your own requests');
     }
     
-    return this.requestsService.update(id, updateRequestDto);
+    return this.requestsService.update(id, updateRequestDto, userRole);
   }
 }

@@ -95,7 +95,7 @@ const OrderManagement = () => {
   const [loadingStatusOptions, setLoadingStatusOptions] = useState<Record<string, boolean>>({});
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
-  const token = typeof window !== "undefined" ? localStorage.getItem("redbutToken") || "" : "";
+  const token = typeof window !== "undefined" ? localStorage.getItem("redBut_token") || "" : "";
 
   const fetchOrders = useCallback(async () => {
     if (!token) {
@@ -242,10 +242,15 @@ const OrderManagement = () => {
     );
   };
 
-  const StatusBadge = ({ status }: { status: OrderStatus }) => {
+  const StatusBadge = ({ status, onClick }: { status: OrderStatus; onClick?: (e: React.MouseEvent) => void }) => {
     const Icon = statusIcons[status] || AlertCircle;
     return (
-      <div className={`px-3 py-1 rounded-full border flex items-center space-x-1 text-sm ${statusColors[status] || "bg-gray-100 text-gray-800 border-gray-200"}`}>
+      <div 
+        className={`px-3 py-1 rounded-full border flex items-center space-x-1 text-sm ${
+          onClick ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''
+        } ${statusColors[status] || "bg-gray-100 text-gray-800 border-gray-200"}`}
+        onClick={onClick}
+      >
         <Icon className="h-3.5 w-3.5 mr-1" />
         <span>{status}</span>
       </div>
@@ -275,6 +280,7 @@ const OrderManagement = () => {
           onChange={(e) => onStatusChange(e.target.value as OrderStatus)}
           onFocus={handleFocus}
           onClick={handleFocus}
+          data-order-id={order.id}
           className="px-3 py-1 rounded-md text-sm font-medium border bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 pr-8"
           disabled={updating === order.id || isLoading}
         >
@@ -398,7 +404,22 @@ const OrderManagement = () => {
                       <div className="flex flex-wrap justify-between items-start gap-2">
                         <div>
                           <div className="flex items-center space-x-2">
-                            <StatusBadge status={order.status} />
+                            <StatusBadge 
+                              status={order.status} 
+                              onClick={(e: React.MouseEvent) => {
+                                e.stopPropagation();
+                                // Load status options and focus on the dropdown
+                                loadStatusOptions(order.id, order.status);
+                                // Small delay to allow options to load before focusing
+                                setTimeout(() => {
+                                  const dropdown = document.querySelector(`select[data-order-id="${order.id}"]`) as HTMLSelectElement;
+                                  if (dropdown) {
+                                    dropdown.focus();
+                                    dropdown.click();
+                                  }
+                                }, 100);
+                              }}
+                            />
                             <span className="text-sm text-gray-500">
                               {formatDate(order.createdAt)}
                             </span>

@@ -1,15 +1,28 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, RefreshCw, DollarSign, BellRing, CheckCircle } from 'lucide-react';
+import { Loader2, RefreshCw, DollarSign, BellRing, CheckCircle, CreditCard, Banknote, X } from 'lucide-react';
+import { api } from '@/lib/api';
 
 // Define interfaces for data structures
+interface OrderItem {
+  id: string;
+  quantity: number;
+  price: number;
+  status: string;
+  menuItem: {
+    id: string;
+    name: string;
+    image: string | null;
+  };
+}
+
 interface Order {
   id: string;
   tableNumber: number;
   sessionId: string;
-  item: string;
-  price: number;
+  status: string;
   createdAt: string;
+  orderItems: OrderItem[];
 }
 
 interface MyBillProps {
@@ -20,8 +33,6 @@ interface MyBillProps {
   onWaiterRequested?: () => void; // Callback for when waiter is requested
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-
 const MyBill: React.FC<MyBillProps> = ({ userId, tableNumber, sessionId, token, onWaiterRequested }) => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [total, setTotal] = useState(0);
@@ -29,60 +40,49 @@ const MyBill: React.FC<MyBillProps> = ({ userId, tableNumber, sessionId, token, 
   const [error, setError] = useState<string | null>(null);
   const [requestingWaiter, setRequestingWaiter] = useState(false);
   const [waiterRequestedMessage, setWaiterRequestedMessage] = useState<string | null>(null);
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'card' | 'cash' | null>(null);
 
   const fetchBill = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/v1/orders?tableNumber=${tableNumber}&sessionId=${sessionId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      const response = await api.get('/api/v1/orders');
       if (!response.ok) {
         throw new Error(`Failed to fetch bill: ${response.statusText}`);
       }
       const data = await response.json();
-      setOrders(data.items);
-      setTotal(data.total);
+      setOrders(data.items || []);
+      setTotal(data.total || 0);
     } catch (err: any) {
       setError(err.message || 'An unknown error occurred while fetching your bill.');
       console.error('Failed to fetch bill:', err);
     } finally {
       setLoading(false);
     }
-  }, [tableNumber, sessionId, token]);
+  }, []);
 
   useEffect(() => {
-    if (tableNumber && sessionId && token) {
-      fetchBill();
-    } else {
-      setError('Session information missing. Please ensure you have a valid session.');
-      setLoading(false);
-    }
-  }, [tableNumber, sessionId, token, fetchBill]);
+    fetchBill();
+  }, [fetchBill]);
 
-  const handleReadyToPay = async () => {
+  const handleReadyToPay = () => {
+    setShowPaymentDialog(true);
+  };
+
+  const handlePaymentSubmit = async () => {
+    if (!selectedPaymentMethod) return;
+    
     setRequestingWaiter(true);
     setWaiterRequestedMessage(null);
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/requests`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          userId,
-          tableNumber,
-          content: 'Ready to pay',
-          status: 'New',
-        }),
+      const paymentMethodText = selectedPaymentMethod === 'card' ? 'card' : 'cash';
+      const response = await api.post('/api/v1/requests', {
+        userId,
+        tableNumber,
+        content: `Table ${tableNumber} ready to pay. This will be a ${paymentMethodText} payment.`,
       });
 
       if (!response.ok) {
@@ -90,19 +90,14 @@ const MyBill: React.FC<MyBillProps> = ({ userId, tableNumber, sessionId, token, 
         throw new Error(errorData.message || 'Failed to request waiter.');
       }
 
-      setWaiterRequestedMessage('Waiter Informed: Your request to pay has been sent!');
+      setWaiterRequestedMessage('Payment request sent! Waiter has been notified.');
+      setShowPaymentDialog(false);
+      setSelectedPaymentMethod(null);
       if (onWaiterRequested) {
         onWaiterRequested(); // Trigger splash screen in parent
       }
     } catch (err: any) {
-      if (err.message.includes('Already requested payment')) {
-        setWaiterRequestedMessage('Already requested, buzzing waiter again.');
-        if (onWaiterRequested) {
-          onWaiterRequested(); // Still trigger splash screen for duplicate requests
-        }
-      } else {
-        setError(err.message || 'An unknown error occurred while requesting the waiter.');
-      }
+      setError(err.message || 'An unknown error occurred while requesting the waiter.');
       console.error('Failed to request waiter:', err);
     } finally {
       setRequestingWaiter(false);
@@ -119,7 +114,7 @@ const MyBill: React.FC<MyBillProps> = ({ userId, tableNumber, sessionId, token, 
   return (
     <div className="p-4 bg-white rounded-lg shadow-md h-full flex flex-col">
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-2xl font-bold text-primary-700">My Bill</h2>
+        <h2 className="text-2xl font-bold text-primary-700">Your Bill</h2>
         <button
           onClick={fetchBill}
           className="p-2 rounded-full hover:bg-gray-100 transition-colors"
@@ -152,63 +147,51 @@ const MyBill: React.FC<MyBillProps> = ({ userId, tableNumber, sessionId, token, 
         <div className="flex-1 flex flex-col">
           {orders.length > 0 ? (
             <>
-              {/* Mobile view - Card based list */}
-              <div className="md:hidden space-y-4 mb-4">
-                <AnimatePresence>
-                  {orders.map((order) => (
-                    <motion.div
-                      key={order.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="border border-gray-200 rounded-lg p-4 bg-white shadow-sm"
-                    >
-                      <div className="flex justify-between items-start">
-                        <p className="text-gray-800">{order.item}</p>
-                        <p className="font-medium">{formatCurrency(order.price)}</p>
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-                <div className="border-t border-gray-200 pt-4 mt-4">
+              {/* Receipt-style bill */}
+              <div className="bg-white border border-gray-300 rounded-lg p-4 mb-4 font-mono text-sm shadow-inner">
+                {/* Header */}
+                <div className="text-center border-b border-gray-400 pb-2 mb-3">
+                  <h3 className="font-bold text-lg">REDBUT RESTAURANT</h3>
+                  <p className="text-xs text-gray-600">Table {tableNumber}</p>
+                  <p className="text-xs text-gray-600">{new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}</p>
+                </div>
+
+                {/* Items */}
+                <div className="space-y-1 mb-3">
+                  <AnimatePresence>
+                    {orders.map((order) => 
+                      order.orderItems.map((item) => (
+                        <motion.div
+                          key={`${order.id}-${item.id}`}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          className="flex justify-between items-start text-xs"
+                        >
+                          <div className="flex-1 pr-2">
+                            <p className="font-semibold">{item.menuItem.name}</p>
+                            <p className="text-gray-600">Qty: {item.quantity} × {formatCurrency(item.price)}</p>
+                          </div>
+                          <p className="font-bold">{formatCurrency(item.price * item.quantity)}</p>
+                        </motion.div>
+                      ))
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* Total */}
+                <div className="border-t border-gray-400 pt-2">
                   <div className="flex justify-between items-center">
-                    <p className="text-lg font-bold text-primary-700">Total:</p>
-                    <p className="text-lg font-bold text-primary-700">{formatCurrency(total)}</p>
+                    <p className="font-bold text-base">TOTAL:</p>
+                    <p className="font-bold text-base">{formatCurrency(total)}</p>
                   </div>
                 </div>
-              </div>
 
-              {/* Desktop view - Table */}
-              <div className="overflow-x-auto flex-1 mb-4 hidden md:block">
-                <table className="min-w-full bg-white border border-gray-200">
-                  <thead>
-                    <tr className="bg-gray-100 text-gray-600 uppercase text-sm leading-normal">
-                      <th className="py-3 px-6 text-left">Item</th>
-                      <th className="py-3 px-6 text-right">Price</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-gray-600 text-sm font-light">
-                    <AnimatePresence>
-                      {orders.map((order) => (
-                        <motion.tr
-                          key={order.id}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="border-b border-gray-200 hover:bg-gray-50"
-                        >
-                          <td className="py-3 px-6 text-left">{order.item}</td>
-                          <td className="py-3 px-6 text-right">{formatCurrency(order.price)}</td>
-                        </motion.tr>
-                      ))}
-                    </AnimatePresence>
-                  </tbody>
-                </table>
-              </div>
-              <div className="text-right text-xl font-bold text-primary-700 mt-auto pt-4 border-t border-gray-200 hidden md:block">
-                Total: {formatCurrency(total)}
+                {/* Footer */}
+                <div className="text-center mt-3 pt-2 border-t border-gray-300 text-xs text-gray-600">
+                  <p>Thank you for dining with us!</p>
+                  <p>Session: {sessionId.slice(-8)}</p>
+                </div>
               </div>
             </>
           ) : (
@@ -229,7 +212,7 @@ const MyBill: React.FC<MyBillProps> = ({ userId, tableNumber, sessionId, token, 
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="mt-4 p-3 bg-blue-100 text-blue-700 rounded-md flex items-center justify-center space-x-2"
+              className="mt-4 p-3 bg-green-100 text-green-700 rounded-md flex items-center justify-center space-x-2"
             >
               <CheckCircle className="h-5 w-5" />
               <span>{waiterRequestedMessage}</span>
@@ -238,20 +221,102 @@ const MyBill: React.FC<MyBillProps> = ({ userId, tableNumber, sessionId, token, 
 
           <button
             onClick={handleReadyToPay}
-            className={`mt-6 w-full bg-primary-500 text-white font-bold py-3 px-4 rounded-md transition-colors flex items-center justify-center space-x-2 ${
-              requestingWaiter ? 'opacity-50 cursor-not-allowed' : 'hover:bg-primary-600'
-            }`}
-            disabled={requestingWaiter}
+            className="mt-6 w-full bg-primary-500 text-white font-bold py-3 px-4 rounded-md hover:bg-primary-600 transition-colors flex items-center justify-center space-x-2"
           >
-            {requestingWaiter ? (
-              <Loader2 className="inline-block w-5 h-5 animate-spin" />
-            ) : (
-              <BellRing className="inline-block w-5 h-5" />
-            )}
-            <span>{requestingWaiter ? 'Requesting Waiter...' : 'Ready to Pay'}</span>
+            <BellRing className="inline-block w-5 h-5" />
+            <span>Ready to Pay</span>
           </button>
         </div>
       )}
+
+      {/* Payment Method Dialog */}
+      <AnimatePresence>
+        {showPaymentDialog && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-lg p-6 max-w-sm w-full mx-4"
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold">Pay Method</h3>
+                <h4 className="text-sm text-gray-600">Tell your waiter how you would like to pay</h4>
+                <button
+                  onClick={() => {
+                    setShowPaymentDialog(false);
+                    setSelectedPaymentMethod(null);
+                  }}
+                  className="p-1 rounded-full hover:bg-gray-100"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="space-y-3 mb-6">
+                <label className="flex items-center space-x-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="radio"
+                    name="payment"
+                    value="card"
+                    checked={selectedPaymentMethod === 'card'}
+                    onChange={() => setSelectedPaymentMethod('card')}
+                    className="form-radio"
+                  />
+                  <CreditCard className="h-6 w-6 text-blue-600" />
+                  <div>
+                    <p className="font-semibold">Card Payment</p>
+                    <p className="text-sm text-gray-600">Asks waiter to bring Speedpoint</p>
+                  </div>
+                </label>
+                
+                <label className="flex items-center space-x-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="radio"
+                    name="payment"
+                    value="cash"
+                    checked={selectedPaymentMethod === 'cash'}
+                    onChange={() => setSelectedPaymentMethod('cash')}
+                    className="form-radio"
+                  />
+                  <Banknote className="h-6 w-6 text-green-600" />
+                  <div>
+                    <p className="font-semibold">Cash Payment</p>
+                    <p className="text-sm text-gray-600">Pay with cash</p>
+                  </div>
+                </label>
+              </div>
+              
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => {
+                    setShowPaymentDialog(false);
+                    setSelectedPaymentMethod(null);
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handlePaymentSubmit}
+                  disabled={!selectedPaymentMethod || requestingWaiter}
+                  className={`flex-1 px-4 py-2 rounded-md transition-colors ${
+                    selectedPaymentMethod && !requestingWaiter
+                      ? 'bg-primary-500 text-white hover:bg-primary-600'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
+                  {requestingWaiter ? (
+                    <Loader2 className="inline-block w-4 h-4 animate-spin" />
+                  ) : (
+                    'Submit'
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

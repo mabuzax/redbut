@@ -92,7 +92,7 @@ const initialDateRange = {
 };
 
 const AnalyticsComponent = () => {
-  const token = typeof window !== 'undefined' ? localStorage.getItem("redbutToken") || "" : "";
+  const token = typeof window !== 'undefined' ? localStorage.getItem("redBut_token") || "" : "";
   const [activeTab, setActiveTab] = useState<AnalyticsTab>("Sales");
   const [dateRange, setDateRange] = useState<DateRange>(initialDateRange);
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);

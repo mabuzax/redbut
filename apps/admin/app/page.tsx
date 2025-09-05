@@ -3,8 +3,9 @@
 
 import { useState, useEffect } from "react";
 import { User, Loader2 } from "lucide-react";
-import LoginForm from "../components/auth/LoginForm";
+import OTPLoginForm from "../components/auth/OTPLoginForm";
 import { adminApi } from "../lib/api";
+import { clearRedButLocalStorage } from "../lib/redbut-localstorage";
 
 // Import extracted components
 import DashboardGrid, { Section } from "../components/dashboard/DashboardGrid";
@@ -36,7 +37,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     const checkSession = () => {
-      const existingSession = localStorage.getItem("redbutAdminSession");
+      const existingSession = localStorage.getItem("redBut_adminSession");
       if (existingSession) {
         try {
           const data = JSON.parse(existingSession);
@@ -44,7 +45,7 @@ export default function AdminDashboard() {
           setStage("dashboard");
         } catch (e) {
           console.error("Failed to parse session data", e);
-          localStorage.removeItem("redbutAdminSession");
+          clearRedButLocalStorage();
           setStage("login");
         }
       } else {
@@ -56,7 +57,7 @@ export default function AdminDashboard() {
       checkSession();
     } else if (loading && stage === "splash") {
       // Do nothing, wait for splash to finish
-    } else if (!loading && !localStorage.getItem("redbutAdminSession")) {
+    } else if (!loading && !localStorage.getItem("redBut_adminSession")) {
       // If not loading and no session, ensure login stage
       setStage("login");
     }
@@ -64,8 +65,8 @@ export default function AdminDashboard() {
   }, [stage, loading]);
 
   const handleLoginSuccess = (data: any) => {
-    localStorage.setItem("redbutAdminSession", JSON.stringify(data));
-    localStorage.setItem("redbutToken", data.token);
+    localStorage.setItem("redBut_adminSession", JSON.stringify(data));
+    localStorage.setItem("redBut_token", data.token);
     setUserData(data);
     setStage("dashboard");
     setSelectedSection(null); // Reset section on login
@@ -86,7 +87,7 @@ export default function AdminDashboard() {
   if (stage === "login") {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <LoginForm onLoginSuccess={handleLoginSuccess} />
+        <OTPLoginForm onLoginSuccess={handleLoginSuccess} />
       </div>
     );
   }

@@ -13,6 +13,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ChatService } from './chat.service';
 import { WsJwtGuard } from './guards/ws-jwt.guard';
 import { UsersService } from '../users/users.service';
+import { ChatRole } from '@prisma/client';
 import * as crypto from 'crypto';
 
 @WebSocketGateway({
@@ -28,6 +29,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   server: Server;
 
   private readonly logger = new Logger(ChatGateway.name);
+  private welcomedSessions = new Set<string>(); // Track sessions that have received welcome messages
 
   constructor(
     private readonly chatService: ChatService,
@@ -70,10 +72,33 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       this.logger.log(`Client connected: ${client.id} (User: ${user.id}, Table: ${user.tableNumber}, Session: ${user.sessionId})`);
 
-      client.emit('assistant-message', {
-        content: 'Hi there, I am your waiter assistant AI agent. How can I assist you?',
-        timestamp: new Date().toISOString(),
-      });
+      // Only send welcome messages if this session hasn't been welcomed before
+      const sessionKey = `${user.id}_${user.sessionId}`;
+      if (!this.welcomedSessions.has(sessionKey)) {
+        // Store welcome messages in database as chat history
+        await this.chatService.storeMessage(
+          user.id,
+          'assistant',
+          'Hi!, I am your Waiter Assistant AI. Ask me about the menu, your order status, ingredients, specials, or recommendations!'
+        );
+        
+        await this.chatService.storeMessage(
+          user.id,
+          'assistant',
+          'I can also call the WAITER to the table for you.  Simply say so.'
+        );
+        
+        // Mark this session as welcomed
+        this.welcomedSessions.add(sessionKey);
+        
+        // Send chat history (which now includes the welcome messages)
+        const recentMessages = await this.chatService.getRecentMessages(user.id, 100);
+        client.emit('chat-history', recentMessages);
+      } else {
+        // For existing sessions, just send the chat history
+        const recentMessages = await this.chatService.getRecentMessages(user.id, 100);
+        client.emit('chat-history', recentMessages);
+      }
 
      
     } catch (error) {
@@ -97,7 +122,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const { content } = payload;
       const { id: userId, tableNumber, sessionId } = client.data.user;
-      const threadId = crypto.randomUUID();
+      // Use a consistent thread ID for the conversation - based on user + session
+      const threadId = `${userId}_${sessionId}`;
 
       this.logger.debug(`Message for thread ${threadId} from user ${userId} (table: ${tableNumber}, session: ${sessionId}): ${content}`);
 
@@ -109,10 +135,93 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         threadId,
       );
 
-      client.emit('assistant-message', {
-        content: aiResponse,
-        timestamp: new Date().toISOString(),
-      });
+      // Check if the response is the special menu opening action
+      let parsedResponse = null;
+      if (typeof aiResponse === 'string') {
+        console.log('Parsing AI response string as JSON if possible');
+        try {
+          parsedResponse = JSON.parse(aiResponse);
+        } catch {
+          // Not JSON, continue with regular string response
+          console.log('AI response is not JSON, treating as regular message', aiResponse);
+        }
+      } else if (typeof aiResponse === 'object') {
+        console.log('AI response is already an object');
+        parsedResponse = aiResponse;
+      }
+
+      console.log('AI Response:', aiResponse);
+      console.log('Parsed Response:', parsedResponse);
+      if (parsedResponse && parsedResponse.action === 'open_menu_search') {
+        console.log('🔔 Detected open_menu_search action from AI response:', parsedResponse);
+        
+        // Send the assistant message first to ensure it's received
+        client.emit('assistant-message', {
+          content: parsedResponse.message,
+          timestamp: new Date().toISOString(),
+        });
+        
+        // Then emit the menu opening event after a small delay
+        setTimeout(() => {
+          client.emit('open-menu-search', {
+            searchTerm: parsedResponse.searchTerm,
+            itemName: parsedResponse.itemName,
+            timestamp: new Date().toISOString(),
+          });
+        }, 50);
+      } else if (parsedResponse && parsedResponse.action === 'open_requests_view') {
+        console.log('🔔 Detected open_requests_view action from AI response:', parsedResponse);
+        
+        // Send the assistant message first to ensure it's received
+        client.emit('assistant-message', {
+          content: parsedResponse.message,
+          timestamp: new Date().toISOString(),
+        });
+        
+        // Then emit the requests view opening event after a small delay
+        setTimeout(() => {
+          client.emit('open-requests-view', {
+            timestamp: new Date().toISOString(),
+          });
+        }, 50);
+      } else if (parsedResponse && parsedResponse.action === 'open_orders_view') {
+        console.log('🔔 Detected open_orders_view action from AI response:', parsedResponse);
+        
+        // Send the assistant message first to ensure it's received
+        client.emit('assistant-message', {
+          content: parsedResponse.message,
+          timestamp: new Date().toISOString(),
+        });
+        
+        // Then emit the orders view opening event after a small delay
+        setTimeout(() => {
+          client.emit('open-orders-view', {
+            timestamp: new Date().toISOString(),
+          });
+        }, 50);
+      } else if (parsedResponse && parsedResponse.action === 'open_menu_view') {
+        console.log('🔔 Detected open_menu_view action from AI response:', parsedResponse);
+        
+        // Send the assistant message first to ensure it's received
+        client.emit('assistant-message', {
+          content: parsedResponse.message,
+          timestamp: new Date().toISOString(),
+        });
+        
+        // Then emit the menu view opening event after a small delay
+        setTimeout(() => {
+          client.emit('open-menu-view', {
+            timestamp: new Date().toISOString(),
+          });
+        }, 50);
+      } else {
+        // Regular chat response
+        console.log('💬 Sending regular AI response to client:', aiResponse);
+        client.emit('assistant-message', {
+          content: aiResponse,
+          timestamp: new Date().toISOString(),
+        });
+      }
 
 
       return { success: true };

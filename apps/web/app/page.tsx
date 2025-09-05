@@ -1,15 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import { Star, ShoppingCart, ArrowLeft } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { clearRedButLocalStorage } from "../lib/redbut-localstorage";
+import { authApi, api } from "../lib/api";
+import { motion, AnimatePresence } from "framer-motion";
+import { Star, ShoppingCart, ArrowLeft, CreditCard, QrCode } from "lucide-react";
+import QRCode from "qrcode";
 import ChatWindow from "../components/chat/ChatWindow";
 import BurgerMenu from "../components/ui/BurgerMenu";
-import RateYourWaiter from "../components/rating/RateYourWaiter";
 import MyRequests from "../components/requests/MyRequests";
 import MyBill from "../components/bill/MyBill";
 import FoodMenu from "../components/menu/FoodMenu";
 import MyOrders from "../components/orders/MyOrders";
+import TableSessionGuard from "../components/auth/TableSessionGuard";
 
 // Define the OrderItem interface for cart items
 interface OrderItem {
@@ -30,26 +33,78 @@ export default function Home() {
     | "waiterInformed"
     | "requests"
     | "bill"
-    | "rateWaiter"
     | "foodMenu"
     | "myOrders";
 
   const [stage, setStage] = useState<Stage>("splash");
   const [loadingSession, setLoadingSession] = useState(false);
+  const [chatRefreshTrigger, setChatRefreshTrigger] = useState(0);
+  const [isChatDisconnected, setIsChatDisconnected] = useState(false);
+  
+  // Navigation tracking - tracks where each view was opened from
+  const [navigationOrigin, setNavigationOrigin] = useState<{
+    requests?: Stage;
+    orders?: Stage;
+    menu?: Stage;
+  }>({});
+  
   const [userData, setUserData] = useState<{
     userId: string;
     tableNumber: number;
     token: string;
     sessionId: string;
+    waiter?: {
+      id: string;
+      name: string;
+      surname: string;
+    } | null;
   } | null>(null);
   
   // Global cart state
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [showCart, setShowCart] = useState(false);
+  const [hasUnpaidOrders, setHasUnpaidOrders] = useState(false);
+  const [showQRCode, setShowQRCode] = useState(false);
+  const [showWaiterImage, setShowWaiterImage] = useState(false);
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>("");
+  const [activeRequestsCount, setActiveRequestsCount] = useState(0);
+  const [activeOrdersCount, setActiveOrdersCount] = useState(0);
+  const [menuSearchTerm, setMenuSearchTerm] = useState<string>("");
+
+  // Generate QR code data URL when userData changes
+  useEffect(() => {
+    if (userData && userData.sessionId && userData.tableNumber) {
+      const generateQRCode = async () => {
+        try {
+          // Create QR code data with session info and current URL
+          const qrData = `${window.location.origin}?sessionId=${userData.sessionId}&tableNumber=${userData.tableNumber}`;
+          const dataUrl = await QRCode.toDataURL(qrData, {
+            width: 200,
+            margin: 2,
+            color: {
+              dark: '#000000',
+              light: '#FFFFFF'
+            }
+          });
+          setQrCodeDataUrl(dataUrl);
+        } catch (error) {
+          console.error('Failed to generate QR code:', error);
+        }
+      };
+      generateQRCode();
+    }
+  }, [userData]);
+
+  // Track when user returns to chat to refresh history
+  useEffect(() => {
+    if (stage === "chat") {
+      setChatRefreshTrigger(prev => prev + 1);
+    }
+  }, [stage]);
 
   // Load cart from localStorage on mount
   useEffect(() => {
-    const savedCart = localStorage.getItem("redbutCart");
+    const savedCart = localStorage.getItem("redBut_cart");
     if (savedCart) {
       try {
         setOrderItems(JSON.parse(savedCart));
@@ -61,7 +116,7 @@ export default function Home() {
 
   // Save cart to localStorage whenever it changes
   useEffect(() => {
-    localStorage.setItem("redbutCart", JSON.stringify(orderItems));
+    localStorage.setItem("redBut_cart", JSON.stringify(orderItems));
   }, [orderItems]);
 
   // Hide splash screen after 3 seconds
@@ -73,75 +128,104 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Ensure anonymous session exists
+  // Ensure session exists from QR code or stored session
   useEffect(() => {
     const ensureSession = async () => {
       if (typeof window === "undefined") return;
-      const existing = localStorage.getItem("redbutSession");
       
+      // Check if there's a table session (from QR code flow or stored)
+  const tableSession = localStorage.getItem("redBut_table_session");
+      if (tableSession) {
+        setLoadingSession(true);
+        try {
+          const response = await authApi.post('/api/v1/auth/validate-session', { sessionId: tableSession });
+
+          if (response.ok) {
+            const data = await response.json();
+            console.log('Session validation successful:', data);
+            setUserData({
+              userId: data.userId,
+              tableNumber: data.tableNumber,
+              token: data.token, // Use JWT token from API response
+              sessionId: data.sessionId,
+              waiter: data.waiter || null,
+            });
+            // Store the complete session data for future use
+            localStorage.setItem("redBut_session", JSON.stringify({
+              userId: data.userId,
+              tableNumber: data.tableNumber,
+              token: data.token,
+              sessionId: data.sessionId,
+              waiter: data.waiter || null,
+            }));
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Session validation failed:', response.status, errorData);
+            // Clear invalid session data
+            clearRedButLocalStorage();
+            setUserData(null);
+          }
+        } catch (error) {
+          console.error('Error validating session:', error);
+          // Clear session data on error
+          clearRedButLocalStorage();
+          setUserData(null);
+        } finally {
+          setLoadingSession(false);
+        }
+        return;
+      }
+      
+      // Check for stored complete session data as fallback, but still validate it
+  const existing = localStorage.getItem("redBut_session");
       if (existing) {
         try {
           const data = JSON.parse(existing);
-          setUserData({
-            userId: data.userId,
-            tableNumber: data.tableNumber,
-            token: data.token,
-            sessionId: data.sessionId,
-          });
+          // Always validate stored session against database
+          setLoadingSession(true);
+          const response = await authApi.post('/api/v1/auth/validate-session', { sessionId: data.sessionId });
+
+          if (response.ok) {
+            const validatedData = await response.json();
+            console.log('Stored session validation successful:', validatedData);
+            setUserData({
+              userId: validatedData.userId,
+              tableNumber: validatedData.tableNumber,
+              token: validatedData.token, // Use fresh JWT token from API response
+              sessionId: validatedData.sessionId,
+              waiter: validatedData.waiter || null,
+            });
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Stored session validation failed:', response.status, errorData);
+            clearRedButLocalStorage();
+            setUserData(null);
+          }
+          setLoadingSession(false);
           return;
         } catch (e) {
-          console.error("Failed to parse session data", e);
-          localStorage.removeItem("redbutSession");
+          console.error("Failed to parse or validate session data", e);
+          clearRedButLocalStorage();
         }
       }
 
-      // Ask user for table number – very simple prompt for MVP
-      const tableNumberStr =
-        prompt("Welcome to RedBut! 📱\nPlease enter your table number:") ?? "";
-      const tableNumber = parseInt(tableNumberStr, 10);
-      if (!tableNumber || Number.isNaN(tableNumber) || tableNumber < 1) {
-        // Handle invalid table number, perhaps show an error or retry
-        alert("Invalid table number. Please refresh and try again.");
-        return;
-      }
-
-      setLoadingSession(true);
-      try {
-        const apiBase =
-          process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
-        const res = await fetch(`${apiBase}/api/v1/auth/anon`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ tableNumber }),
-        });
-        const data = await res.json();
-        if (res.ok) {
-          localStorage.setItem("redbutSession", JSON.stringify(data));
-          // For convenience store token separately
-          localStorage.setItem("redbutToken", data.token);
-          setUserData({
-            userId: data.userId,
-            tableNumber: data.tableNumber,
-            token: data.token,
-            sessionId: data.sessionId,
-          });
-        } else {
-          console.error("Failed to create session", data);
-          alert(`Error creating session: ${data.message || 'Unknown error'}. Please refresh.`);
-        }
-      } catch (e) {
-        console.error(e);
-        alert("Could not connect to the server to create a session. Please check your connection and refresh.");
-      } finally {
-        setLoadingSession(false);
-      }
+      // No valid session found
+      setUserData(null);
     };
+    
     if (stage === "home" && !userData) {
         ensureSession();
     }
   }, [stage, userData]);
+
+  // Check for unpaid orders, active requests, and active orders when userData changes
+  useEffect(() => {
+    if (userData) {
+      checkUnpaidOrders();
+      checkActiveRequests();
+      checkActiveOrders();
+    }
+  }, [userData]);
 
   // Transition from agentSplash → chat after 3 seconds
   useEffect(() => {
@@ -157,10 +241,88 @@ export default function Home() {
     return () => clearTimeout(t);
   }, [stage]);
 
-  // Handle waiter request
-  const handleWaiterRequested = async () => {
-    // Show the waiter informed splash screen
+  // Handle waiter request from AI
+  const handleWaiterRequested = useCallback(() => {
     setStage("waiterInformed");
+  }, []);
+
+  // Handle menu search request from AI
+  const handleMenuSearchRequested = useCallback((searchTerm: string) => {
+    setMenuSearchTerm(searchTerm);
+    // Track that menu was opened from chat
+    setNavigationOrigin(prev => ({ ...prev, menu: "chat" }));
+    // Add a small delay to allow assistant message to be received before stage change
+    setTimeout(() => {
+      setStage("foodMenu");
+    }, 100);
+  }, []);
+
+  // Handle menu view request from AI (general menu browsing)
+  const handleMenuViewRequested = useCallback(() => {
+    console.log("🔔 handleMenuViewRequested called");
+    setMenuSearchTerm(""); // Clear search term for general browsing
+    // Track that menu was opened from chat
+    setNavigationOrigin(prev => ({ ...prev, menu: "chat" }));
+    console.log("🔔 Setting stage to foodMenu");
+    // Add a small delay to allow assistant message to be received before stage change
+    setTimeout(() => {
+      setStage("foodMenu");
+    }, 100);
+  }, []);
+
+  // Handle requests view request from AI
+  const handleRequestsViewRequested = useCallback(() => {
+    // Track that requests was opened from chat
+    setNavigationOrigin(prev => ({ ...prev, requests: "chat" }));
+    // Add a small delay to allow assistant message to be received before stage change
+    setTimeout(() => {
+      setStage("requests");
+    }, 100);
+  }, []);
+
+  // Handle orders view request from AI
+  const handleOrdersViewRequested = useCallback(() => {
+    // Track that orders was opened from chat
+    setNavigationOrigin(prev => ({ ...prev, orders: "chat" }));
+    // Add a small delay to allow assistant message to be received before stage change
+    setTimeout(() => {
+      setStage("myOrders");
+    }, 100);
+  }, []);
+
+  // Handle chat disconnect when user closes chat
+  const handleChatDisconnect = useCallback(() => {
+    setIsChatDisconnected(true);
+  }, []);
+
+  // Handle buzz waiter button - reconnect chat if disconnected
+  const handleBuzzWaiter = useCallback(() => {
+    if (isChatDisconnected) {
+      setIsChatDisconnected(false); // Reconnect chat
+    }
+    setStage("agentSplash");
+  }, [isChatDisconnected]);
+
+  // Handle closing menu and returning to origin
+  const handleCloseMenu = () => {
+    setMenuSearchTerm(""); // Clear search term
+    const origin = navigationOrigin.menu || "home";
+    setNavigationOrigin(prev => ({ ...prev, menu: undefined })); // Clear the origin
+    setStage(origin);
+  };
+
+  // Handle closing requests view and returning to origin
+  const handleCloseRequests = () => {
+    const origin = navigationOrigin.requests || "home";
+    setNavigationOrigin(prev => ({ ...prev, requests: undefined })); // Clear the origin
+    setStage(origin);
+  };
+
+  // Handle closing orders view and returning to origin
+  const handleCloseOrders = () => {
+    const origin = navigationOrigin.orders || "home";
+    setNavigationOrigin(prev => ({ ...prev, orders: undefined })); // Clear the origin
+    setStage(origin);
   };
 
   // Cart management functions
@@ -215,13 +377,92 @@ export default function Home() {
   const totalCartItems = orderItems.reduce((sum, item) => sum + item.quantity, 0);
 
   /* ------------------------------------------------------------------
-   *  Burger-menu navigation callbacks
+   *  Burger-menu navigation callbacks (opened from home)
    * ------------------------------------------------------------------ */
-  const openRequests = () => setStage("requests");
+  const openRequests = () => {
+    setNavigationOrigin(prev => ({ ...prev, requests: "home" }));
+    setStage("requests");
+  };
+  
   const openBill = () => setStage("bill");
-  const openRateWaiter = () => setStage("rateWaiter");
-  const openFoodMenu = () => setStage("foodMenu");
-  const openMyOrders = () => setStage("myOrders");
+  
+  const openFoodMenu = () => {
+    setNavigationOrigin(prev => ({ ...prev, menu: "home" }));
+    setStage("foodMenu");
+  };
+  
+  const openMyOrders = () => {
+    setNavigationOrigin(prev => ({ ...prev, orders: "home" }));
+    setStage("myOrders");
+  };
+  
+  // Check for unpaid orders
+  const checkUnpaidOrders = async () => {
+    if (!userData) return;
+    
+    try {
+      const response = await api.get('/api/v1/orders');
+      const data = await response.json();
+      if (data?.items && data.items.length > 0) {
+        // Check if there are any orders (we assume they're unpaid until payment is implemented)
+        setHasUnpaidOrders(true);
+      } else {
+        setHasUnpaidOrders(false);
+      }
+    } catch (error) {
+      console.error('Failed to check unpaid orders:', error);
+      setHasUnpaidOrders(false);
+    }
+  };
+
+  // Check for active requests
+  const checkActiveRequests = async () => {
+    if (!userData) return;
+    
+    try {
+      const response = await api.get('/api/v1/requests');
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        // Count active requests (not completed, cancelled, or done)
+        const activeRequests = data.filter((request: any) => 
+          request.status === 'New' || 
+          request.status === 'Acknowledged' || 
+          request.status === 'InProgress' || 
+          request.status === 'OnHold'
+        );
+        setActiveRequestsCount(activeRequests.length);
+      } else {
+        setActiveRequestsCount(0);
+      }
+    } catch (error) {
+      console.error('Failed to check active requests:', error);
+      setActiveRequestsCount(0);
+    }
+  };
+
+  // Check for active orders
+  const checkActiveOrders = async () => {
+    if (!userData) return;
+    
+    try {
+      const response = await api.get('/api/v1/orders');
+      const data = await response.json();
+      if (data?.items && Array.isArray(data.items)) {
+        // Count orders that are not delivered/completed
+        const activeOrders = data.items.filter((order: any) => 
+          order.status !== 'Delivered' && 
+          order.status !== 'Completed' && 
+          order.status !== 'Cancelled'
+        );
+        setActiveOrdersCount(activeOrders.length);
+      } else {
+        setActiveOrdersCount(0);
+      }
+    } catch (error) {
+      console.error('Failed to check active orders:', error);
+      setActiveOrdersCount(0);
+    }
+  };
   const openCart = () => {
     if (stage === "foodMenu") {
       setShowCart(true);
@@ -236,7 +477,7 @@ export default function Home() {
   const showCartIcon = !["splash", "agentSplash", "waiterInformed"].includes(stage) && totalCartItems > 0;
 
   return (
-    <>
+    <TableSessionGuard>
       {/* Splash Screen */}
       {stage === "splash" ? (
         <div className="splash-container">
@@ -250,168 +491,305 @@ export default function Home() {
         <div className="splash-container">
           <div className="splash-text">Waiter&nbsp;Informed</div>
         </div>
-      ) : stage === "chat" && userData ? (
-        <div className="fixed inset-0 flex items-center justify-center bg-background z-40">
-          <ChatWindow
-            onClose={() => setStage("home")}
-            onWaiterRequested={handleWaiterRequested}
-            userId={userData.userId}
-            tableNumber={userData.tableNumber}
-            token={userData.token}
-            inputPlaceholder="e.g Tell me about your specials"
-            headerText="Waiter Assistant"
-            showCloseButton={true}
-            className="w-full h-full md:w-[500px] md:h-[600px] md:rounded-xl"
-          />
-        </div>
-      ) : stage === "foodMenu" && userData ? (
-        <div className="fixed inset-0 bg-background z-40 p-0 md:p-4 overflow-y-auto">
-          <FoodMenu
-            userId={userData.userId}
-            sessionId={userData.sessionId}
-            tableNumber={userData.tableNumber}
-            token={userData.token}
-            onCloseMenu={() => setStage("home")}
-            orderItems={orderItems}
-            setOrderItems={setOrderItems}
-            addToCart={addToCart}
-            removeFromCart={removeFromCart}
-            clearCart={clearCart}
-            showCart={showCart}
-            setShowCart={setShowCart}
-          />
-        </div>
-      ) : stage === "myOrders" && userData ? (
-        <div className="fixed inset-0 bg-background z-40 p-0 md:p-4 overflow-y-auto">
-          <div className="bg-white shadow-sm p-4 flex justify-between items-center mb-4">
-            <div className="flex items-center">
-              <button 
-                onClick={() => setStage("home")} 
-                className="mr-3 text-gray-600 hover:text-gray-900 transition-colors"
-              >
-                <ArrowLeft className="h-6 w-6" />
-              </button>
-              <h1 className="text-xl font-semibold">My Orders</h1>
+      ) : userData ? (
+        <>
+          {/* Chat Window - Always mounted but visibility controlled by stage and disconnect state */}
+          {!isChatDisconnected && (
+            <div className={`fixed inset-0 flex items-center justify-center bg-background z-40 ${stage === "chat" ? "" : "hidden"}`}>
+              <ChatWindow
+                onClose={() => setStage("home")}
+                onWaiterRequested={handleWaiterRequested}
+                onMenuSearchRequested={handleMenuSearchRequested}
+                onMenuViewRequested={handleMenuViewRequested}
+                onRequestsViewRequested={handleRequestsViewRequested}
+                onOrdersViewRequested={handleOrdersViewRequested}
+                onDisconnect={handleChatDisconnect}
+                userId={userData.userId}
+                tableNumber={userData.tableNumber}
+                token={userData.token}
+                inputPlaceholder="e.g Tell me about your specials"
+                headerText="AI Waiter Assistant"
+                showCloseButton={true}
+                className="w-full h-full md:w-[500px] md:h-[600px] md:rounded-xl"
+                refreshTrigger={chatRefreshTrigger}
+              />
             </div>
-          </div>
-          <MyOrders
-            userId={userData.userId}
-            sessionId={userData.sessionId}
-            tableNumber={userData.tableNumber}
-            token={userData.token}
-          />
-        </div>
-      ) : stage === "requests" && userData ? (
-         <div className="fixed inset-0 bg-background z-40 p-4 overflow-y-auto">
-          <MyRequests userId={userData.userId} token={userData.token} />
-          <div className="text-center mt-4">
-            <button
-              onClick={() => setStage("home")}
-              className="px-4 py-2 bg-primary-500 text-white rounded-md"
-            >
-              Back
-            </button>
-          </div>
-        </div>
-      ) : stage === "rateWaiter" && userData ? (
-        <div className="fixed inset-0 bg-background z-40 p-4 overflow-y-auto flex flex-col">
-          <RateYourWaiter
-            userId={userData.userId}
-            token={userData.token}
-            waiterId= '3c4d8be2-85bd-4c72-9b6e-748d6e1abf42' // Placeholder, adjust as needed
-            onRatingSubmitted={() => setStage("home")}
-          />
-          <div className="text-center mt-4">
-            <button
-              onClick={() => setStage("home")}
-              className="px-4 py-2 bg-primary-500 text-white rounded-md"
-            >
-              Back
-            </button>
-          </div>
-        </div>
-      ) : stage === "bill" && userData ? (
-        <div className="fixed inset-0 bg-background z-40 p-4 overflow-y-auto">
-          <MyBill
-            userId={userData.userId}
-            tableNumber={userData.tableNumber}
-            sessionId={userData.sessionId} 
-            token={userData.token}
-            onWaiterRequested={handleWaiterRequested}
-          />
-          <div className="text-center mt-4">
-            <button
-              onClick={() => setStage("home")}
-              className="px-4 py-2 bg-primary-500 text-white rounded-md"
-            >
-              Back
-            </button>
-          </div>
-        </div>
-      ) : ( // Default to home screen or loading if session is being fetched
-        <div className="flex min-h-screen flex-col items-center justify-center p-4">
+          )}
+
+          {/* Food Menu */}
+          {stage === "foodMenu" && (
+            <div className="fixed inset-0 bg-background z-50 p-0 md:p-4 overflow-y-auto">
+              {(() => { console.log("🔔 Rendering FoodMenu component, stage:", stage, "userData:", !!userData); return null; })()}
+              <FoodMenu
+                userId={userData.userId}
+                sessionId={userData.sessionId}
+                tableNumber={userData.tableNumber}
+                token={userData.token}
+                onCloseMenu={handleCloseMenu}
+                orderItems={orderItems}
+                setOrderItems={setOrderItems}
+                addToCart={addToCart}
+                removeFromCart={removeFromCart}
+                clearCart={clearCart}
+                showCart={showCart}
+                setShowCart={setShowCart}
+                initialSearchTerm={menuSearchTerm}
+              />
+            </div>
+          )}
+
+          {/* My Orders */}
+          {stage === "myOrders" && (
+            <div className="fixed inset-0 bg-background z-40 p-0 md:p-4 overflow-y-auto">
+              <div className="bg-white shadow-sm p-4 flex justify-between items-center mb-4">
+                <div className="flex items-center">
+                  <button 
+                    onClick={handleCloseOrders} 
+                    className="mr-3 text-red-800 hover:text-red-900 transition-colors"
+                  >
+                    <ArrowLeft className="mr-3 text-red-800 hover:text-red-900 transition-colors" strokeWidth={4} />
+                  </button>
+                  <h1 className="text-xl font-semibold">Home</h1>
+                </div>
+              </div>
+              <MyOrders
+                userId={userData.userId}
+                token={userData.token}
+                tableNumber={userData.tableNumber}
+              />
+            </div>
+          )}
+
+          {/* My Requests */}
+          {stage === "requests" && (
+            <div className="fixed inset-0 bg-background z-40 p-0 md:p-4 overflow-y-auto">
+              <div className="bg-white shadow-sm p-4 flex justify-between items-center mb-4">
+                <div className="flex items-center">
+                  <button 
+                    onClick={handleCloseRequests} 
+                    className="mr-3 text-gray-600 hover:text-gray-900 transition-colors"
+                  >
+                    <ArrowLeft className="mr-3 text-red-800 hover:text-red-900 transition-colors" strokeWidth={4} />
+                  </button>
+                  <h1 className="text-xl font-semibold">Home</h1>
+                </div>
+              </div>
+              <div className="px-4">
+                <MyRequests userId={userData.userId} token={userData.token} />
+              </div>
+            </div>
+          )}
+
+          {/* Bill View */}
+          {stage === "bill" && (
+            <div className="fixed inset-0 bg-background z-40 p-0 md:p-4 overflow-y-auto">
+              <div className="bg-white shadow-sm p-4 flex justify-between items-center mb-4">
+                <div className="flex items-center">
+                  <button 
+                    onClick={() => setStage("home")} 
+                    className="mr-3 text-gray-600 hover:text-gray-900 transition-colors"
+                  >
+                    <ArrowLeft className="mr-3 text-red-800 hover:text-red-900 transition-colors" strokeWidth={4} />
+                  </button>
+                  <h1 className="text-xl font-semibold">Home</h1>
+                </div>
+              </div>
+              <div className="px-4">
+                <MyBill
+                  userId={userData.userId}
+                  tableNumber={userData.tableNumber}
+                  sessionId={userData.sessionId} 
+                  token={userData.token}
+                  onWaiterRequested={handleWaiterRequested}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Home Content - Default view when userData exists but stage is "home" */}
+          {stage === "home" && (
+        <div className="flex min-h-screen flex-col items-center justify-start p-4 pt-8">
+          {/* Fixed Burger Menu in top left */}
+          {userData && (
+            <div className="fixed top-4 left-4 z-40">
+              <div className="shadow-lg rounded-full bg-white">
+                <BurgerMenu
+                  onFoodMenuClick={openFoodMenu}
+                  onMyOrdersClick={openMyOrders}
+                  onMyRequestsClick={openRequests}
+                  onMyBillClick={openBill}
+                />
+              </div>
+            </div>
+          )}
+
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="text-center"
+            className="text-center mt-12"
           >
-            <h1 className="text-4xl md:text-6xl font-bold text-primary-500 mb-6">
-              Hello!
-            </h1>
-            <p className="text-lg md:text-xl text-secondary-600 max-w-md mx-auto">
-              Press Button to Call Your Waiter
+            
+            {/* Status Badges */}
+            {userData && (activeRequestsCount > 0 || activeOrdersCount > 0) && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.1 }}
+                className="flex justify-center gap-3 mb-6"
+              >
+                {/* Active Requests Badge */}
+                {activeRequestsCount > 0 && (
+                  <motion.button
+                    onClick={openRequests}
+                    className="flex items-center gap-2   text-blue-700 shadow-lg px-4 py-2 rounded-full transition-all duration-300 hover:scale-105"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <span className="text-xs font-medium">
+                      Requests  
+                    </span>
+                  </motion.button>
+                )}
+
+                {/* Active Orders Badge */}
+                {activeOrdersCount > 0 && (
+                  <motion.button
+                    onClick={openMyOrders}
+                    className="flex items-center gap-2  text-orange-700 px-4 py-2 rounded-full shadow-lg transition-all duration-300 hover:scale-105"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <span className="text-xs font-medium">
+                      Orders
+                    </span>
+                  </motion.button>
+                )}
+              </motion.div>
+            )}
+            
+            <motion.h1
+              className="text-3xl md:text-5xl font-extrabold text-primary-500 mb-4"
+              initial={{ x: 200, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ type: "spring", stiffness: 60, damping: 15 }}
+            >
+              Welcome!
+            </motion.h1>
+            
+            {/* Waiter Profile Picture */}
+            {userData && userData.waiter && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.5, delay: 0.3 }}
+                className="mb-4 flex justify-center"
+              >
+                <button
+                  onClick={() => setShowWaiterImage(true)}
+                  className="w-20 h-20 rounded-2xl overflow-hidden border-2 border-red-200 shadow-lg hover:border-red-300 transition-all duration-200 hover:scale-105 cursor-pointer"
+                >
+                  <img 
+                    src="/waiter_propic.jpg" 
+                    alt={`${userData.waiter.name} ${userData.waiter.surname}`}
+                    className="w-full h-full object-cover"
+                  />
+                </button>
+              </motion.div>
+            )}
+            
+            {/* Table and Waiter Information */}
+            {userData && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.2 }}
+                className="mb-4"
+              >
+                
+                {userData.waiter && (
+                  <p className="text-sm text-gray-600 mt-1">
+                    Your waiter is{" "}
+                    <span className="text-red-600 font-bold">
+                      {userData.waiter.name} {userData.waiter.surname}
+                    </span>
+                  </p>
+                )}
+                <p className="text-lg font-semibold text-gray-800">
+                  Table {userData.tableNumber}
+                </p>
+              </motion.div>
+            )}
+
+            <p className="mt-4 text-sm text-secondary-400">
+                {loadingSession
+                ? "Setting up your session..."
+                : !userData ? (
+                   <>
+                  <span className="text-red-600 font-semibold">No active session found.</span>
+                  <br/>
+                  Please scan the QR code provided by your waiter to start your dining experience.
+                  </>
+                ) : (
+                  <>
+                  </>
+                )}
             </p>
-            <div className="mt-8 flex justify-center">
+            
+            {/* Icons above Buzz Waiter button */}
+            {userData && (
+              <div className="mt-4 flex justify-center">
+                <div className="relative w-40 flex justify-between items-center">
+                  {/* QR Code Icon on the left */}
+                  <motion.button
+                    onClick={() => setShowQRCode(true)}
+                    className="bg-white hover:bg-gray-50 text-gray-700 rounded-full p-2 shadow-xl transition-all duration-300 flex items-center justify-center w-10 h-10 border border-gray-300"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <QrCode size={16} />
+                  </motion.button>
+
+                  {/* Conditional Your Bill icon on the right - shown when there are unpaid orders */}
+                  {hasUnpaidOrders && (
+                    <motion.button
+                      onClick={openBill}
+                      className="bg-white hover:bg-red-700 text-red-500 rounded-full p-2 shadow-xl transition-all duration-300 flex items-center justify-center w-10 h-10 border border-gray-300"
+                      animate={{ scale: [1, 1.6, 1] }}
+                      transition={{ duration: 1.5, repeat: Infinity }}
+                    >
+                      <span className="text-xl font-bold text-green-500">$</span>
+                    </motion.button>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            <div className="mt-1 flex justify-center items-end relative">
+              {/* Buzz Waiter Button */}
               <button
-                className="h-40 w-40 rounded-full overflow-hidden p-0 flex items-center justify-center shadow-xl hover:shadow-2xl transition-shadow duration-300"
+                className={`h-40 w-40 rounded-full overflow-hidden p-0 flex items-center justify-center shadow-xl transition-shadow duration-300 ${
+                  userData ? 'hover:shadow-2xl cursor-pointer' : 'opacity-50 cursor-not-allowed'
+                }`}
+                disabled={!userData}
               >
                 <img
                   src="/buzzwaiter_btn.png"
                   alt="Buzz Waiter"
                   className="h-full w-full object-contain"
-                  onClick={() => setStage("agentSplash")}
+                  onClick={userData ? handleBuzzWaiter : undefined}
                 />
-                </button>
+              </button>
             </div>
-            {/* ───────────────────────── Burger Menu ───────────────────────── */}
-            <div className="mt-6 flex justify-center">
-              <span className="text-red-600 font-semibold mr-2 drop-shadow">View</span>
-              <div className="shadow-lg rounded-full bg-white">
-              <BurgerMenu
-                onFoodMenuClick={openFoodMenu}
-                onMyOrdersClick={openMyOrders}
-                onMyRequestsClick={openRequests}
-                onMyBillClick={openBill}
-                onRateWaiterClick={openRateWaiter}
-              />
-              </div>
-              <span className="text-red-600 font-semibold ml-2 drop-shadow">Menu</span>
-            </div>
-            <p className="mt-8 text-sm text-secondary-400">
-                {loadingSession
-                ? "Setting up your session..."
-                : userData ? (
-                  <>
-                  Simply chat to our{" "}
-                  <span className="text-red-600 drop-shadow font-semibold">
-                    AI Waiter Assistant
-                  </span>
-                  . If you still need a waiter, tell the AI Assistant to call the waiter for you.
-
-                  
-                  </>
-                ) : "Please enter table number to start."}
-            </p>
-            {/* top-left star button */}
-            <button
-              onClick={openRateWaiter}
-              className="absolute top-4 left-4 text-primary-500 hover:text-primary-700 focus:outline-none"
-              aria-label="Rate your waiter"
-            >
-              <Star className="h-8 w-8" />
-            </button>
           </motion.div>
+          <span className="text-xs text-gray-500 mt-4">Don't hesitate to BUZZ if you need assistance!</span>
+        </div>
+          )}
+        </>
+      ) : (
+        // Default loading state when no userData
+        <div className="splash-container">
+          <div className="splash-text">Loading...</div>
         </div>
       )}
 
@@ -432,6 +810,101 @@ export default function Home() {
           )}
         </motion.button>
       )}
-    </>
+
+      {/* QR Code Modal */}
+      <AnimatePresence>
+        {showQRCode && userData && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-lg p-6 max-w-sm w-full text-center"
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold text-red-600">Table Join</h3>
+                <button
+                  onClick={() => setShowQRCode(false)}
+                  className="p-1 rounded-full hover:bg-gray-100"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="mb-4 flex justify-center">
+                {qrCodeDataUrl ? (
+                  <img 
+                    src={qrCodeDataUrl} 
+                    alt="Scan to join table"
+                    className="w-48 h-48 border border-gray-200 rounded-lg"
+                  />
+                ) : (
+                  <div className="bg-gray-100 p-6 rounded-lg w-48 h-48 flex items-center justify-center">
+                    <QrCode size={120} className="text-gray-600" />
+                    <p className="text-sm text-gray-500 mt-2">Generating QR code...</p>
+                  </div>
+                )}
+              </div>              
+              
+              <p className="text-xs text-gray-500 font-semibold mb-2">
+                Share this QR code with friends to let them join your table
+              </p>
+
+              {userData.sessionId && (
+                <p className="text-xs text-gray-400 font-mono break-all">
+                  Session: {userData.sessionId.slice(0, 8)}...
+                </p>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Waiter Image Modal */}
+      <AnimatePresence>
+        {showWaiterImage && userData && userData.waiter && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-lg p-6 max-w-md w-full text-center"
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold text-red-600">Your Waiter</h3>
+                <button
+                  onClick={() => setShowWaiterImage(false)}
+                  className="p-1 rounded-full hover:bg-gray-100"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="mb-4 flex justify-center">
+                <div className="w-64 h-64 rounded-lg overflow-hidden border-2 border-red-200 shadow-lg">
+                  <img 
+                    src="/waiter_propic.jpg" 
+                    alt={`${userData.waiter.name} ${userData.waiter.surname}`}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              </div>
+              
+              <div className="text-center">
+                <h4 className="text-xl font-bold text-gray-800 mb-1">
+                  {userData.waiter.name} {userData.waiter.surname}
+                </h4>
+                <p className="text-sm text-gray-600 mb-2">
+                  Your waiter for Table {userData.tableNumber}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Don't hesitate to call if you need assistance!
+                </p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </TableSessionGuard>
   );
 }

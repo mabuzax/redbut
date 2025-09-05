@@ -27,7 +27,7 @@ export interface FoodMenuComponentProps {
 }
 
 const FoodMenuComponent = ({ onBack }: FoodMenuComponentProps) => {
-  const token = typeof window !== 'undefined' ? localStorage.getItem("redbutToken") || "" : "";
+  const token = typeof window !== 'undefined' ? localStorage.getItem("redBut_token") || "" : "";
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -234,7 +234,7 @@ const FoodMenuComponent = ({ onBack }: FoodMenuComponentProps) => {
   return (
     <div>
       <button onClick={onBack} className="mb-6 inline-flex items-center text-primary-600 hover:underline">
-        <ArrowLeft className="h-4 w-4 mr-1" /> Back to Dashboard
+        <ArrowLeft className="mr-3 text-red-800 hover:text-red-900 transition-colors" strokeWidth={4} /> Dashboard
       </button>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-900">Food Menu Management</h2>

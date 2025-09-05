@@ -85,7 +85,7 @@ const AiAnalyticsChatWindow = ({ onClose, initialDateRange }: AiAnalyticsChatWin
 
   const { messages, setMessages } = usePersistentMessagesForEntity(threadId, entityName, initialAiMessage);
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem("redbutToken") || "" : "";
+  const token = typeof window !== 'undefined' ? localStorage.getItem("redBut_token") || "" : "";
 
   const [input, setInput] = useState('');
   const [isAiTyping, setIsAiTyping] = useState(false);

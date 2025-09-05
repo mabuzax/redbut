@@ -208,8 +208,8 @@ export class OrdersService {
     }
   }
 
-  async updateOrderStatus(id: string, status: OrderStatus) {
-    const userRole = this.getUserRole();
+  async updateOrderStatus(id: string, status: OrderStatus, userRole?: string) {
+    const role = userRole || this.getUserRole();
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({ where: { id }, include: { orderItems: true } });
       if (!order) throw new NotFoundException(`Order ${id} not found`);
@@ -220,7 +220,7 @@ export class OrdersService {
       await this.orderStatusConfigService.validateTransition(
         order.status,
         status,
-        userRole,
+        role,
       );
 
       await tx.order.update({ where: { id }, data: { status } });
@@ -292,6 +292,102 @@ export class OrdersService {
   }
 
   /**
+   * Update order item details (quantity, options, etc.)
+   * @param orderId Order ID
+   * @param itemId Order Item ID  
+   * @param updateData Update data
+   * @param userId User making the update (for authorization)
+   * @returns Updated order item
+   */
+  async updateOrderItem(
+    orderId: string, 
+    itemId: string, 
+    updateData: { quantity?: number; price?: number; selectedOptions?: string[]; selectedExtras?: string[]; specialInstructions?: string; },
+    userId: string
+  ): Promise<any> {
+    this.logger.log(`Updating order item ${itemId} in order ${orderId}`);
+
+    try {
+      // First, verify the order exists and get its current status
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          orderItems: {
+            where: { id: itemId },
+            include: { menuItem: true }
+          }
+        }
+      });
+
+      if (!order) {
+        throw new NotFoundException(`Order with ID ${orderId} not found.`);
+      }
+
+      if (order.orderItems.length === 0) {
+        throw new NotFoundException(`Order item with ID ${itemId} not found in order ${orderId}.`);
+      }
+
+      const orderItem = order.orderItems[0];
+
+      // Check if order can be modified (only allow modifications for New or Acknowledged orders)
+      if (order.status !== OrderStatus.New && order.status !== OrderStatus.Acknowledged) {
+        throw new BadRequestException(`Cannot modify order items. Order status is ${order.status}.`);
+      }
+
+      // Prepare update data, filtering out undefined values
+      const updatePayload: any = {};
+      
+      if (updateData.quantity !== undefined) {
+        updatePayload.quantity = updateData.quantity;
+      }
+      
+      if (updateData.price !== undefined) {
+        updatePayload.price = updateData.price;
+      }
+
+      // Handle selectedOptions and selectedExtras as JSON fields
+      if (updateData.selectedOptions !== undefined) {
+        updatePayload.selectedOptions = JSON.stringify(updateData.selectedOptions);
+      }
+
+      if (updateData.selectedExtras !== undefined) {
+        updatePayload.selectedExtras = JSON.stringify(updateData.selectedExtras);
+      }
+
+      if (updateData.specialInstructions !== undefined) {
+        updatePayload.specialInstructions = updateData.specialInstructions;
+      }
+
+      // Update the order item
+      const updatedItem = await this.prisma.orderItem.update({
+        where: { id: itemId },
+        data: updatePayload,
+        include: {
+          menuItem: {
+            select: { id: true, name: true, image: true }
+          }
+        }
+      });
+
+      this.logger.log(`Successfully updated order item ${itemId}`);
+      
+      return updatedItem;
+    } catch (error) {
+      this.logger.error(`Failed to update order item: ${error.message}`, error.stack);
+      
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+        throw new NotFoundException(`Order item with ID ${itemId} not found.`);
+      }
+      
+      throw new BadRequestException(`Failed to update order item: ${error.message}`);
+    }
+  }
+
+  /**
    * Clear all orders for a table (for admin/testing purposes)
    * @param tableNumber Table number
    * @returns Count of deleted orders
@@ -309,5 +405,68 @@ export class OrdersService {
       this.logger.error(`Failed to clear table orders: ${error.message}`, error.stack);
       throw new BadRequestException(`Failed to clear table orders: ${error.message}`);
     }
+  }
+
+  async rejectOrderWithReason(
+    orderId: string,
+    reason: string,
+    tableNumber: number,
+    userId: string
+  ): Promise<{ message: string }> {
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Verify order exists and can be rejected
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { orderItems: true }
+      });
+
+      if (!order) {
+        throw new NotFoundException(`Order ${orderId} not found`);
+      }
+
+      // Only allow rejection of delivered orders
+      if (order.status !== OrderStatus.Delivered) {
+        throw new BadRequestException(`Order can only be rejected when delivered. Current status: ${order.status}`);
+      }
+
+      // 2. Create request for waiter attention
+      const requestMessage = `Attend to Table ${tableNumber}. Client has rejected order number ${orderId.slice(-8)}. Reason: ${reason}`;
+      
+      // Find user's sessionId for the request
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { sessionId: true }
+      });
+
+      if (!user) {
+        throw new NotFoundException(`User ${userId} not found`);
+      }
+      
+      await tx.request.create({
+        data: {
+          content: requestMessage,
+          status: 'New',
+          userId: userId,
+          sessionId: user.sessionId,
+          tableNumber: tableNumber,
+        }
+      });
+
+      // 3. Update order status to rejected
+      await tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.Rejected }
+      });
+
+      // 4. Update all order items to rejected status
+      await tx.orderItem.updateMany({
+        where: { orderId: orderId },
+        data: { status: OrderStatus.Rejected }
+      });
+
+      this.logger.log(`Order ${orderId} rejected by user ${userId} with reason: ${reason}`);
+      
+      return { message: 'Order rejected successfully and waiter has been notified' };
+    });
   }
 }

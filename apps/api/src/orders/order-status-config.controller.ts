@@ -17,7 +17,7 @@ class GetOrderTransitionsQueryDto {
 
 @ApiTags('order-status-config')
 @ApiBearerAuth()
-@Controller('api/v1/order-status-config')
+@Controller('order-status-config')
 @UseGuards(JwtAuthGuard)
 export class OrderStatusConfigController {
   private readonly logger = new Logger(OrderStatusConfigController.name);

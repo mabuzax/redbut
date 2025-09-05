@@ -38,7 +38,14 @@ export interface OrdersComponentProps {
 }
 
 const OrdersComponent = ({ onBack }: OrdersComponentProps) => {
-  const token = typeof window !== 'undefined' ? localStorage.getItem("redbutToken") || "" : "";
+  const [filters, setFilters] = useState({
+    status: 'all'
+  });
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 10
+  });
+  const token = typeof window !== 'undefined' ? localStorage.getItem("redBut_token") || "" : "";
 
   const [currentShiftOrders, setCurrentShiftOrders] = useState<CurrentShiftOrdersDataPoint[]>([]);
   const [dailyOrders, setDailyOrders] = useState<DailyOrdersDataPoint[]>([]);
@@ -121,7 +128,7 @@ const OrdersComponent = ({ onBack }: OrdersComponentProps) => {
   return (
     <div>
       <button onClick={onBack} className="mb-6 inline-flex items-center text-primary-600 hover:underline">
-        <ArrowLeft className="h-4 w-4 mr-1" /> Back to Dashboard
+        <ArrowLeft className="mr-3 text-red-800 hover:text-red-900 transition-colors" strokeWidth={4} /> Dashboard
       </button>
       <h2 className="text-2xl font-bold text-gray-900 mb-6">Orders Analytics</h2>
 

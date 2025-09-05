@@ -1,13 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X, Utensils, Receipt } from 'lucide-react';
+import { Menu, X, Utensils, Receipt, MessageSquare, CreditCard } from 'lucide-react';
 
 interface BurgerMenuProps {
   onFoodMenuClick: () => void; // Added Food Menu click handler
   onMyOrdersClick: () => void;
   onMyRequestsClick: () => void;
   onMyBillClick: () => void;
-  onRateWaiterClick: () => void;
 }
 
 const BurgerMenu: React.FC<BurgerMenuProps> = ({
@@ -15,7 +14,6 @@ const BurgerMenu: React.FC<BurgerMenuProps> = ({
   onMyOrdersClick,
   onMyRequestsClick,
   onMyBillClick,
-  onRateWaiterClick,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -95,7 +93,7 @@ const BurgerMenu: React.FC<BurgerMenuProps> = ({
                 <li className="mb-2">
                   <button
                     onClick={() => handleMenuItemClick(onMyOrdersClick)}
-                    className="block w-full text-left p-3 rounded-md text-lg font-medium text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-300 flex items-center"
+                    className="w-full text-left p-3 rounded-md text-lg font-medium text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-300 flex items-center"
                   >
                     <Receipt className="h-5 w-5 mr-3 text-primary-500" />
                     My Orders
@@ -104,25 +102,19 @@ const BurgerMenu: React.FC<BurgerMenuProps> = ({
                 <li className="mb-2">
                   <button
                     onClick={() => handleMenuItemClick(onMyRequestsClick)}
-                    className="block w-full text-left p-3 rounded-md text-lg font-medium text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-300"
+                    className="w-full text-left p-3 rounded-md text-lg font-medium text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-300 flex items-center"
                   >
+                    <MessageSquare className="h-5 w-5 mr-3 text-primary-500" />
                     My Requests
-                  </button>
-                </li>
-                <li className="mb-2">
-                  <button
-                    onClick={() => handleMenuItemClick(onRateWaiterClick)}
-                    className="block w-full text-left p-3 rounded-md text-lg font-medium text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-300"
-                  >
-                    Rate&nbsp;Your&nbsp;Waiter
                   </button>
                 </li>
                 <li>
                   <button
                     onClick={() => handleMenuItemClick(onMyBillClick)}
-                    className="block w-full text-left p-3 rounded-md text-lg font-medium text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-300"
+                    className="w-full text-left p-3 rounded-md text-lg font-medium text-gray-700 hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-300 flex items-center"
                   >
-                    My Bill
+                    <CreditCard className="h-5 w-5 mr-3 text-primary-500" />
+                    Your Bill
                   </button>
                 </li>
               </ul>

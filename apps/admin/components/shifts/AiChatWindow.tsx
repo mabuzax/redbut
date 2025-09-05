@@ -22,8 +22,8 @@ export interface AiChatWindowProps {
   entityName: string; 
 }
 
-function usePersistentThreadId(keyPrefix = 'chatThreadId', entityName: string) {
-  const key = `${keyPrefix}:${entityName.toLowerCase()}`;
+function usePersistentThreadId(keyPrefix = 'redBut_chatThreadId', entityName: string) {
+  const key = `${keyPrefix}:${entityName.toLowerCase().replace(/\s+/g, '-')}`;
   const [threadId] = React.useState(() => {
     const stored = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
     if (stored) return stored;
@@ -38,7 +38,7 @@ function usePersistentThreadId(keyPrefix = 'chatThreadId', entityName: string) {
 }
 
 function usePersistentMessagesForEntity(threadId: string, entityName: string, initialMessageContent: string) {
-  const storageKey = `chatMessages:${entityName.toLowerCase()}:${threadId}`;
+  const storageKey = `redBut_chatMessages:${entityName.toLowerCase().replace(/\s+/g, '-')}:${threadId}`;
 
   const [messages, setMessages] = useState<AiChatMessage[]>(() => {
     if (typeof window === 'undefined') {
@@ -70,7 +70,7 @@ const AiChatWindow = ({ onClose, onUpdate, entityName }: AiChatWindowProps) => {
   const initialAiMessage = `Hello! How can I help you manage ${entityName.toLowerCase()}s today?`;
   const { messages, setMessages } = usePersistentMessagesForEntity(threadId, entityName, initialAiMessage);
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem("redbutToken") || "" : "";
+  const token = typeof window !== 'undefined' ? localStorage.getItem("redBut_token") || "" : "";
 
   const [input, setInput] = useState('');
   const [isAiTyping, setIsAiTyping] = useState(false);

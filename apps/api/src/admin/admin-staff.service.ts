@@ -6,6 +6,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { CacheInvalidatorService } from '../common/cache-invalidator.service';
 import { UserType, Waiter, Prisma } from '@prisma/client';
 import {
   CreateStaffMemberDto,
@@ -21,7 +22,10 @@ import {
 export class AdminStaffService {
   private readonly logger = new Logger(AdminStaffService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cacheInvalidator: CacheInvalidatorService,
+  ) {}
 
   private mapPositionToUserType(position: StaffPosition): UserType {
     switch (position) {
@@ -103,7 +107,7 @@ export class AdminStaffService {
     const userType = this.mapPositionToUserType(dto.position);
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const result = await this.prisma.$transaction(async (tx) => {
         const waiterData: Prisma.WaiterCreateInput = {
           name: dto.name,
           surname: dto.surname,
@@ -125,12 +129,19 @@ export class AdminStaffService {
           data: {
             userId: newWaiter.id,
             username: dto.email,
-            password: dto.password || DEFAULT_STAFF_PASSWORD, // Hashing should happen here or in a pre-save hook if using an ORM that supports it. Prisma needs explicit hashing.
             userType: userType,
           },
         });
         return newWaiter;
       });
+
+      // Invalidate both waiters and access_users caches
+      await Promise.all([
+        this.cacheInvalidator.invalidateWaiters(),
+        this.cacheInvalidator.invalidateAccessUsers(),
+      ]);
+
+      return result;
     } catch (error) {
       this.logger.error(`Failed to create staff member: ${dto.email}`, error.stack);
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -177,7 +188,7 @@ export class AdminStaffService {
     }
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const result = await this.prisma.$transaction(async (tx) => {
         const updatedWaiter = await tx.waiter.update({
           where: { id },
           data: waiterUpdateData,
@@ -193,6 +204,14 @@ export class AdminStaffService {
         }
         return updatedWaiter;
       });
+
+      // Invalidate both waiters and access_users caches
+      await Promise.all([
+        this.cacheInvalidator.invalidateWaiters(),
+        this.cacheInvalidator.invalidateAccessUsers(),
+      ]);
+
+      return result;
     } catch (error) {
       this.logger.error(`Failed to update staff member: ${id}`, error.stack);
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -230,6 +249,12 @@ export class AdminStaffService {
           where: { id },
         });
       });
+
+      // Invalidate both waiters and access_users caches
+      await Promise.all([
+        this.cacheInvalidator.invalidateWaiters(),
+        this.cacheInvalidator.invalidateAccessUsers(),
+      ]);
     } catch (error) {
       this.logger.error(`Failed to delete staff member: ${id}`, error.stack);
       // Handle specific Prisma errors if needed, e.g., foreign key constraints not handled by cascading deletes

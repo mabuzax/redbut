@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { CacheInvalidatorService } from '../common/cache-invalidator.service';
 import { MenuItem, Prisma } from '@prisma/client';
 
 export interface CreateMenuItemDto {
@@ -40,7 +41,10 @@ export interface MenuItemUploadData {
 
 @Injectable()
 export class AdminMenuService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cacheInvalidator: CacheInvalidatorService,
+  ) {}
 
   /**
    * Get all menu items with filtering and pagination
@@ -111,6 +115,18 @@ export class AdminMenuService {
    * Create a new menu item
    */
   async createMenuItem(data: CreateMenuItemDto): Promise<MenuItem> {
+    const menuItem = await this.createMenuItemWithoutCacheInvalidation(data);
+    
+    // Invalidate and reload menu items cache
+    await this.cacheInvalidator.invalidateMenuItems();
+    
+    return menuItem;
+  }
+
+  /**
+   * Create a new menu item without cache invalidation (for bulk operations)
+   */
+  private async createMenuItemWithoutCacheInvalidation(data: CreateMenuItemDto): Promise<MenuItem> {
     try {
       const menuItem = await this.prisma.menuItem.create({
         data: {
@@ -155,6 +171,9 @@ export class AdminMenuService {
         data: updatedData,
       });
 
+      // Invalidate and reload menu items cache
+      await this.cacheInvalidator.invalidateMenuItems();
+
       return menuItem;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -174,6 +193,9 @@ export class AdminMenuService {
       await this.prisma.menuItem.delete({
         where: { id },
       });
+
+      // Invalidate and reload menu items cache
+      await this.cacheInvalidator.invalidateMenuItems();
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         throw new BadRequestException(`Failed to delete menu item: ${error.message}`);
@@ -234,13 +256,18 @@ export class AdminMenuService {
           available_extras: availableExtras || Prisma.JsonNull,
         };
         
-        await this.createMenuItem(createData);
+        await this.createMenuItemWithoutCacheInvalidation(createData);
 
         created++;
       } catch (error) {
         console.error(`Failed to create menu item: ${item.name}`, error);
         failed++;
       }
+    }
+
+    // If any items were created, invalidate cache once at the end
+    if (created > 0) {
+      await this.cacheInvalidator.invalidateMenuItems();
     }
 
     return { created, failed };

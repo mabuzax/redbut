@@ -9,10 +9,16 @@ import { RequestsModule } from './requests/requests.module';
 import { OrdersModule } from './orders/orders.module';
 import { UsersModule } from './users/users.module';
 import { PrismaService } from './common/prisma.service';
+import { DataPreloaderService } from './common/data-preloader.service';
+import { CachedDataService } from './common/cached-data.service';
+import { CacheInvalidatorService } from './common/cache-invalidator.service';
+import { CacheController } from './common/cache.controller';
+import { RedisCacheModule } from './common/redis-cache.module';
 import { ChatModule } from './chat/chat.module';
 import { WaiterModule } from './waiter/waiter.module';
 import { AdminModule } from './admin/admin.module';
 import { MenuModule } from './menu/menu.module';
+import { ServiceAnalysisModule } from './service-analysis/service-analysis.module';
 
 @Module({
   imports: [
@@ -39,6 +45,9 @@ import { MenuModule } from './menu/menu.module';
     // Health check module
     TerminusModule,
 
+    // Redis cache module (imported here for global availability)
+    RedisCacheModule,
+
     // Domain modules
     AuthModule,
     RequestsModule,
@@ -48,11 +57,14 @@ import { MenuModule } from './menu/menu.module';
     WaiterModule, // Waiter dashboard & endpoints
     AdminModule, // Admin dashboard & endpoints
     MenuModule, // Public menu endpoints
+    ServiceAnalysisModule, // Service feedback analysis
   ],
-  controllers: [
-    HealthController,
-    HelloController,
+  controllers: [HealthController, HelloController, CacheController],
+  providers: [
+    PrismaService,
+    DataPreloaderService,
+    CachedDataService,
+    CacheInvalidatorService,
   ],
-  providers: [PrismaService],
 })
 export class AppModule {}

@@ -1,9 +1,14 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { SessionCacheService } from '../common/session-cache.service';
 import { OrderStatus, Prisma, RequestStatus } from '@prisma/client';
 import { OrdersService } from '../orders/orders.service';
 import { RequestStatusConfigService } from '../common/request-status-config.service';
 import { OrderStatusConfigService } from '../common/order-status-config.service';
+import { ChatService } from '../chat/chat.service';
+import { ConfigService } from '@nestjs/config';
+import { ChatOpenAI } from '@langchain/openai';
+import { z } from 'zod';
 
 @Injectable()
 export class WaiterService {
@@ -14,14 +19,17 @@ export class WaiterService {
     private readonly ordersService: OrdersService,
     private readonly requestStatusConfigService: RequestStatusConfigService,
     private readonly orderStatusConfigService: OrderStatusConfigService,
+    private readonly sessionCache: SessionCacheService,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
-   * Get all requests with filtering and pagination
+   * Get all requests with filtering and pagination for a specific waiter
+   * @param waiterId The ID of the waiter
    * @param options Filter and pagination options
-   * @returns Array of requests
+   * @returns Array of requests for waiter's sessions
    */
-  async getAllRequests(options: {
+  async getAllRequests(waiterId: string, options: {
     status?: string;
     sort?: 'time' | 'status';
     search?: string;
@@ -30,8 +38,21 @@ export class WaiterService {
   }): Promise<any[]> {
     const { status, sort, search, page, pageSize } = options;
 
-    // Build the where clause based on filters
-    const where: Prisma.RequestWhereInput = {};
+    // Build the where clause based on filters - use sessionId directly
+    const waiterSessions = await this.prisma.user.findMany({
+      where: { waiterId: waiterId },
+      select: { sessionId: true },
+    });
+
+    const sessionIds = waiterSessions.map(session => session.sessionId);
+
+    if (sessionIds.length === 0) {
+      return []; // No sessions for this waiter
+    }
+
+    const where: Prisma.RequestWhereInput = {
+      sessionId: { in: sessionIds }, // Direct sessionId filtering
+    };
 
     // Filter by status if provided and not 'all'
     if (status && status !== 'all') {
@@ -70,6 +91,7 @@ export class WaiterService {
             select: {
               id: true,
               name: true,
+              tableNumber: true,
             },
           },
         },
@@ -77,22 +99,36 @@ export class WaiterService {
 
       return requests;
     } catch (error) {
-      this.logger.error(`Error retrieving requests: ${error.message}`, error.stack);
+      this.logger.error(`Error retrieving requests for waiter ${waiterId}: ${error.message}`, error.stack);
       return [];
     }
   }
 
   /**
-   * Get active requests (New, Acknowledged, InProgress)
-   * @returns Array of active requests
+   * Get active requests (New, Acknowledged, InProgress) for a specific waiter
+   * @param waiterId The ID of the waiter
+   * @returns Array of active requests for waiter's sessions
    */
-  async getActiveRequests(): Promise<any[]> {
+  async getActiveRequests(waiterId: string): Promise<any[]> {
     try {
+      // Get waiter's session IDs
+      const waiterSessions = await this.prisma.user.findMany({
+        where: { waiterId: waiterId },
+        select: { sessionId: true },
+      });
+
+      const sessionIds = waiterSessions.map(session => session.sessionId);
+
+      if (sessionIds.length === 0) {
+        return []; // No sessions for this waiter
+      }
+
       const requests = await this.prisma.request.findMany({
         where: {
           status: {
             in: [RequestStatus.New, RequestStatus.Acknowledged, RequestStatus.InProgress],
           },
+          sessionId: { in: sessionIds }, // Direct sessionId filtering
         },
         orderBy: [
           { status: 'asc' }, // New first, then Acknowledged, then InProgress
@@ -133,7 +169,7 @@ export class WaiterService {
     newStatus: 'Acknowledged' | 'InProgress' | 'Completed',
   ): Promise<any> {
     try {
-      // Validate that the request exists
+      // Validate that the request exists and get current status
       const request = await this.prisma.request.findUnique({
         where: { id },
       });
@@ -153,8 +189,27 @@ export class WaiterService {
         userRole,
       );
 
-      // Update the request status
+      // Update the request status within transaction with race condition protection
       const updatedRequest = await this.prisma.$transaction(async (tx) => {
+        // Re-fetch current status within transaction to avoid race conditions
+        const currentRequestInTx = await tx.request.findUnique({
+          where: { id },
+          select: { status: true },
+        });
+
+        if (!currentRequestInTx) {
+          throw new NotFoundException(`Request with ID ${id} not found`);
+        }
+
+        // Re-validate within transaction if status changed due to race condition
+        if (currentRequestInTx.status !== currentStatus) {
+          await this.requestStatusConfigService.validateTransition(
+            currentRequestInTx.status,
+            targetStatus,
+            userRole,
+          );
+        }
+
         // Update the request
         const updated = await tx.request.update({
           where: { id },
@@ -173,7 +228,7 @@ export class WaiterService {
         await tx.requestLog.create({
           data: {
             requestId: id,
-            action: `Status changed from ${currentStatus} to ${targetStatus}`,
+            action: `Status changed from ${currentRequestInTx.status} to ${targetStatus}`,
           },
         });
 
@@ -182,14 +237,14 @@ export class WaiterService {
 
       return updatedRequest;
     } catch (error) {
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
       }
       this.logger.error(
         `Error updating request status: ${error.message}`,
         error.stack,
       );
-      throw new Error(`Failed to update request status: ${error.message}`);
+      throw new BadRequestException(`Failed to update request status: ${error.message}`);
     }
   }
 
@@ -198,13 +253,27 @@ export class WaiterService {
   }
 
   /**
-   * Get a summary of open and closed requests
-   * @returns Counts of open and closed requests
+   * Get a summary of open and closed requests for a specific waiter
+   * @param waiterId The ID of the waiter
+   * @returns Counts of open and closed requests for waiter's sessions
    */
-  async getRequestsSummary(): Promise<{ open: number; closed: number }> {
+  async getRequestsSummary(waiterId: string): Promise<{ open: number; closed: number }> {
     try {
+      // Get all session IDs for this waiter
+      const waiterSessions = await this.prisma.user.findMany({
+        where: { waiterId: waiterId },
+        select: { sessionId: true },
+      });
+
+      const sessionIds = waiterSessions.map(session => session.sessionId);
+
+      if (sessionIds.length === 0) {
+        return { open: 0, closed: 0 };
+      }
+
       const openCount = await this.prisma.request.count({
         where: {
+          sessionId: { in: sessionIds }, // Direct sessionId filtering
           status: {
             in: [RequestStatus.New, RequestStatus.Acknowledged, RequestStatus.InProgress],
           },
@@ -213,6 +282,7 @@ export class WaiterService {
 
       const closedCount = await this.prisma.request.count({
         where: {
+          sessionId: { in: sessionIds }, // Direct sessionId filtering
           status: {
             in: [RequestStatus.Completed, RequestStatus.Cancelled, RequestStatus.Done],
           },
@@ -222,7 +292,7 @@ export class WaiterService {
       return { open: openCount, closed: closedCount };
     } catch (error) {
       this.logger.error(
-        `Error retrieving requests summary: ${error.message}`,
+        `Error retrieving requests summary for waiter ${waiterId}: ${error.message}`,
         error.stack,
       );
       return { open: 0, closed: 0 };
@@ -294,62 +364,112 @@ export class WaiterService {
   }
 
   /**
-   * Get AI analysis of waiter performance for today
-   * @returns AI analysis text
+   * Get AI analysis of waiter performance for today based on service_analysis data
+   * @param waiterId The waiter ID to analyze
+   * @returns Structured AI analysis
    */
-  async getAIAnalysis(): Promise<string> {
+  async getAIAnalysis(waiterId: string): Promise<any> {
     try {
-      // This is a placeholder. In a real implementation, this would call an AI service
-      // or use a more sophisticated algorithm to analyze performance data.
       const today = new Date();
-      const todayString = today.toISOString().split('T')[0];
+      const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
-      // Get some basic metrics for today
-      const requestsHandled = await this.prisma.request.count({
+      // Get service analysis data for this waiter from today
+      const serviceAnalysisData = await this.prisma.serviceAnalysis.findMany({
         where: {
-          status: RequestStatus.Completed,
-          updatedAt: {
-            gte: new Date(`${todayString}T00:00:00Z`),
-            lt: new Date(`${todayString}T23:59:59Z`),
-          },
-        },
-      });
-
-      const averageRating = await this.prisma.review.aggregate({
-        where: {
+          waiterId: waiterId,
           createdAt: {
-            gte: new Date(`${todayString}T00:00:00Z`),
-            lt: new Date(`${todayString}T23:59:59Z`),
+            gte: todayStart,
+            lt: todayEnd,
           },
         },
-        _avg: {
-          rating: true,
+        include: {
+          user: {
+            select: {
+              tableNumber: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
         },
       });
 
-      // Generate a simple analysis based on the metrics
-      let analysis = `Today (${today.toLocaleDateString()}), you have handled ${requestsHandled} requests. `;
+      this.logger.log(`Found ${serviceAnalysisData.length} service analysis records for waiter ${waiterId} today`);
 
-      if (averageRating._avg.rating) {
-        analysis += `Your average rating is ${averageRating._avg.rating.toFixed(
-          1,
-        )} out of 5. `;
-      } else {
-        analysis += `You haven't received any ratings yet today. `;
+      if (serviceAnalysisData.length === 0) {
+        return {
+          customerSentiment: 'No Data Available',
+          happinessBreakdown: {},
+          improvementPoints: ['No customer feedback received today'],
+          overallAnalysis: 'No customer feedback has been received today. Focus on engaging with customers and encouraging them to provide feedback on their experience.',
+        };
       }
 
-      if (requestsHandled > 10) {
-        analysis += `You're doing a great job handling a high volume of requests!`;
-      } else if (requestsHandled > 5) {
-        analysis += `You're maintaining a steady pace with request handling.`;
-      } else {
-        analysis += `It's been a quiet day so far.`;
-      }
+      // Prepare data for AI analysis
+      const analysisContent = serviceAnalysisData.map((item: any, index: number) => {
+        const analysis = item.analysis as any;
+        const itemWithRating = item as any; // Type cast to access rating field
+        return `Review ${index + 1} (Table ${item.user?.tableNumber || 'Unknown'}):
+- Happiness Level: ${analysis.happiness} (Rating: ${itemWithRating.rating || 3}/5)
+- What customer said: "${analysis.reason}"
+- Suggested improvement: "${analysis.suggested_improvement}"
+- Overall sentiment: ${analysis.overall_sentiment}
+---`;
+      }).join('\n');
 
-      return analysis;
+      // Create AI prompt with JSON schema for structured output
+      const prompt = `You are an AI assistant analyzing a waiter's performance based on customer feedback from today. Please analyze the following service analysis data and provide a structured JSON response.
+
+Customer Feedback Data:
+${analysisContent}
+
+Please respond with a JSON object containing exactly these fields:
+- overall_sentiment: Overall sentiment assessment (e.g., "Mostly Positive", "Mixed", "Needs Improvement")
+- happiness_breakdown: Object with happiness levels as keys and one-line summaries as values
+- improvement_points: Array of exactly 2 bullet points for improvement
+- overall_analysis: 2-3 sentences with actionable advice
+
+Example format:
+{
+  "overall_sentiment": "Mostly Positive",
+  "happiness_breakdown": {
+    "Extremely Happy": "Customers loved the quick service and friendly attitude",
+    "Happy": "Good food quality but some minor delays mentioned"
+  },
+  "improvement_points": [
+    "Focus on reducing wait times during peak hours",
+    "Ensure consistent follow-up on special requests"
+  ],
+  "overall_analysis": "Your performance today shows strong customer satisfaction with room for improvement in timing. Continue your excellent interpersonal skills while working on efficiency."
+}`;
+
+      // Call AI model with JSON mode
+      const model = new ChatOpenAI({
+        model: this.configService.get<string>('OPENAI_MODEL', 'gpt-4o'),
+        temperature: 0.1,
+      });
+
+      const aiResponse = await model.invoke([
+        { role: 'user', content: prompt }
+      ], {
+        response_format: { type: 'json_object' }
+      });
+
+      this.logger.log('AI Analysis Response:', aiResponse.content);
+      
+      // Parse the JSON response
+      const parsedResponse = JSON.parse(aiResponse.content as string);
+      return parsedResponse;
+
     } catch (error) {
       this.logger.error(`Error generating AI analysis: ${error.message}`, error.stack);
-      return 'Unable to generate performance analysis at this time.';
+      return {
+        overall_sentiment: 'Analysis Unavailable',
+        happiness_breakdown: {},
+        improvement_points: ['Unable to analyze performance at this time'],
+        overall_analysis: 'Performance analysis is temporarily unavailable. Please try again later.',
+      };
     }
   }
 
@@ -388,6 +508,29 @@ export class WaiterService {
   private async getWaiterAllocatedTables(waiterId: string): Promise<number[]> {
     try {
       const now = new Date();
+      console.log(`[WaiterService] getWaiterAllocatedTables for waiterId: ${waiterId} at time: ${now.toISOString()}`);
+      
+      // First, let's see all table allocations for this waiter (regardless of time)
+      const allAllocations = await this.prisma.tableAllocation.findMany({
+        where: {
+          waiterId,
+        },
+        include: {
+          shift: true,
+        },
+      });
+      
+      console.log(`[WaiterService] Found ${allAllocations.length} total allocations for waiter:`, 
+        allAllocations.map(a => ({
+          id: a.id,
+          tableNumbers: a.tableNumbers,
+          shift: {
+            startTime: a.shift.startTime,
+            endTime: a.shift.endTime,
+            isActive: a.shift.startTime <= now && a.shift.endTime >= now
+          }
+        }))
+      );
       
       const allocation = await this.prisma.tableAllocation.findFirst({
         where: {
@@ -402,38 +545,53 @@ export class WaiterService {
         },
       });
 
-      return allocation?.tableNumbers || [];
+      const result = allocation?.tableNumbers || [];
+      console.log(`[WaiterService] Active allocation result:`, result);
+      return result;
     } catch (error) {
+      console.log(`[WaiterService] Error getting allocated tables:`, error);
       this.logger.error(`Error getting allocated tables: ${error.message}`, error.stack);
       return [];
     }
   }
 
   /**
-   * Get orders with pagination and optional status filter
+   * Get orders with pagination and optional status filter for a specific waiter
+   * @param waiterId The ID of the waiter
    * @param params Filter and pagination options
-   * @returns Paginated list of orders
+   * @returns Paginated list of orders for waiter's allocated tables
    */
-  async getOrders(params: { page: number; pageSize: number; status?: string }): Promise<any> {
+  async getOrders(waiterId: string, params: { page: number; pageSize: number; status?: string }): Promise<any> {
     const { page, pageSize, status } = params;
     const skip = (page - 1) * pageSize;
     
     try {
-      // For demo purposes, get all tables (in production, filter by waiter's allocated tables)
-      // const waiterId = '3c4d8be2-85bd-4c72-9b6e-748d6e1abf42'; // This should come from JWT token
-      // const allocatedTables = await this.getWaiterAllocatedTables(waiterId);
-      
-      const where: Prisma.OrderWhereInput = {
-        // tableNumber: { in: allocatedTables }, // Uncomment in production
+      // First get all session IDs for this waiter
+      const waiterSessions = await this.prisma.user.findMany({
+        where: { waiterId: waiterId },
+        select: { sessionId: true },
+      });
+
+      const sessionIds = waiterSessions.map(session => session.sessionId);
+
+      if (sessionIds.length === 0) {
+        return {
+          data: [],
+          meta: { total: 0, page, pageSize, totalPages: 0 },
+        };
+      }
+
+      const orderWhere: Prisma.OrderWhereInput = {
+        sessionId: { in: sessionIds },
       };
       
       if (status && status !== 'all') {
-        where.status = status as OrderStatus;
+        orderWhere.status = status as OrderStatus;
       }
       
       const [orders, total] = await Promise.all([
         this.prisma.order.findMany({
-          where,
+          where: orderWhere,
           skip,
           take: pageSize,
           orderBy: { createdAt: 'desc' },
@@ -450,7 +608,7 @@ export class WaiterService {
             },
           },
         }),
-        this.prisma.order.count({ where }),
+        this.prisma.order.count({ where: orderWhere }),
       ]);
       
       return {
@@ -463,7 +621,7 @@ export class WaiterService {
         },
       };
     } catch (error) {
-      this.logger.error(`Error getting orders: ${error.message}`, error.stack);
+      this.logger.error(`Error getting orders for waiter ${waiterId}: ${error.message}`, error.stack);
       return {
         data: [],
         meta: { total: 0, page, pageSize, totalPages: 0 },
@@ -472,17 +630,26 @@ export class WaiterService {
   }
 
   /**
-   * Get orders grouped by table number with count badges
-   * @returns Orders grouped by table
+   * Get orders grouped by table number with count badges for a specific waiter
+   * @param waiterId The ID of the waiter
+   * @returns Orders grouped by table for waiter's allocated tables
    */
-  async getOrdersByTable(): Promise<any> {
+  async getOrdersByTable(waiterId: string): Promise<any> {
     try {
-      // For demo purposes, get all tables (in production, filter by waiter's allocated tables)
-      // const waiterId = '3c4d8be2-85bd-4c72-9b6e-748d6e1abf42'; // This should come from JWT token
-      // const allocatedTables = await this.getWaiterAllocatedTables(waiterId);
+      // Get all session IDs for this waiter
+      const waiterSessions = await this.prisma.user.findMany({
+        where: { waiterId: waiterId },
+        select: { sessionId: true, tableNumber: true },
+      });
+
+      if (waiterSessions.length === 0) {
+        return []; // No sessions for this waiter, return empty array
+      }
+
+      const sessionIds = waiterSessions.map(session => session.sessionId);
       
       const orders = await this.prisma.order.findMany({
-        // where: { tableNumber: { in: allocatedTables } }, // Uncomment in production
+        where: { sessionId: { in: sessionIds } },
         include: {
           orderItems: {
             include: {
@@ -547,9 +714,326 @@ export class WaiterService {
         userRole,
       );
 
-      return this.ordersService.updateOrderStatus(id, status);
+      return this.ordersService.updateOrderStatus(id, status, userRole);
     } catch (error) {
       this.logger.error(`Error updating order status: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /* Session Management Methods                                                 */
+  /* -------------------------------------------------------------------------- */
+
+  /**
+   * Get all waiters for session creation dropdown
+   * @returns Array of waiters with basic info
+   */
+  async getAllWaiters() {
+    try {
+      return await this.prisma.waiter.findMany({
+        select: {
+          id: true,
+          name: true,
+          surname: true,
+        },
+        orderBy: {
+          name: 'asc',
+        },
+      });
+    } catch (error) {
+      this.logger.error(`Error fetching waiters: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all active sessions
+   * @returns Array of active sessions with waiter info
+   */
+  async getActiveSessions() {
+    try {
+      const sessions = await this.prisma.user.findMany({
+        include: {
+          waiter: {
+            select: {
+              id: true,
+              name: true,
+              surname: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      this.logger.log(`Retrieved ${sessions.length} active sessions`);
+      return sessions;
+    } catch (error) {
+      this.logger.error(`Error fetching active sessions: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  /**
+   * Get active sessions for a specific waiter
+   * @param waiterId The waiter ID to filter sessions for
+   * @returns Array of active sessions for the specific waiter
+   */
+  async getSessionsByWaiterId(waiterId: string) {
+    try {
+      const sessions = await this.prisma.user.findMany({
+        where: {
+          waiterId: waiterId,
+        },
+        include: {
+          waiter: {
+            select: {
+              id: true,
+              name: true,
+              surname: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      // Get order and request counts for each session
+      const sessionsWithCounts = await Promise.all(
+        sessions.map(async (session) => {
+          const [orderCount, requestCount] = await Promise.all([
+            this.prisma.order.count({
+              where: {
+                sessionId: session.sessionId,
+                // You can add status filters here if needed
+                // status: { in: [OrderStatus.New, OrderStatus.Acknowledged, OrderStatus.InProgress] }
+              },
+            }),
+            this.prisma.request.count({
+              where: {
+                sessionId: session.sessionId, // Direct sessionId filtering
+                // You can add status filters here if needed
+                // status: { in: [RequestStatus.New, RequestStatus.Acknowledged, RequestStatus.InProgress] }
+              },
+            }),
+          ]);
+
+          return {
+            sessionId: session.sessionId,
+            tableNumber: session.tableNumber,
+            waiterId: session.waiterId,
+            createdAt: session.createdAt,
+            waiter: session.waiter,
+            orderCount: orderCount,
+            requestCount: requestCount,
+            qrCodeUrl: `${process.env.WEB_APP_URL || 'http://localhost:3000'}?session=${session.sessionId}`,
+          };
+        })
+      );
+
+      this.logger.log(`Retrieved ${sessions.length} active sessions for waiter ${waiterId}`);
+      return sessionsWithCounts;
+    } catch (error) {
+      this.logger.error(`Error fetching sessions for waiter ${waiterId}: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  /**
+   * Get orders for a specific session (waiter can only access orders from their allocated tables)
+   * @param waiterId The ID of the waiter
+   * @param sessionId The session ID to get orders for
+   * @returns Array of orders for the session
+   */
+  async getOrdersBySession(waiterId: string, sessionId: string) {
+    try {
+      // Verify the session belongs to this waiter
+      const session = await this.prisma.user.findFirst({
+        where: {
+          sessionId: sessionId,
+          waiterId: waiterId, // Ensure session belongs to this waiter
+        },
+      });
+
+      if (!session) {
+        throw new NotFoundException('Session not found or not accessible');
+      }
+
+      // Fetch orders for the session
+      const orders = await this.prisma.order.findMany({
+        where: {
+          sessionId: sessionId,
+        },
+        include: {
+          orderItems: {
+            include: {
+              menuItem: {
+                select: {
+                  id: true,
+                  name: true,
+                  image: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      this.logger.log(`Retrieved ${orders.length} orders for session ${sessionId} (waiter ${waiterId})`);
+      return orders;
+    } catch (error) {
+      this.logger.error(`Error fetching orders for session ${sessionId}: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  /**
+   * Get requests for a specific session (waiter can only access requests from their assigned sessions)
+   * @param waiterId The ID of the waiter
+   * @param sessionId The session ID to get requests for
+   * @returns Array of requests for the session
+   */
+  async getRequestsBySession(waiterId: string, sessionId: string) {
+    try {
+      // Verify the session belongs to this waiter
+      const session = await this.prisma.user.findFirst({
+        where: {
+          sessionId: sessionId,
+          waiterId: waiterId, // Ensure session belongs to this waiter
+        },
+      });
+
+      if (!session) {
+        throw new NotFoundException('Session not found or not accessible');
+      }
+
+      // Fetch requests for the session
+      const requests = await this.prisma.request.findMany({
+        where: {
+          sessionId: sessionId, // Direct sessionId filtering
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              tableNumber: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      this.logger.log(`Retrieved ${requests.length} requests for session ${sessionId} (waiter ${waiterId})`);
+      return requests;
+    } catch (error) {
+      this.logger.error(`Error fetching requests for session ${sessionId}: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a new table session
+   * @param tableNumber The table number
+   * @param waiterId The assigned waiter ID
+   * @param sessionId The unique session ID
+   * @returns Created session data
+   */
+  async createSession(tableNumber: number, waiterId: string, sessionId: string) {
+    try {
+      // Validate that the waiter exists
+      const waiter = await this.prisma.waiter.findUnique({
+        where: { id: waiterId },
+      });
+
+      if (!waiter) {
+        throw new NotFoundException('Waiter not found');
+      }
+
+      // Create a new user entry with the session
+      const user = await this.prisma.user.create({
+        data: {
+          tableNumber,
+          sessionId,
+          waiterId: waiterId, // Using the TypeScript field name
+          name: null, // Will be updated when customer provides name/email/phone
+        },
+      });
+
+      this.logger.log(`Created session ${sessionId} for table ${tableNumber} with waiter ${waiter.name} ${waiter.surname}`);
+
+      return {
+        message: 'Session created successfully',
+        sessionId,
+        tableNumber,
+        waiter: {
+          id: waiter.id,
+          name: waiter.name,
+          surname: waiter.surname,
+        },
+        userId: user.id,
+      };
+    } catch (error) {
+      this.logger.error(`Error creating session: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  /**
+   * Close a table session (move to closed_sessions table)
+   * @param sessionId The session ID to close
+   * @returns Success message
+   */
+  async closeSession(sessionId: string) {
+    try {
+      // Find the active user session
+      const user = await this.prisma.user.findFirst({
+        where: { sessionId },
+        include: { waiter: true },
+      });
+
+      if (!user) {
+        throw new NotFoundException('Session not found');
+      }
+
+      // Move session to closed_sessions table
+      await this.prisma.closedSession.create({
+        data: {
+          originalUserId: user.id,
+          name: user.name,
+          tableNumber: user.tableNumber,
+          sessionId: user.sessionId,
+          waiterId: user.waiterId,
+          createdAt: user.createdAt,
+        },
+      });
+
+      // Delete from active users table
+      await this.prisma.user.delete({
+        where: { id: user.id },
+      });
+
+      // Invalidate session cache for this user
+      await this.sessionCache.invalidate(user.id);
+      this.logger.log(`Invalidated session cache for user ${user.id} on table close`);
+
+      this.logger.log(`Closed session ${sessionId} for table ${user.tableNumber} (waiter: ${user.waiter?.name || 'N/A'} ${user.waiter?.surname || ''})`);
+
+      return {
+        message: 'Session closed successfully',
+        sessionId,
+        tableNumber: user.tableNumber,
+      };
+    } catch (error) {
+      this.logger.error(`Error closing session: ${error.message}`, error.stack);
       throw error;
     }
   }

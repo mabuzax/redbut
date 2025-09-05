@@ -17,7 +17,7 @@ class GetTransitionsQueryDto {
 
 @ApiTags('request-status-config')
 @ApiBearerAuth()
-@Controller('api/v1/request-status-config')
+@Controller('request-status-config')
 @UseGuards(JwtAuthGuard)
 export class RequestStatusConfigController {
   private readonly logger = new Logger(RequestStatusConfigController.name);

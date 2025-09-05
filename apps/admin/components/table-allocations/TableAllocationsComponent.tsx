@@ -33,7 +33,7 @@ export interface TableAllocationsComponentProps {
 }
 
 const TableAllocationsComponent = ({ onBack }: TableAllocationsComponentProps) => {
-  const token = typeof window !== 'undefined' ? localStorage.getItem("redbutToken") || "" : "";
+  const token = typeof window !== 'undefined' ? localStorage.getItem("redBut_token") || "" : "";
 
   const [allocations, setAllocations] = useState<TableAllocationWithDetails[]>([]);
   const [shiftsForDropdown, setShiftsForDropdown] = useState<ShiftForDropdown[]>([]);
@@ -230,7 +230,7 @@ const TableAllocationsComponent = ({ onBack }: TableAllocationsComponentProps) =
   return (
     <div>
       <button onClick={onBack} className="mb-6 inline-flex items-center text-primary-600 hover:underline">
-        <ArrowLeft className="h-4 w-4 mr-1" /> Back to Dashboard
+        <ArrowLeft className="mr-3 text-red-800 hover:text-red-900 transition-colors" strokeWidth={4} /> Dashboard
       </button>
 
       <div className="flex justify-between items-center mb-6">

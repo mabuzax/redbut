@@ -1,4 +1,7 @@
-// Use CommonJS require to avoid “SyntaxError: Cannot use import statement
+// Use CommonJS require to avoid "SyntaxError: Cannot use import statement
+// outside a module" when Prisma executes this seed script with plain Node.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { PrismaClient: PrismaClientWaiters } = require('../apps/api/node_modules/.prisma/client');se CommonJS require to avoid “SyntaxError: Cannot use import statement
 // outside a module” when Prisma executes this seed script with plain Node.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { PrismaClient: PrismaClientWaiters } = require('@prisma/client');

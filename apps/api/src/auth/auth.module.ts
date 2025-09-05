@@ -8,12 +8,15 @@ import { WaiterAuthController } from './waiter-auth.controller';
 import { AdminAuthController } from './admin-auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { PrismaService } from '../common/prisma.service';
+import { SessionCacheService } from '../common/session-cache.service';
+import { RedisCacheModule } from '../common/redis-cache.module';
 import { UsersService } from '../users/users.service';
 import { RolesGuard } from './guards/role.guard';
 
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
+    RedisCacheModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -30,6 +33,7 @@ import { RolesGuard } from './guards/role.guard';
     AuthService,
     JwtStrategy,
     PrismaService,
+    SessionCacheService,
     UsersService,
     RolesGuard,
   ],
@@ -38,6 +42,7 @@ import { RolesGuard } from './guards/role.guard';
     JwtStrategy,
     PassportModule,
     RolesGuard,
+    SessionCacheService,
     // Re-export JwtModule so other modules (e.g., ChatModule) can inject JwtService
     JwtModule,
   ],

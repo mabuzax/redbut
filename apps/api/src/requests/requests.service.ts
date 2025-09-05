@@ -26,23 +26,33 @@ export class RequestsService {
   async create(createRequestDto: CreateRequestDto): Promise<Request> {
     const { userId, tableNumber, content } = createRequestDto;
 
+    // Get the user's sessionId
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { sessionId: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
     // Check for duplicate "Ready to pay" requests
     if (content.toLowerCase().includes('ready to pay')) {
       const existingRequest = await this.prisma.request.findFirst({
         where: {
-          tableNumber,
+          sessionId: user.sessionId, // Use sessionId instead of tableNumber for consistency
           content: { contains: 'ready to pay', mode: 'insensitive' }, // Case-insensitive search
           status: { in: [RequestStatus.New, RequestStatus.OnHold] },
         },
       });
 
       if (existingRequest) {
-        this.logger.warn(`Duplicate "Ready to pay" request for table ${tableNumber}`);
+        this.logger.warn(`Duplicate "Ready to pay" request for session ${user.sessionId}`);
         throw new ConflictException('Already requested payment, buzzing waiter again');
       }
     }
 
-    this.logger.log(`Creating new request for user ${userId} at table ${tableNumber}`);
+    this.logger.log(`Creating new request for user ${userId} at table ${tableNumber}, session ${user.sessionId}`);
     
     try {
       return await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
@@ -50,6 +60,7 @@ export class RequestsService {
           data: {
             userId,
             tableNumber,
+            sessionId: user.sessionId, // Include sessionId
             content,
             status: RequestStatus.New, // Default status for new requests
           },
@@ -141,18 +152,20 @@ export class RequestsService {
    * Update a request with status management rules
    * @param id Request ID
    * @param updateRequestDto Update data
+   * @param userRole User role for validation (optional, defaults to 'client')
    * @returns Updated request
    * @throws BadRequestException for invalid status transitions
    * @throws NotFoundException if request not found
    */
-  async update(id: string, updateRequestDto: UpdateRequestDto): Promise<Request> {
-    this.logger.log(`Updating request ${id} with data: ${JSON.stringify(updateRequestDto)}`);
+  async update(id: string, updateRequestDto: UpdateRequestDto, userRole: string = 'client'): Promise<Request> {
+    this.logger.log(`Updating request ${id} with data: ${JSON.stringify(updateRequestDto)}, role: ${userRole}`);
     
+    // First check if request exists and get current status
     const currentRequest = await this.findOne(id);
     
-    const userRole = this.getUserRole();
     const newStatus = updateRequestDto.status ?? currentRequest.status;
 
+    // Validate transition before proceeding
     await this.requestStatusConfigService.validateTransition(
       currentRequest.status,
       newStatus,
@@ -161,6 +174,25 @@ export class RequestsService {
     
     try {
       return await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        // Re-fetch current status within transaction to avoid race conditions
+        const currentRequestInTx = await tx.request.findUnique({
+          where: { id },
+          select: { status: true },
+        });
+
+        if (!currentRequestInTx) {
+          throw new NotFoundException(`Request with ID ${id} not found`);
+        }
+
+        // Re-validate within transaction if status changed due to race condition
+        if (currentRequestInTx.status !== currentRequest.status) {
+          await this.requestStatusConfigService.validateTransition(
+            currentRequestInTx.status,
+            newStatus,
+            userRole,
+          );
+        }
+
         const updatedRequest = await tx.request.update({
           where: { id },
           data: {
@@ -169,8 +201,8 @@ export class RequestsService {
           },
         });
 
-        if (currentRequest.status !== newStatus) {
-          const action = `Request status changed from ${currentRequest.status} to ${newStatus}`;
+        if (currentRequestInTx.status !== newStatus) {
+          const action = `Request status changed from ${currentRequestInTx.status} to ${newStatus}`;
           await tx.requestLog.create({
             data: {
               requestId: updatedRequest.id,
@@ -183,6 +215,12 @@ export class RequestsService {
       });
     } catch (error) {
       this.logger.error(`Failed to update request: ${error.message}`);
+      
+      // Re-throw validation errors with their friendly messages
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      
       throw new BadRequestException(`Failed to update request: ${error.message}`);
     }
   }

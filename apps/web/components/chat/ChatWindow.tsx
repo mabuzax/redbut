@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, X, Loader2, User, Bot } from 'lucide-react';
+import { getJWTToken } from '../../lib/api';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 // Message types
 interface Message {
@@ -15,6 +18,10 @@ interface Message {
 interface ChatWindowProps {
   onClose?: () => void;
   onWaiterRequested?: () => void;
+  onMenuSearchRequested?: (searchTerm: string) => void;
+  onMenuViewRequested?: () => void;
+  onRequestsViewRequested?: () => void;
+  onOrdersViewRequested?: () => void;
   userId?: string;
   tableNumber?: number;
   token?: string;
@@ -23,6 +30,8 @@ interface ChatWindowProps {
   inputPlaceholder?: string;
   headerText?: string;
   showCloseButton?: boolean;
+  refreshTrigger?: number; // Add a prop to trigger refresh
+  onDisconnect?: () => void; // Add a prop to handle disconnect when closing
 }
 
 /**
@@ -32,14 +41,20 @@ interface ChatWindowProps {
 const ChatWindow: React.FC<ChatWindowProps> = ({
   onClose,
   onWaiterRequested,
+  onMenuSearchRequested,
+  onMenuViewRequested,
+  onRequestsViewRequested,
+  onOrdersViewRequested,
   userId,
   tableNumber,
   token,
-  agentName = 'Waiter Assistant',
+  agentName = '',
   className = '',
   inputPlaceholder = 'e.g Tell me about your specials',
   headerText = 'AI Assistant',
   showCloseButton = true,
+  refreshTrigger = 0,
+  onDisconnect,
 }) => {
   // State
   const [messages, setMessages] = useState<Message[]>([]);
@@ -47,25 +62,66 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   const [isConnecting, setIsConnecting] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasLoadedHistory, setHasLoadedHistory] = useState(false);
   
   // References
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   
+  // Store callback refs to avoid socket reconnections
+  const callbacksRef = useRef({
+    onWaiterRequested,
+    onMenuSearchRequested,
+    onMenuViewRequested,
+    onRequestsViewRequested,
+    onOrdersViewRequested,
+  });
+  
+  // Update callback refs when props change
+  useEffect(() => {
+    callbacksRef.current = {
+      onWaiterRequested,
+      onMenuSearchRequested,
+      onMenuViewRequested,
+      onRequestsViewRequested,
+      onOrdersViewRequested,
+    };
+  }, [onWaiterRequested, onMenuSearchRequested, onMenuViewRequested, onRequestsViewRequested, onOrdersViewRequested]);
+
+  // Method to handle intentional disconnect
+  const handleDisconnect = () => {
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+    if (onDisconnect) {
+      onDisconnect();
+    }
+  };
+
+  // Handle close button click - disconnect and close
+  const handleClose = () => {
+    handleDisconnect();
+    if (onClose) {
+      onClose();
+    }
+  };
+  
   // Generate a unique ID for messages
   const generateId = () => `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
   // Connect to Socket.IO server on component mount
   useEffect(() => {
-    // Get token from localStorage if not provided
-    const authToken = token || localStorage.getItem('redbutToken');
-    
-    if (!authToken) {
-      setError('Authentication failed. Please refresh the page.');
-      setIsConnecting(false);
-      return;
-    }
+    const connectToChat = async () => {
+      // Get token from props or fetch JWT token
+      const authToken = token || await getJWTToken();
+      
+      if (!authToken) {
+        setError('Authentication failed. Please refresh the page.');
+        setIsConnecting(false);
+        return;
+      }
     
     // Connect to Socket.IO server
     /**
@@ -90,7 +146,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       withCredentials: true,              // allow cookies / CORS creds
       transports: ['websocket'],
       auth: {
-        token
+        token: authToken
       }
     });
         
@@ -100,6 +156,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     socket.on('connect', () => {
       setIsConnecting(false);
       setError(null);
+      // Reset history loaded flag on reconnect to ensure fresh data
+      setHasLoadedHistory(false);
     });
     
     socket.on('connect_error', (err) => {
@@ -121,8 +179,32 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     });
     
     socket.on('waiter-requested', () => {
-      if (onWaiterRequested) {
-        onWaiterRequested();
+      if (callbacksRef.current.onWaiterRequested) {
+        callbacksRef.current.onWaiterRequested();
+      }
+    });
+    
+    socket.on('open-menu-search', (data: { searchTerm: string; itemName: string; timestamp: string }) => {
+      if (callbacksRef.current.onMenuSearchRequested) {
+        callbacksRef.current.onMenuSearchRequested(data.searchTerm);
+      }
+    });
+    
+    socket.on('open-requests-view', () => {
+      if (callbacksRef.current.onRequestsViewRequested) {
+        callbacksRef.current.onRequestsViewRequested();
+      }
+    });
+    
+    socket.on('open-orders-view', () => {
+      if (callbacksRef.current.onOrdersViewRequested) {
+        callbacksRef.current.onOrdersViewRequested();
+      }
+    });
+    
+    socket.on('open-menu-view', () => {
+      if (callbacksRef.current.onMenuViewRequested) {
+        callbacksRef.current.onMenuViewRequested();
       }
     });
     
@@ -132,24 +214,39 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     });
     
     socket.on('chat-history', (history: any[]) => {
-      // Convert history to Message format
-      const formattedHistory = history.map((msg) => ({
-        id: generateId(),
-        content: msg.content,
-        role: msg.role as 'user' | 'assistant',
-        timestamp: new Date(msg.createdAt),
-      }));
-      
-      setMessages(formattedHistory);
+      // Only load history if we haven't loaded it for this connection
+      if (!hasLoadedHistory) {
+        // Convert history to Message format
+        const formattedHistory = history.map((msg) => ({
+          id: generateId(),
+          content: msg.content,
+          role: msg.role as 'user' | 'assistant',
+          timestamp: new Date(msg.createdAt),
+        }));
+        
+        setMessages(formattedHistory);
+        setHasLoadedHistory(true);
+      }
     });
+    };
+
+    // Call the async connection function
+    connectToChat();
     
     // Cleanup on unmount
     return () => {
-      if (socket) {
-        socket.disconnect();
+      if (socketRef.current) {
+        socketRef.current.disconnect();
       }
     };
-  }, [token, onWaiterRequested]);
+  }, [token]); // Only depend on token, callbacks are handled via refs
+  
+  // Simple refresh trigger - just reset the flag to allow fresh history loading
+  useEffect(() => {
+    if (refreshTrigger > 0) {
+      setHasLoadedHistory(false);
+    }
+  }, [refreshTrigger]);
   
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -208,7 +305,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
         </div>
         {showCloseButton && onClose && (
           <button 
-            onClick={onClose}
+            onClick={handleClose}
             className="rounded-full p-1 hover:bg-primary-700 transition-colors"
             aria-label="Close chat"
           >
@@ -265,7 +362,38 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                       </>
                     )}
                   </div>
-                  <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                  {message.role === 'assistant' ? (
+                    <div className="prose prose-sm prose-invert max-w-none">
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          // Custom components for better styling in chat
+                          p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                          ul: ({ children }) => <ul className="mb-2 last:mb-0 pl-4">{children}</ul>,
+                          ol: ({ children }) => <ol className="mb-2 last:mb-0 pl-4">{children}</ol>,
+                          li: ({ children }) => <li className="mb-1">{children}</li>,
+                          code: ({ children, className }) => 
+                            className ? (
+                              <code className="bg-gray-700 px-1 py-0.5 rounded text-sm">{children}</code>
+                            ) : (
+                              <code className="bg-gray-700 px-1 py-0.5 rounded text-sm">{children}</code>
+                            ),
+                          pre: ({ children }) => (
+                            <pre className="bg-gray-700 p-2 rounded text-sm overflow-x-auto">{children}</pre>
+                          ),
+                          strong: ({ children }) => <strong className="font-bold text-white">{children}</strong>,
+                          em: ({ children }) => <em className="italic">{children}</em>,
+                          h1: ({ children }) => <h1 className="text-lg font-bold mb-2">{children}</h1>,
+                          h2: ({ children }) => <h2 className="text-base font-bold mb-2">{children}</h2>,
+                          h3: ({ children }) => <h3 className="text-sm font-bold mb-1">{children}</h3>,
+                        }}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                  )}
                   <div className="text-right mt-1">
                     <span className="text-xs opacity-70">
                       {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

@@ -6,11 +6,6 @@ import { RequestStatus } from '@prisma/client';
 @Injectable()
 export class RequestStatusConfigService {
   private readonly logger = new Logger(RequestStatusConfigService.name);
-  // private readonly redis: Redis; // Temporarily commented out
-  private readonly cache = new Map<string, string>(); // In-memory cache replacement
-  private readonly CACHE_TTL = 24 * 60 * 60; // 24 hours in seconds
-  private readonly CACHE_KEY_PREFIX = 'request_status_config:';
-  private readonly cacheExpiry = new Map<string, number>(); // Track expiration times
 
   constructor(private readonly prisma: PrismaService) {
     // Temporarily replaced Redis with in-memory cache
@@ -29,55 +24,7 @@ export class RequestStatusConfigService {
     currentStatus: RequestStatus,
     userRole: string,
   ): Promise<{ targetStatus: RequestStatus; label: string }[]> {
-    try {
-      const cacheKey = `${this.CACHE_KEY_PREFIX}${currentStatus}:${userRole}`;
-      
-      // Try to get from cache first
-      const cachedData = this.cache.get(cacheKey);
-      const now = Math.floor(Date.now() / 1000);
-      
-      if (cachedData && this.cacheExpiry.get(cacheKey)! > now) {
-        this.logger.debug(`Cache hit for ${cacheKey}`);
-        return JSON.parse(cachedData);
-      }
-      
-      this.logger.debug(`Cache miss for ${cacheKey}, fetching from database`);
-
-      try {
-        const transitions = await this.prisma.requestStatusConfig.findMany({
-          where: {
-            currentStatus,
-            userRole,
-          },
-          select: {
-            targetStatus: true,
-            label: true,
-          },
-          orderBy: {
-            label: 'asc',
-          },
-        });
-
-        // If none found fallback to defaults
-        const result =
-          transitions.length === 0
-            ? this.getDefaultTransitions(currentStatus, userRole)
-            : transitions;
-
-        this.cache.set(cacheKey, JSON.stringify(result));
-        this.cacheExpiry.set(cacheKey, now + this.CACHE_TTL);
-        return result;
-      } catch (dbErr) {
-        this.logger.error(`DB error: ${dbErr.message}. Using default transitions.`);
-        const defaults = this.getDefaultTransitions(currentStatus, userRole);
-        this.cache.set(cacheKey, JSON.stringify(defaults));
-        this.cacheExpiry.set(cacheKey, now + this.CACHE_TTL);
-        return defaults;
-      }
-    } catch (error) {
-      this.logger.error(`Error fetching allowed transitions: ${error.message}`);
-      return this.getDefaultTransitions(currentStatus, userRole);
-    }
+    return this.getDefaultTransitions(currentStatus, userRole);
   }
 
   /**
@@ -106,7 +53,7 @@ export class RequestStatusConfigService {
       if (!isAllowed) {
         const list = transitions.map((t) => t.label).join(', ');
         throw new BadRequestException(
-          `The request cannot change to "${newStatus}" from its current status. Available options: ${list || 'None'}`,
+          `The request cannot change to "${newStatus}". The status may have changed while you were editing. Refresh for the latest status`,
         );
       }
 
@@ -154,7 +101,9 @@ export class RequestStatusConfigService {
     currentStatus: RequestStatus,
     userRole: string,
   ): { targetStatus: RequestStatus; label: string }[] {
-    if (userRole === 'client') {
+    // Client (web app) transitions based on attachment rules
+    // Treat 'guest' role the same as 'client' role
+    if (userRole === 'client' || userRole === 'guest') {
       switch (currentStatus) {
         case 'New':
           return [
@@ -164,15 +113,34 @@ export class RequestStatusConfigService {
           ];
         case 'OnHold':
           return [
-            { targetStatus: 'OnHold', label: 'On Hold' },
+            { targetStatus: 'OnHold', label: 'onHold' },
+            { targetStatus: 'Cancelled', label: 'Cancel' },
             { targetStatus: 'New', label: 'Activate' },
+          ];
+        case 'Cancelled':
+          return []; // No dropdown, text: Cancelled
+        case 'Acknowledged':
+          return [
+            { targetStatus: 'Acknowledged', label: 'Acknowledge' },
+            { targetStatus: 'OnHold', label: 'Hold' },
             { targetStatus: 'Cancelled', label: 'Cancel' },
           ];
+        case 'InProgress':
+          return []; // Clients cannot change status when request is InProgress - only waiters can modify it
+        case 'Completed':
+          return [
+            { targetStatus: 'Completed', label: 'Completed' },
+            { targetStatus: 'New', label: 'Activate' },
+            { targetStatus: 'Done', label: 'Done' },
+          ];
+        case 'Done':
+          return []; // No dropdown, text: Done
         default:
-          return [{ targetStatus: currentStatus, label: this.formatStatusLabel(currentStatus) }];
+          return [];
       }
     }
 
+    // Waiter transitions based on attachment rules
     if (userRole === 'waiter') {
       switch (currentStatus) {
         case 'New':
@@ -182,82 +150,50 @@ export class RequestStatusConfigService {
             { targetStatus: 'InProgress', label: 'In Progress' },
             { targetStatus: 'Cancelled', label: 'Cancel' },
           ];
+        case 'OnHold':
+          return [
+            { targetStatus: 'OnHold', label: 'onHold' },
+            { targetStatus: 'New', label: 'Activate' },
+            { targetStatus: 'Cancelled', label: 'Cancel' },
+          ];
+        case 'Cancelled':
+          return []; // No dropdown, text: Cancelled
         case 'Acknowledged':
           return [
             { targetStatus: 'Acknowledged', label: 'Acknowledged' },
             { targetStatus: 'InProgress', label: 'In Progress' },
             { targetStatus: 'Cancelled', label: 'Cancel' },
           ];
+        case 'InProgress':
+          return [
+            { targetStatus: 'InProgress', label: 'In Progress' },
+            { targetStatus: 'Completed', label: 'Completed' },
+            { targetStatus: 'Cancelled', label: 'Cancel' },
+          ];
+        case 'Completed':
+          return []; // No dropdown, Red text: Waiting on user...
+        case 'Done':
+          return []; // No dropdown, text: Done
         default:
-          return [{ targetStatus: currentStatus, label: this.formatStatusLabel(currentStatus) }];
+          return [];
       }
     }
 
-    // admin/manager – allow all
-    return Object.values(RequestStatus).map((s) => ({
-      targetStatus: s,
-      label: this.formatStatusLabel(s),
-    }));
+    // Admin/Manager transitions - allow all statuses based on attachment
+    if (userRole === 'admin' || userRole === 'manager') {
+      return [
+        { targetStatus: 'New', label: 'New' },
+        { targetStatus: 'OnHold', label: 'Hold' },
+        { targetStatus: 'Cancelled', label: 'Cancel' },
+        { targetStatus: 'Acknowledged', label: 'Acknowledge' },
+        { targetStatus: 'InProgress', label: 'In Progress' },
+        { targetStatus: 'Completed', label: 'Completed' },
+        { targetStatus: 'Done', label: 'Done' },
+      ];
+    }
+
+    // Fallback - no transitions allowed
+    return [];
   }
 
-  /**
-   * Refresh the cache for all status transitions
-   */
-  async refreshCache(): Promise<void> {
-    try {
-      this.logger.log('Refreshing status transition cache');
-      
-      // Clear existing cache keys
-      const keysToDelete: string[] = [];
-      this.cache.forEach((_, key) => {
-        if (key.startsWith(this.CACHE_KEY_PREFIX)) {
-          keysToDelete.push(key);
-        }
-      });
-      
-      keysToDelete.forEach(key => {
-        this.cache.delete(key);
-        this.cacheExpiry.delete(key);
-      });
-      
-      // Get all unique status and role combinations
-      const configs = await this.prisma.requestStatusConfig.findMany({
-        select: {
-          currentStatus: true,
-          userRole: true,
-        },
-        distinct: ['currentStatus', 'userRole'],
-      });
-      
-      // Pre-populate cache for each combination
-      for (const config of configs) {
-        await this.getAllowedTransitions(
-          config.currentStatus,
-          config.userRole,
-        );
-      }
-      
-      this.logger.log(`Cache refreshed for ${configs.length} status/role combinations`);
-    } catch (error) {
-      this.logger.error(`Error refreshing cache: ${error.message}`);
-    }
-  }
-
-  /**
-   * Get all possible status transitions for all roles
-   */
-  async getAllStatusConfigs() {
-    try {
-      return await this.prisma.requestStatusConfig.findMany({
-        orderBy: [
-          { userRole: 'asc' },
-          { currentStatus: 'asc' },
-          { targetStatus: 'asc' },
-        ],
-      });
-    } catch (error) {
-      this.logger.error(`Error fetching all status configs: ${error.message}`);
-      return [];
-    }
-  }
 }

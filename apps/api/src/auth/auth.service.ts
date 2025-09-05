@@ -3,7 +3,8 @@ import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
 import { User } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { SessionCacheService } from '../common/session-cache.service';
+import { BadRequestException, UnauthorizedException, NotFoundException } from '@nestjs/common';
 
 /**
  * Authentication service for RedBut application
@@ -17,6 +18,7 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
+    private readonly sessionCache: SessionCacheService,
   ) {}
 
   /**
@@ -44,11 +46,29 @@ export class AuthService {
 
   /**
    * Validate a user by their ID (used by JWT strategy)
+   * Uses session cache to reduce database calls with 30-minute TTL
    * @param userId The user ID to validate
    * @returns User object if found, null otherwise
    */
   async validateUser(userId: string): Promise<User | null> {
-    return this.usersService.findById(userId);
+    // Try cache first
+    const cachedUser = await this.sessionCache.get(userId);
+    if (cachedUser) {
+      this.logger.debug(`Session cache hit for user ${userId}`);
+      return cachedUser;
+    }
+
+    // Cache miss - fetch from database
+    this.logger.debug(`Session cache miss for user ${userId}, fetching from database`);
+    const user = await this.usersService.findById(userId);
+    
+    if (user) {
+      // Cache the user for future requests
+      await this.sessionCache.set(userId, user);
+      this.logger.debug(`Cached user ${userId} for future requests`);
+    }
+
+    return user;
   }
 
   /**
@@ -91,44 +111,102 @@ export class AuthService {
     return `${timestamp}-${randomStr}`;
   }
 
-  /* ----------------------------------------------------------------------
-   * Waiter authentication (dashboard login)
-   * -------------------------------------------------------------------- */
+  /**
+   * Invalidate session cache for a user (called on table close)
+   * @param userId User ID to remove from cache
+   */
+  async invalidateUserSession(userId: string): Promise<void> {
+    // First, find any client associations with this user's session
+    await this.cleanupClientSessionsByUserId(userId);
+    
+    // Then invalidate the user session
+    await this.sessionCache.invalidate(userId);
+    this.logger.log(`Invalidated session cache for user ${userId}`);
+  }
 
   /**
-   * Simple helper returning TRUE if the supplied password is the default
-   * first-time password that forces a change on initial login.
+   * Invalidate session cache by session ID (alternative method)
+   * @param sessionId Session ID to remove from cache
    */
-  verifyDefaultPassword(password: string): boolean {
-    return password === '__new__pass';
+  async invalidateSessionById(sessionId: string): Promise<void> {
+    await this.sessionCache.invalidateBySessionId(sessionId);
+    this.logger.log(`Invalidated session cache for session ${sessionId}`);
   }
 
   /* ----------------------------------------------------------------------
-   * Generic staff authentication (admin / waiter / manager)
+   * Generic staff authentication (admin / waiter / manager) - OTP Based
    * -------------------------------------------------------------------- */
 
   /**
-   * Authenticate a **staff** user (waiter / admin / manager) using the
-   * credentials stored in the `access_users` table.
-   *
-   * @param username   Email / username provided by the user.
-   * @param password   Plain-text password entered.
-   * @param userType   The type of user we expect (`'waiter'` | `'admin'` | `'manager'`).
-   *                   Defaults to `'waiter'` for backward-compatibility.
-   *
-   * @returns The related waiter record (or admin waiter-record placeholder)
-   *          **plus** a freshly-issued JWT token whose `role` claim === `userType`.
-   *
-   * @throws  UnauthorizedException if the credentials are invalid.
+   * Generate and send OTP for staff login
+   * @param emailOrPhone   Email or phone number provided by the user
+   * @param userType       The type of user ('waiter' | 'admin' | 'manager')
+   * @returns Success message
    */
-  async staffLogin(
+  async generateOTP(
+    emailOrPhone: string,
+    userType: 'waiter' | 'admin' | 'manager' = 'waiter',
+  ): Promise<{ message: string; username: string }> {
+    this.logger.log(`[Auth] OTP generation for ${userType}: ${emailOrPhone}`);
+
+    // Find access user by userType and join with waiter table to check email/phone
+    const accessUser = await this.prisma.accessUser.findFirst({
+      where: {
+        userType,
+        waiter: {
+          OR: [
+            { email: emailOrPhone },
+            { phone: emailOrPhone },
+          ],
+        },
+      },
+      include: {
+        waiter: true,
+      },
+    });
+
+    if (!accessUser || !accessUser.waiter) {
+      throw new UnauthorizedException('User not found or invalid user type');
+    }
+
+    // Generate 6-digit OTP
+    const otp = this.generateSixDigitOTP();
+    
+    // Store OTP in database
+    await this.prisma.accessUser.update({
+      where: { userId: accessUser.userId },
+      data: { code: otp },
+    });
+
+    // In a real application, you would send the OTP via SMS/Email
+    // For demo purposes, we'll log it
+    this.logger.log(`[Auth] OTP for ${emailOrPhone}: ${otp}`);
+    
+    // TODO: Implement actual SMS/Email sending here
+    // await this.sendOTPViaSMS(accessUser.waiter.phone, otp);
+    // await this.sendOTPViaEmail(accessUser.waiter.email, otp);
+
+    return { 
+      message: 'OTP sent successfully',
+      username: accessUser.username 
+    };
+  }
+
+  /**
+   * Verify OTP and authenticate staff user
+   * @param username   Username/email of the user
+   * @param otp        6-digit OTP code
+   * @param userType   The type of user ('waiter' | 'admin' | 'manager')
+   * @returns The waiter record plus JWT token
+   */
+  async verifyOTPAndLogin(
     username: string,
-    password: string,
+    otp: string,
     userType: 'waiter' | 'admin' | 'manager' = 'waiter',
   ): Promise<{ waiter: any; token: string }> {
-    this.logger.log(`[Auth] ${userType} login attempt for ${username}`);
+    this.logger.log(`[Auth] OTP verification for ${userType}: ${username}`);
 
-    // Search by username AND userType to ensure proper account separation
+    // Find access user by username and userType
     const accessUser = await this.prisma.accessUser.findFirst({
       where: {
         username,
@@ -138,52 +216,236 @@ export class AuthService {
     });
 
     if (!accessUser) {
-      throw new UnauthorizedException('Invalid username or password');
+      throw new UnauthorizedException('Invalid username');
     }
 
-    if (accessUser.password !== password) {
-      throw new UnauthorizedException('Invalid username or password');
+    if (!accessUser.code || accessUser.code !== otp) {
+      throw new UnauthorizedException('Invalid OTP code');
     }
 
-    // Sign JWT with correct role
-    const token = this.jwtService.sign({
-      sub: accessUser.userId,
-      role: userType,
+    // Clear the OTP after successful verification
+    await this.prisma.accessUser.update({
+      where: { userId: accessUser.userId },
+      data: { code: null },
     });
+
+    // Generate JWT token with userType as role
+    const token = this.jwtService.sign({
+      sub: accessUser.username,
+      role: userType,
+      userId: accessUser.userId,
+    });
+
+    this.logger.log(`[Auth] Generated token for ${userType} ${accessUser.username} with userId ${accessUser.userId}`);
 
     return { waiter: accessUser.waiter, token };
   }
 
   /**
-   * DEPRECATED – kept for backward-compatibility with existing waiter
-   * controllers. Internally forwards to `staffLogin` with `userType="waiter"`.
+   * Generate a 6-digit OTP code
+   * @returns 6-digit OTP string
    */
-  async waiterLogin(username: string, password: string) {
-    return this.staffLogin(username, password, 'waiter');
+  private generateSixDigitOTP(): string {
+    return Math.floor(100000 + Math.random() * 900000).toString();
   }
 
   /**
-   * Change a waiter's password.  The old password must match the current one
-   * (or be the default `__new__pass`).  After success the new password is
-   * persisted in `access_users`.
+   * DEPRECATED METHODS - Keeping for backward compatibility
+   * These methods are replaced by OTP-based authentication
+   */
+
+  /**
+   * @deprecated Use generateOTP and verifyOTPAndLogin instead
+   */
+  async staffLogin(
+    username: string,
+    password: string,
+    userType: 'waiter' | 'admin' | 'manager' = 'waiter',
+  ): Promise<{ waiter: any; token: string }> {
+    throw new BadRequestException('Password authentication is deprecated. Use OTP authentication instead.');
+  }
+
+  /**
+   * @deprecated Use generateOTP and verifyOTPAndLogin instead
+   */
+  async waiterLogin(username: string, password: string) {
+    throw new BadRequestException('Password authentication is deprecated. Use OTP authentication instead.');
+  }
+
+  /**
+   * @deprecated Password changes are no longer needed with OTP authentication
    */
   async changeWaiterPassword(userId: string, oldPassword: string, newPassword: string): Promise<void> {
-    const account = await this.prisma.accessUser.findUnique({ where: { userId } });
-    if (!account) {
-      throw new BadRequestException('Waiter account not found');
+    throw new BadRequestException('Password changes are not supported with OTP authentication.');
+  }
+
+  /**
+   * Validate a table session and optionally update user info
+   * @param sessionId The session ID to validate
+   * @param name Optional name/email/phone to update user record
+   * @param clientId Optional client identifier to check for existing sessions
+   * @returns Session validation result
+   */
+  async validateSession(sessionId: string, name?: string, clientId?: string) {
+    this.logger.log(`[Auth] Validating session: ${sessionId}`);
+
+    // If clientId is provided, check for existing active sessions
+    if (clientId) {
+      const existingSession = await this.checkExistingActiveSession(clientId, sessionId);
+      if (existingSession) {
+        throw new BadRequestException({
+          message: 'If you need to change tables or sessions, please ask your waiter for assistance',
+          existingSession: {
+            sessionId: existingSession.sessionId,
+            tableNumber: existingSession.tableNumber,
+          }
+        });
+      }
     }
 
-    const oldOk =
-      account.password === oldPassword ||
-      (this.verifyDefaultPassword(account.password) && this.verifyDefaultPassword(oldPassword));
-
-    if (!oldOk) {
-      throw new UnauthorizedException('Old password is incorrect');
-    }
-
-    await this.prisma.accessUser.update({
-      where: { userId },
-      data: { password: newPassword },
+    // Find user by session ID
+    const user = await this.prisma.user.findFirst({
+      where: { sessionId },
     });
+
+    if (!user) {
+      throw new NotFoundException('Table session not found. Ask Waiter to assist you.');
+    }
+
+    // Get waiter information if waiterId exists (using any to work around TypeScript cache issue)
+    let waiterInfo = null;
+    const userWithWaiterId = user as any;
+    if (userWithWaiterId.waiterId) {
+      const waiter = await this.prisma.waiter.findUnique({
+        where: { id: userWithWaiterId.waiterId },
+        select: { id: true, name: true, surname: true },
+      });
+      if (waiter) {
+        waiterInfo = {
+          id: waiter.id,
+          name: waiter.name,
+          surname: waiter.surname,
+        };
+      }
+    }
+
+    // Update user name if provided
+    if (name) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { name },
+      });
+      this.logger.log(`[Auth] Updated user name for session ${sessionId}: ${name}`);
+    }
+
+    // Generate JWT token for API access
+    const token = this.generateToken(user);
+
+    // Store client ID association if provided (for future session checks)
+    if (clientId) {
+      await this.associateClientWithSession(clientId, user.id, sessionId);
+    }
+
+    // Store session in localStorage (this will be handled on frontend)
+    return {
+      message: 'Session validated successfully',
+      sessionId,
+      tableNumber: user.tableNumber,
+      userId: user.id,
+      name: name || user.name,
+      waiter: waiterInfo,
+      token, // Add JWT token to response
+    };
+  }
+
+  /**
+   * Check if a client already has an active session
+   * @param clientId Client identifier
+   * @param currentSessionId Current session ID being validated
+   * @returns Existing session if found, null otherwise
+   */
+  private async checkExistingActiveSession(clientId: string, currentSessionId: string) {
+    try {
+      // Check cache for active client sessions using cache manager directly
+      const existingSessionKey = `client_session:${clientId}`;
+      const existingSessionData = await this.sessionCache['cacheManager'].get(existingSessionKey);
+      
+      if (existingSessionData) {
+        // Parse the session data
+        const sessionInfo = typeof existingSessionData === 'string' 
+          ? JSON.parse(existingSessionData) 
+          : existingSessionData;
+          
+        // If it's the same session, allow it
+        if (sessionInfo.sessionId === currentSessionId) {
+          return null;
+        }
+        
+        // Check if the existing session is still valid in the database
+        const existingUser = await this.prisma.user.findFirst({
+          where: { sessionId: sessionInfo.sessionId },
+        });
+        
+        if (existingUser) {
+          this.logger.log(`[Auth] Client ${clientId} already has active session: ${sessionInfo.sessionId}`);
+          return {
+            sessionId: sessionInfo.sessionId,
+            tableNumber: existingUser.tableNumber,
+            userId: existingUser.id,
+          };
+        } else {
+          // Clean up stale session data
+          await this.sessionCache['cacheManager'].del(existingSessionKey);
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      this.logger.error(`Error checking existing session for client ${clientId}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Associate a client with a session for tracking
+   * @param clientId Client identifier
+   * @param userId User ID
+   * @param sessionId Session ID
+   */
+  private async associateClientWithSession(clientId: string, userId: string, sessionId: string) {
+    try {
+      const sessionInfo = {
+        userId,
+        sessionId,
+        timestamp: new Date().toISOString(),
+      };
+      
+      // Store client session association with same TTL as user sessions
+      const clientSessionKey = `client_session:${clientId}`;
+      const ttlMs = 30 * 60 * 1000; // 30 minutes
+      
+      await this.sessionCache['cacheManager'].set(clientSessionKey, sessionInfo, ttlMs);
+      this.logger.debug(`[Auth] Associated client ${clientId} with session ${sessionId}`);
+    } catch (error) {
+      this.logger.error(`Error associating client ${clientId} with session: ${error.message}`);
+    }
+  }
+
+  /**
+   * Clean up client session associations for a specific user
+   * @param userId User ID whose client sessions should be cleaned up
+   */
+  private async cleanupClientSessionsByUserId(userId: string): Promise<void> {
+    try {
+      // Note: In a production environment, you might want to maintain a reverse index
+      // or use Redis SCAN to find client sessions efficiently
+      // For now, we'll log this operation and let TTL handle cleanup
+      this.logger.debug(`[Auth] Scheduled cleanup of client sessions for user ${userId}`);
+      
+      // Since we can't efficiently iterate Redis keys with the current setup,
+      // we'll rely on TTL expiration and validation checks during session access
+    } catch (error) {
+      this.logger.error(`Error cleaning up client sessions for user ${userId}: ${error.message}`);
+    }
   }
 }

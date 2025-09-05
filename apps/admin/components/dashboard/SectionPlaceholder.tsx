@@ -14,7 +14,7 @@ const SectionPlaceholder = ({ section, onBack }: SectionPlaceholderProps) => (
       onClick={onBack}
       className="mb-6 inline-flex items-center text-primary-600 hover:underline"
     >
-      <ArrowLeft className="h-4 w-4 mr-1" /> Back
+      <ArrowLeft className="mr-3 text-red-800 hover:text-red-900 transition-colors" />
     </button>
     <h3 className="text-xl font-semibold text-gray-900">{section}</h3>
     <p className="text-gray-500 mt-2">This section is under construction.</p>

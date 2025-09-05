@@ -17,7 +17,7 @@ export interface AiChatWindowProps {
   onStaffUpdate: () => void;
 }
 
-function usePersistentThreadId(key = 'staffChatThreadId') {
+function usePersistentThreadId(key = 'redBut_staffChatThreadId') {
   const [threadId] = React.useState(() => {
     // ① Try to read an existing value
     const stored = localStorage.getItem(key);
@@ -37,7 +37,7 @@ const AiChatWindow = ({ onClose, onStaffUpdate }: AiChatWindowProps) => {
   const { messages, setMessages, reset } =
         usePersistentMessages(threadId);
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem("redbutToken") || "" : "";
+  const token = typeof window !== 'undefined' ? localStorage.getItem("redBut_token") || "" : "";
 
   const [input, setInput] = useState('');
   const [isAiTyping, setIsAiTyping] = useState(false);

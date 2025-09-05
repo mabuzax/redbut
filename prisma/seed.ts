@@ -1,7 +1,13 @@
-// Use CommonJS require to avoid “SyntaxError: Cannot use import statement
+// Use CommonJS require to avoid "SyntaxError: Cannot use import statement
+// outside a module" when Prisma executes this seed script with plain Node.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { PrismaClient } = require('../apps/api/node_modules/.prisma/client');
+
+console.log('DATABASE_URL =', process.env.DATABASE_URL);
+// outside a module" when Prisma executes this seed script with plain Node.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 // outside a module” when Prisma executes this seed script with plain Node.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { PrismaClient } = require('@prisma/client');
 
 console.log('DATABASE_URL =', process.env.DATABASE_URL);
 const prisma = new PrismaClient();

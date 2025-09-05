@@ -27,10 +27,16 @@ import { AdminAnalyticsController } from './admin-analytics.controller';
 import { AdminAnalyticsService } from './admin-analytics.service';
 import { AdminAnalyticsAiController } from './admin-analytics-ai.controller';
 import { AdminAnalyticsAiService } from './admin-analytics-ai.service';
+import { RequestsModule } from '../requests/requests.module';
+import { CacheInvalidatorService } from '../common/cache-invalidator.service';
+import { DataPreloaderService } from '../common/data-preloader.service';
+import { RedisCacheModule } from '../common/redis-cache.module';
 
 @Module({
   imports: [
     AuthModule,
+    RequestsModule, // Import RequestsModule to access RequestsService
+    RedisCacheModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -70,6 +76,8 @@ import { AdminAnalyticsAiService } from './admin-analytics-ai.service';
     AdminAnalyticsService,
     AdminAnalyticsAiService,
     PrismaService,
+    CacheInvalidatorService,
+    DataPreloaderService,
   ],
   exports: [
     AdminService,
