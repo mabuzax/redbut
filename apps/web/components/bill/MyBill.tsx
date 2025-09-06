@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, RefreshCw, DollarSign, BellRing, CheckCircle, CreditCard, Banknote, X } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, serviceAnalysisApi } from '@/lib/api';
+import ReviewComponent from '../feedback/ReviewComponent';
+import { ServiceAnalysisData } from '../../types/service-analysis';
+import { getWaiterIdFromLocalStorage } from '../../lib/session-utils';
 
 // Define interfaces for data structures
 interface OrderItem {
@@ -42,18 +45,20 @@ const MyBill: React.FC<MyBillProps> = ({ userId, tableNumber, sessionId, token, 
   const [waiterRequestedMessage, setWaiterRequestedMessage] = useState<string | null>(null);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'card' | 'cash' | null>(null);
+  const [showRatingDialog, setShowRatingDialog] = useState(false);
 
   const fetchBill = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const response = await api.get('/api/v1/orders');
+      
       if (!response.ok) {
         throw new Error(`Failed to fetch bill: ${response.statusText}`);
       }
+      
       const data = await response.json();
-      setOrders(data.items || []);
-      setTotal(data.total || 0);
+      setOrders(data);
     } catch (err: any) {
       setError(err.message || 'An unknown error occurred while fetching your bill.');
       console.error('Failed to fetch bill:', err);
@@ -71,6 +76,39 @@ const MyBill: React.FC<MyBillProps> = ({ userId, tableNumber, sessionId, token, 
   };
 
   const handlePaymentSubmit = async () => {
+    if (!selectedPaymentMethod) return;
+    
+    // First, send the payment request to the waiter immediately
+    await submitPaymentRequest();
+    
+    // Then show the rating dialog (optional, non-blocking)
+    setShowPaymentDialog(false);
+    setShowRatingDialog(true);
+  };
+
+  const handleRatingSubmit = async (reviewData: ServiceAnalysisData) => {
+    try {
+      // Get waiterId from localStorage (same approach as requests)
+      const waiterId = getWaiterIdFromLocalStorage();
+      
+      // Submit the service analysis with service_type 'order'
+      await serviceAnalysisApi.submitAnalysis({
+        sessionId: sessionId,
+        userId: userId,
+        waiterId: waiterId || undefined,
+        serviceType: 'order',
+        analysis: reviewData
+      });
+      
+      setShowRatingDialog(false);
+      setSelectedPaymentMethod(null);
+    } catch (error) {
+      console.error('Failed to submit rating:', error);
+      throw error; // Let the ReviewComponent handle the error display
+    }
+  };
+
+  const submitPaymentRequest = async () => {
     if (!selectedPaymentMethod) return;
     
     setRequestingWaiter(true);
@@ -91,8 +129,6 @@ const MyBill: React.FC<MyBillProps> = ({ userId, tableNumber, sessionId, token, 
       }
 
       setWaiterRequestedMessage('Payment request sent! Waiter has been notified.');
-      setShowPaymentDialog(false);
-      setSelectedPaymentMethod(null);
       if (onWaiterRequested) {
         onWaiterRequested(); // Trigger splash screen in parent
       }
@@ -102,6 +138,11 @@ const MyBill: React.FC<MyBillProps> = ({ userId, tableNumber, sessionId, token, 
     } finally {
       setRequestingWaiter(false);
     }
+  };
+
+  const closeRatingDialog = () => {
+    setShowRatingDialog(false);
+    setSelectedPaymentMethod(null);
   };
 
   const formatCurrency = (value: number) => {
@@ -317,6 +358,15 @@ const MyBill: React.FC<MyBillProps> = ({ userId, tableNumber, sessionId, token, 
           </div>
         )}
       </AnimatePresence>
+
+      {/* Service Rating Dialog */}
+      <ReviewComponent
+        isOpen={showRatingDialog}
+        onClose={closeRatingDialog}
+        onSubmit={handleRatingSubmit}
+        title="How was your dining experience? (Optional)"
+        type="order"
+      />
     </div>
   );
 };

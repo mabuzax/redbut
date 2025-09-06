@@ -135,6 +135,12 @@ export interface StaffPerformanceDetail {
   totalHoursWorked: number;
   averageRating?: number; // From WaiterRatings
   requestsHandled?: number; // From Requests
+  ordersHandled?: number; // From Orders
+  // Request handling specific metrics
+  totalRequests?: number;
+  completedRequests?: number;
+  averageResponseTime?: number; // in minutes
+  completionRate?: number; // percentage
   // Could include efficiency metrics: orders_per_hour, sales_per_hour
 }
 
@@ -142,6 +148,67 @@ export interface StaffAnalyticsData {
   salesPerformance: StaffSalesPerformance[];
   orderCounts: StaffOrderCount[]; // Could be a bar chart
   performanceDetails: StaffPerformanceDetail[]; // For a detailed table
+}
+
+// Enhanced Staff Performance Analytics for Owner Dashboard
+export interface WaiterPerformanceMetrics {
+  waiterId: string;
+  waiterName: string;
+  totalRequests: number;
+  completedRequests: number;
+  completionRate: number;
+  avgResponseTime: number; // in minutes
+  avgRating: number;
+  sentimentScore: number; // from service analysis
+  activeHours: number;
+  requestsPerHour: number;
+  trends: {
+    week: 'up' | 'down' | 'stable';
+    month: 'up' | 'down' | 'stable';
+  };
+  ratingBreakdown: {
+    friendliness: number;
+    orderAccuracy: number;
+    speed: number;
+    attentiveness: number;
+    knowledge: number;
+  };
+}
+
+export interface StaffPerformanceOverview {
+  totalStaff: number;
+  topPerformer: string;
+  avgCompletionRate: number;
+  avgResponseTime: number;
+  performanceGrowth: number;
+}
+
+export interface TeamProductivityTrend {
+  date: string;
+  productivity: number;
+  efficiency: number;
+}
+
+export interface ServiceQualityMetric {
+  metric: string;
+  score: number;
+  target: number;
+}
+
+export interface WorkloadDistribution {
+  waiter: string;
+  requests: number;
+  hours: number;
+}
+
+export interface StaffPerformanceAnalytics {
+  overview: StaffPerformanceOverview;
+  staffRankings: WaiterPerformanceMetrics[];
+  teamMetrics: {
+    productivityTrend: TeamProductivityTrend[];
+    serviceQuality: ServiceQualityMetric[];
+    workloadDistribution: WorkloadDistribution[];
+  };
 }
 
 // 6. Tables Analytics
@@ -187,6 +254,9 @@ export interface RecentComment {
   commentText: string;
   commentDate: string; // ISO Date string
   tableName?: string; // e.g. "Table 5"
+  overallSentiment?: string;
+  isServiceAnalysis?: boolean;
+  serviceType?: string;
 }
 
 export interface WaiterRatingsBreakdown {
@@ -211,9 +281,12 @@ export interface WaiterRatingsAnalyticsData {
 // 8. Requests Analytics
 export interface RequestsSummaryMetrics {
   totalRequests: number;
-  averageResponseTimeMinutes: number; // Time from request creation to Acknowledged/InProgress
-  completionRatePercentage: number; // (Completed + Done) / Total
   openRequests: number;
+  averageResponseTimeMinutes: number; // Time from request creation to completion (Done)
+  completionRatePercentage: number; // Done requests / (Total - Cancelled)
+  cancelledRatePercentage: number; // Cancelled requests / Total
+  completedRequests: number;
+  cancelledRequests: number;
 }
 
 export interface RequestStatusDistribution extends NameValuePair {
@@ -229,6 +302,8 @@ export interface RequestsOverTimeDataPoint {
 export interface WaiterResponseTimeDataPoint extends NameValuePair {
     // name: waiterName, value: averageResponseTimeMinutes
     waiterId: string;
+    waiterName: string;
+    averageResponseTime: number;
 }
 
 export interface RequestsAnalyticsData {
@@ -241,24 +316,47 @@ export interface RequestsAnalyticsData {
 
 // 9. Customer Ratings Analytics (Overall Restaurant Feedback)
 export interface OverallRestaurantRating {
-  averageOverallRating: number; // e.g., from a general feedback form
+  averageOverallRating: number;
   totalReviews: number;
 }
 
 export interface CustomerSatisfactionTrendDataPoint {
-  date: string; // ISO Date string
-  satisfactionScore: number; // e.g., NPS or average rating
+  date: string;
+  satisfactionScore: number;
 }
 
 export interface FeedbackTheme extends NameValuePair {
-  // name: theme (e.g., "Food Quality", "Ambiance"), value: count
   sentiment?: 'positive' | 'negative' | 'neutral';
+}
+
+export interface SentimentAnalysisResult {
+  overallSentiment: 'positive' | 'negative' | 'neutral';
+  sentimentScore: number; // -1 to 1
+  keyInsights: string[];
+  commonThemes: FeedbackTheme[];
+  waiterPerformanceInsights: {
+    waiterName: string;
+    sentimentTrend: 'improving' | 'declining' | 'stable';
+    keyStrengths: string[];
+    areasForImprovement: string[];
+  }[];
+  businessValue: {
+    riskAreas: string[];
+    opportunities: string[];
+    priorityActions: string[];
+  };
 }
 
 export interface CustomerRatingsAnalyticsData {
   overallRestaurantRating: OverallRestaurantRating;
   satisfactionTrend: CustomerSatisfactionTrendDataPoint[];
-  topFeedbackThemes: FeedbackTheme[]; // e.g., common praises or complaints
+  topFeedbackThemes: FeedbackTheme[];
+  sentimentAnalysis: SentimentAnalysisResult;
+  rawDataSummary: {
+    totalRequestLogs: number;
+    totalServiceAnalysis: number;
+    dateRange: string;
+  };
 }
 
 // Master Analytics Data Structure (Optional, or handle tabs individually)

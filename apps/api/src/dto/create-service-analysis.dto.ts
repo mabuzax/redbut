@@ -52,6 +52,9 @@ export class ServiceAnalysisRequestDto {
   @IsOptional()
   waiterId?: string;
 
+  @IsString()
+  serviceType: string; // 'request' or 'order'
+
   @IsObject()
   analysis: CreateServiceAnalysisDto;
 }

@@ -18,10 +18,13 @@ import {
   ListChecks,
   Clock,
   Coffee,
-  Table,
   UserCheck,
   MessageCircle,
   Smile,
+  Eye,
+  Brain,
+  CheckCircle,
+  AlertCircle,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -44,46 +47,33 @@ import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } fro
 import { adminApi, DateRange } from "../../lib/api"; 
 import AiAnalyticsChatWindow from "./AiAnalyticsChatWindow"; // Placeholder for now
 
+// Chart colors
+const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
+
 // Import specific data types from adminApi (assuming they are defined in ../../lib/api)
 import {
-  SalesAnalyticsData,
-  PopularItemsAnalyticsData,
-  ShiftsAnalyticsData,
-  HourlySalesAnalyticsData,
   StaffAnalyticsData,
-  TablesAnalyticsData,
+  StaffPerformanceDetail,
   WaiterRatingsAnalyticsData,
   RequestsAnalyticsData,
   CustomerRatingsAnalyticsData,
   MetricCardValue,
   NameValuePair,
-  SalesTrendDataPoint,
-  PopularItem,
   RecentComment,
 } from "../../lib/api";
 
 
 type AnalyticsTab = 
-  | "Sales" 
-  | "Popular Items" 
-  | "Shifts" 
-  | "Hourly Sales" 
   | "Staff" 
-  | "Tables" 
   | "Waiter Ratings" 
   | "Requests" 
-  | "Customer Ratings";
+  | "Overall Sentiments";
 
 const tabs: AnalyticsTab[] = [
-  "Sales", 
-  "Popular Items", 
-  "Shifts", 
-  "Hourly Sales", 
   "Staff", 
-  "Tables", 
   "Waiter Ratings", 
   "Requests", 
-  "Customer Ratings"
+  "Overall Sentiments"
 ];
 
 const initialDateRange = {
@@ -93,17 +83,19 @@ const initialDateRange = {
 
 const AnalyticsComponent = () => {
   const token = typeof window !== 'undefined' ? localStorage.getItem("redBut_token") || "" : "";
-  const [activeTab, setActiveTab] = useState<AnalyticsTab>("Sales");
+  const [activeTab, setActiveTab] = useState<AnalyticsTab>("Staff");
   const [dateRange, setDateRange] = useState<DateRange>(initialDateRange);
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
+  const [staffDetailModal, setStaffDetailModal] = useState<{
+    isOpen: boolean;
+    staffMember: StaffPerformanceDetail | null;
+  }>({
+    isOpen: false,
+    staffMember: null,
+  });
   
   // Data states for each tab
-  const [salesData, setSalesData] = useState<SalesAnalyticsData | null>(null);
-  const [popularItemsData, setPopularItemsData] = useState<PopularItemsAnalyticsData | null>(null);
-  const [shiftsData, setShiftsData] = useState<ShiftsAnalyticsData | null>(null);
-  const [hourlySalesData, setHourlySalesData] = useState<HourlySalesAnalyticsData | null>(null);
   const [staffData, setStaffData] = useState<StaffAnalyticsData | null>(null);
-  const [tablesData, setTablesData] = useState<TablesAnalyticsData | null>(null);
   const [waiterRatingsData, setWaiterRatingsData] = useState<WaiterRatingsAnalyticsData | null>(null);
   const [requestsData, setRequestsData] = useState<RequestsAnalyticsData | null>(null);
   const [customerRatingsData, setCustomerRatingsData] = useState<CustomerRatingsAnalyticsData | null>(null);
@@ -122,23 +114,8 @@ const AnalyticsComponent = () => {
 
     try {
       switch (tab) {
-        case "Sales":
-          setSalesData(await adminApi.getSalesAnalytics(token, currentRange));
-          break;
-        case "Popular Items":
-          setPopularItemsData(await adminApi.getPopularItemsAnalytics(token, currentRange));
-          break;
-        case "Shifts":
-          setShiftsData(await adminApi.getShiftsAnalytics(token, currentRange));
-          break;
-        case "Hourly Sales":
-          setHourlySalesData(await adminApi.getHourlySalesAnalytics(token, currentRange));
-          break;
         case "Staff":
           setStaffData(await adminApi.getStaffAnalytics(token, currentRange));
-          break;
-        case "Tables":
-          setTablesData(await adminApi.getTablesAnalytics(token, currentRange));
           break;
         case "Waiter Ratings":
           setWaiterRatingsData(await adminApi.getWaiterRatingsAnalytics(token, currentRange));
@@ -146,7 +123,7 @@ const AnalyticsComponent = () => {
         case "Requests":
           setRequestsData(await adminApi.getRequestsAnalytics(token, currentRange));
           break;
-        case "Customer Ratings":
+        case "Overall Sentiments":
           setCustomerRatingsData(await adminApi.getCustomerRatingsAnalytics(token, currentRange));
           break;
         default:
@@ -166,6 +143,20 @@ const AnalyticsComponent = () => {
   const handleDateRangeChange = (newDateRange: DateRange) => {
     setDateRange(newDateRange);
   };
+
+  const handleOpenStaffDetail = (staffMember: StaffPerformanceDetail) => {
+    setStaffDetailModal({
+      isOpen: true,
+      staffMember,
+    });
+  };
+
+  const handleCloseStaffDetail = () => {
+    setStaffDetailModal({
+      isOpen: false,
+      staffMember: null,
+    });
+  };
   
   const renderTabContent = () => {
     if (loading[activeTab]) {
@@ -176,15 +167,10 @@ const AnalyticsComponent = () => {
     }
 
     switch (activeTab) {
-      case "Sales": return <SalesTabContent data={salesData} />;
-      case "Popular Items": return <PopularItemsTabContent data={popularItemsData} />;
-      case "Shifts": return <ShiftsTabContent data={shiftsData} />;
-      case "Hourly Sales": return <HourlySalesTabContent data={hourlySalesData} />;
-      case "Staff": return <StaffTabContent data={staffData} />;
-      case "Tables": return <TablesTabContent data={tablesData} />;
+      case "Staff": return <StaffTabContent data={staffData} onViewStaff={handleOpenStaffDetail} />;
       case "Waiter Ratings": return <WaiterRatingsTabContent data={waiterRatingsData} />;
       case "Requests": return <RequestsTabContent data={requestsData} />;
-      case "Customer Ratings": return <CustomerRatingsTabContent data={customerRatingsData} />;
+      case "Overall Sentiments": return <CustomerRatingsTabContent data={customerRatingsData} />;
       default: return <div>Select a tab</div>;
     }
   };
@@ -249,99 +235,124 @@ const AnalyticsComponent = () => {
           initialDateRange={dateRange}
         />
       )}
+
+      {/* Staff Detail Modal */}
+      {staffDetailModal.isOpen && staffDetailModal.staffMember && (
+        <StaffDetailModal
+          staffMember={staffDetailModal.staffMember}
+          onClose={handleCloseStaffDetail}
+          token={token}
+        />
+      )}
     </div>
   );
 };
 
 // Placeholder Tab Content Components (to be fleshed out later)
-const SalesTabContent: React.FC<{data: SalesAnalyticsData | null}> = ({data}) => {
-  if (!data) return <div className="text-center p-10 text-gray-500">No sales data available for the selected period.</div>;
+const StaffTabContent: React.FC<{
+  data: StaffAnalyticsData | null; 
+  onViewStaff: (staffMember: StaffPerformanceDetail) => void;
+}> = ({data, onViewStaff}) => {
+  if (!data) return <div className="text-center p-10 text-gray-500">No staff data available for the selected period.</div>;
+  
+  const renderStars = (rating: number | undefined) => {
+    if (!rating) return <span className="text-gray-400 text-sm">No rating</span>;
+    
+    const stars = [];
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 !== 0;
+    
+    for (let i = 0; i < fullStars; i++) {
+      stars.push(<Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />);
+    }
+    
+    if (hasHalfStar) {
+      stars.push(<Star key="half" className="h-4 w-4 fill-yellow-400/50 text-yellow-400" />);
+    }
+    
+    const emptyStars = 5 - Math.ceil(rating);
+    for (let i = 0; i < emptyStars; i++) {
+      stars.push(<Star key={`empty-${i}`} className="h-4 w-4 text-gray-300" />);
+    }
+    
+    return (
+      <div className="flex items-center space-x-1">
+        {stars}
+        <span className="ml-2 text-sm text-gray-600">({rating.toFixed(1)})</span>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <MetricCard icon={<DollarSign />} label="Total Sales" value={`$${data.summary.totalSales.toFixed(2)}`} />
-        <MetricCard icon={<ShoppingCart />} label="Total Orders" value={data.summary.totalOrders.toString()} />
-        <MetricCard icon={<DollarSign />} label="Avg. Order Value" value={`$${data.summary.averageOrderValue.toFixed(2)}`} />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {data.performanceDetails.map((staff) => (
+          <div 
+            key={staff.staffId} 
+            className="bg-white rounded-lg shadow-md border border-gray-200 p-4 hover:shadow-lg transition-shadow duration-200"
+          >
+            <div className="flex items-start space-x-4">
+              {/* Photo on left */}
+              <div className="flex-shrink-0">
+                <div className="w-16 h-20 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden">
+                  {/* Placeholder for staff photo - could be replaced with actual photo URL */}
+                  <div className="w-full h-full bg-gradient-to-br from-gray-300 to-gray-400 flex items-center justify-center">
+                    <Users className="h-8 w-8 text-gray-500" />
+                  </div>
+                </div>
+              </div>
+              
+              {/* Name, Surname and details on right */}
+              <div className="flex-1 min-w-0">
+                <div className="space-y-2">
+                  {/* Name and Surname */}
+                  <h3 className="text-base font-semibold text-gray-900 truncate">
+                    {staff.staffName}
+                  </h3>
+                  
+                  {/* Position */}
+                  <p className="text-sm text-gray-600 capitalize">
+                    {staff.position}
+                  </p>
+                  
+                  {/* Rating */}
+                  <div className="flex items-center">
+                    {renderStars(staff.averageRating)}
+                  </div>
+                  
+                  {/* Additional stats */}
+                  <div className="text-xs text-gray-500 space-y-1">
+                    <div>Requests: {staff.requestsHandled || 0}</div>
+                    <div>Orders: {staff.ordersHandled || 0}</div>
+                  </div>
+                </div>
+                
+                {/* View button - bottom right */}
+                <div className="flex justify-end mt-3">
+                  <button 
+                    onClick={() => onViewStaff(staff)}
+                    className="flex items-center space-x-1 text-red-600 hover:text-red-700 transition-colors shadow-lg rounded-md px-2 py-1 hover:bg-red-50"
+                  >
+                    <Eye className="h-4 w-4" />
+                    <span className="text-sm font-medium">View</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
-      <ChartContainer title="Sales Trend">
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={data.salesTrend}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="date" tickFormatter={(tick) => format(new Date(tick), 'MMM dd')} />
-            <YAxis yAxisId="left" orientation="left" stroke="#8884d8" label={{ value: 'Sales ($)', angle: -90, position: 'insideLeft' }}/>
-            <YAxis yAxisId="right" orientation="right" stroke="#82ca9d" label={{ value: 'Orders', angle: -90, position: 'insideRight' }}/>
-            <Tooltip labelFormatter={(label) => format(new Date(label), 'MMM dd, yyyy')} formatter={(value, name) => [name === 'sales' ? `$${Number(value).toFixed(2)}` : value, name === 'sales' ? 'Sales' : 'Orders']}/>
-            <Legend />
-            <Line yAxisId="left" type="monotone" dataKey="sales" stroke="#8884d8" activeDot={{ r: 8 }} />
-            <Line yAxisId="right" type="monotone" dataKey="orders" stroke="#82ca9d" />
-          </LineChart>
-        </ResponsiveContainer>
-      </ChartContainer>
+      
+      {data.performanceDetails.length === 0 && (
+        <div className="text-center p-10 text-gray-500">
+          <Users className="mx-auto h-12 w-12 text-gray-400 mb-2" />
+          <p>No staff performance data available for the selected period.</p>
+        </div>
+      )}
     </div>
   );
 };
 
-const PopularItemsTabContent: React.FC<{data: PopularItemsAnalyticsData | null}> = ({data}) => {
-  if (!data) return <div className="text-center p-10 text-gray-500">No popular items data available.</div>;
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <ChartContainer title="Top Selling Items (by Quantity)">
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={data.topSellingItems.slice(0,5)} layout="vertical">
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis type="number" />
-            <YAxis dataKey="itemName" type="category" width={120} />
-            <Tooltip formatter={(value) => [value, "Quantity Sold"]}/>
-            <Legend />
-            <Bar dataKey="quantitySold" fill="#8884d8" name="Quantity Sold" />
-          </BarChart>
-        </ResponsiveContainer>
-      </ChartContainer>
-      <ChartContainer title="Revenue by Item (Top 5)">
-         <ResponsiveContainer width="100%" height={300}>
-          <RePieChart>
-            <Pie data={data.revenueByItem.slice(0,5)} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
-              {data.revenueByItem.slice(0,5).map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-              ))}
-            </Pie>
-            <Tooltip formatter={(value) => `$${Number(value).toFixed(2)}`}/>
-            <Legend />
-          </RePieChart>
-        </ResponsiveContainer>
-      </ChartContainer>
-    </div>
-  );
-};
-
-const ShiftsTabContent: React.FC<{data: ShiftsAnalyticsData | null}> = ({data}) => (
-  <div className="text-center p-10 text-gray-500">
-    <Clock className="mx-auto h-12 w-12 text-gray-400 mb-2" />
-    Shifts analytics coming soon.
-    {data && <pre className="text-xs text-left">{JSON.stringify(data.shiftPerformanceDetails, null, 2)}</pre>}
-  </div>
-);
-const HourlySalesTabContent: React.FC<{data: HourlySalesAnalyticsData | null}> = ({data}) => (
-  <div className="text-center p-10 text-gray-500">
-    <BarChart3 className="mx-auto h-12 w-12 text-gray-400 mb-2" />
-    Hourly sales analytics coming soon.
-    {data && <pre className="text-xs text-left">{JSON.stringify(data.salesTodayByHour, null, 2)}</pre>}
-  </div>
-);
-const StaffTabContent: React.FC<{data: StaffAnalyticsData | null}> = ({data}) => (
-  <div className="text-center p-10 text-gray-500">
-    <Users className="mx-auto h-12 w-12 text-gray-400 mb-2" />
-    Staff performance analytics coming soon.
-    {data && <pre className="text-xs text-left">{JSON.stringify(data.salesPerformance, null, 2)}</pre>}
-  </div>
-);
-const TablesTabContent: React.FC<{data: TablesAnalyticsData | null}> = ({data}) => (
-  <div className="text-center p-10 text-gray-500">
-    <Table className="mx-auto h-12 w-12 text-gray-400 mb-2" />
-    Table utilization analytics coming soon.
-    {data && <pre className="text-xs text-left">{JSON.stringify(data.utilization, null, 2)}</pre>}
-  </div>
-);
 const WaiterRatingsTabContent: React.FC<{data: WaiterRatingsAnalyticsData | null}> = ({data}) => {
   if (!data) return <div className="text-center p-10 text-gray-500">No waiter ratings data available.</div>;
   return (
@@ -360,42 +371,480 @@ const WaiterRatingsTabContent: React.FC<{data: WaiterRatingsAnalyticsData | null
       </ChartContainer>
        <ChartContainer title="Recent Comments">
          {data.recentComments.length > 0 ? (
-            <ul className="space-y-2 max-h-60 overflow-y-auto">
+            <div className="space-y-3 max-h-60 overflow-y-auto">
                 {data.recentComments.map(c => (
-                    <li key={c.commentId} className="p-2 border rounded text-sm">
-                        <strong>{c.waiterName} ({c.rating}★):</strong> {c.commentText} 
-                        <em className="text-xs block text-gray-500">{format(new Date(c.commentDate), 'MMM dd, yyyy')}</em>
-                    </li>
+                    <div key={c.commentId} className="p-3 border rounded-lg bg-gray-50">
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="font-medium text-gray-900">{c.waiterName}</span>
+                            {c.overallSentiment && (
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                    c.overallSentiment.toLowerCase() === 'positive' ? 'bg-green-100 text-green-800' :
+                                    c.overallSentiment.toLowerCase() === 'negative' ? 'bg-red-100 text-red-800' :
+                                    'bg-gray-100 text-gray-800'
+                                }`}>
+                                    {c.overallSentiment}
+                                </span>
+                            )}
+                        </div>
+                        <p className="text-gray-700 text-sm mb-2">{c.commentText}</p>
+                        <div className="flex items-center justify-between text-xs text-gray-500">
+                            <span>{c.rating}★ • {format(new Date(c.commentDate), 'MMM dd, yyyy')}</span>
+                            {c.isServiceAnalysis && c.serviceType && (
+                                <span className={`px-2 py-1 rounded capitalize ${
+                                    c.serviceType.toLowerCase() === 'order' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
+                                }`}>
+                                    {c.serviceType}
+                                </span>
+                            )}
+                        </div>
+                    </div>
                 ))}
-            </ul>
+            </div>
          ) : <p>No recent comments.</p>}
        </ChartContainer>
     </div>
   );
 };
-const RequestsTabContent: React.FC<{data: RequestsAnalyticsData | null}> = ({data}) => (
-  <div className="text-center p-10 text-gray-500">
-    <ListChecks className="mx-auto h-12 w-12 text-gray-400 mb-2" />
-    Requests analytics coming soon.
-    {data && <pre className="text-xs text-left">{JSON.stringify(data.summaryMetrics, null, 2)}</pre>}
-  </div>
-);
-const CustomerRatingsTabContent: React.FC<{data: CustomerRatingsAnalyticsData | null}> = ({data}) => (
-  <div className="text-center p-10 text-gray-500">
-    <Smile className="mx-auto h-12 w-12 text-gray-400 mb-2" />
-    Customer ratings analytics coming soon.
-    {data && <pre className="text-xs text-left">{JSON.stringify(data.overallRestaurantRating, null, 2)}</pre>}
-  </div>
-);
+const RequestsTabContent: React.FC<{data: RequestsAnalyticsData | null}> = ({data}) => {
+  if (!data) {
+    return (
+      <div className="text-center p-10 text-gray-500">
+        <ListChecks className="mx-auto h-12 w-12 text-gray-400 mb-2" />
+        Loading requests analytics...
+      </div>
+    );
+  }
+
+  const { summaryMetrics, statusDistribution, requestsOverTime, waiterResponseTimes, waiterRequestPerformance } = data;
+
+  return (
+    <div className="space-y-6">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <MetricCard 
+          title="Total Requests" 
+          value={summaryMetrics.totalRequests.toString()} 
+          icon={<ListChecks className="h-6 w-6" />}
+          description="All requests in date range"
+        />
+        <MetricCard 
+          title="Currently Open" 
+          value={summaryMetrics.openRequests.toString()} 
+          icon={<Eye className="h-6 w-6" />}
+          description="Not yet marked as Done"
+        />
+        <MetricCard 
+          title="Avg. Response Time" 
+          value={`${summaryMetrics.averageResponseTimeMinutes} mins`} 
+          icon={<CheckCircle className="h-6 w-6" />}
+          description="New to Done completion time"
+        />
+        <MetricCard 
+          title="Completed Requests" 
+          value={summaryMetrics.completedRequests.toString()} 
+          icon={<CheckCircle className="h-6 w-6" />}
+          description="Requests marked as Done"
+        />
+      </div>
+
+      {/* Rate Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <MetricCard 
+          title="Completion Rate" 
+          value={`${summaryMetrics.completionRatePercentage}%`} 
+          icon={<CheckCircle className="h-6 w-6" />}
+          description="Done vs Total"
+          valueColor="text-green-600"
+        />
+        <MetricCard 
+          title="Cancellation Rate" 
+          value={`${summaryMetrics.cancelledRatePercentage}%`} 
+          icon={<AlertCircle className="h-6 w-6" />}
+          description={`${summaryMetrics.cancelledRequests} cancelled requests`}
+          valueColor="text-red-600"
+        />
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Status Distribution */}
+        <ChartContainer title="Request Status Distribution">
+          <ResponsiveContainer width="100%" height={300}>
+            <RePieChart>
+              <Pie
+                data={statusDistribution}
+                cx="50%"
+                cy="50%"
+                outerRadius={80}
+                fill="#8884d8"
+                dataKey="value"
+                label={({name, value}) => `${name}: ${value}`}
+              >
+                {statusDistribution.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </RePieChart>
+          </ResponsiveContainer>
+        </ChartContainer>
+
+        {/* Requests Over Time */}
+        <ChartContainer title="Requests Over Time">
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={requestsOverTime}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="time" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Line type="monotone" dataKey="newRequests" stroke="#8884d8" name="New Requests" />
+              <Line type="monotone" dataKey="resolvedRequests" stroke="#82ca9d" name="Resolved Requests" />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartContainer>
+      </div>
+
+      {/* Waiter Performance Tables */}
+      {waiterResponseTimes.length > 0 && (
+        <ChartContainer title="Waiter Response Times">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Waiter
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Avg Response Time (mins)
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {waiterResponseTimes.map((waiter, index) => (
+                  <tr key={index}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {waiter.waiterName}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {waiter.averageResponseTime.toFixed(1)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </ChartContainer>
+      )}
+
+      {/* Detailed Performance Table */}
+      {waiterRequestPerformance.length > 0 && (
+        <ChartContainer title="Waiter Request Handling Performance">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Waiter
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Total Requests
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Completed
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Completion Rate
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Avg Response Time
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {waiterRequestPerformance.map((waiter, index) => (
+                  <tr key={index}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {waiter.staffName}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {waiter.totalRequests}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {waiter.completedRequests}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <span className={`px-2 py-1 text-xs rounded-full ${
+                        waiter.completionRate! >= 80 ? 'bg-green-100 text-green-800' :
+                        waiter.completionRate! >= 60 ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-red-100 text-red-800'
+                      }`}>
+                        {waiter.completionRate}%
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {waiter.averageResponseTime?.toFixed(1)} mins
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </ChartContainer>
+      )}
+    </div>
+  );
+};
+const CustomerRatingsTabContent: React.FC<{data: CustomerRatingsAnalyticsData | null}> = ({data}) => {
+  if (!data) {
+    return (
+      <div className="text-center p-10 text-gray-500">
+        <Smile className="mx-auto h-12 w-12 text-gray-400 mb-2" />
+        Loading overall sentiments analytics...
+      </div>
+    );
+  }
+
+  const { sentimentAnalysis, satisfactionTrend, topFeedbackThemes, rawDataSummary } = data;
+
+  const getSentimentColor = (sentiment: string) => {
+    switch (sentiment) {
+      case 'positive': return 'text-green-600 bg-green-100';
+      case 'negative': return 'text-red-600 bg-red-100';
+      default: return 'text-yellow-600 bg-yellow-100';
+    }
+  };
+
+  const getSentimentIcon = (sentiment: string) => {
+    switch (sentiment) {
+      case 'positive': return <CheckCircle className="h-5 w-5" />;
+      case 'negative': return <AlertCircle className="h-5 w-5" />;
+      default: return <Eye className="h-5 w-5" />;
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header Section */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-lg border">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800">Overall Sentiments Analysis</h2>
+            <p className="text-gray-600 mt-1">AI-powered insights from request handling and service feedback</p>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Brain className="h-8 w-8 text-indigo-600" />
+            <span className={`px-4 py-2 rounded-full text-sm font-medium ${getSentimentColor(sentimentAnalysis.overallSentiment)}`}>
+              {sentimentAnalysis.overallSentiment.toUpperCase()}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Data Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <MetricCard 
+          title="Request Logs Analyzed" 
+          value={rawDataSummary.totalRequestLogs.toString()} 
+          icon={<ListChecks className="h-6 w-6" />}
+          description="Total request handling events"
+        />
+        <MetricCard 
+          title="Service Feedback Items" 
+          value={rawDataSummary.totalServiceAnalysis.toString()} 
+          icon={<MessageSquare className="h-6 w-6" />}
+          description="AI-analyzed service interactions"
+        />
+        <MetricCard 
+          title="Sentiment Score" 
+          value={`${(sentimentAnalysis.sentimentScore * 100).toFixed(0)}%`} 
+          icon={getSentimentIcon(sentimentAnalysis.overallSentiment)}
+          description="Overall satisfaction indicator"
+          valueColor={sentimentAnalysis.sentimentScore > 0.3 ? 'text-green-600' : 
+                     sentimentAnalysis.sentimentScore < -0.3 ? 'text-red-600' : 'text-yellow-600'}
+        />
+      </div>
+
+      {/* Key Insights Section */}
+      <ChartContainer title="🎯 Key Insights">
+        <div className="space-y-3">
+          {sentimentAnalysis.keyInsights.map((insight, index) => (
+            <div key={index} className="flex items-start space-x-3 p-3 bg-blue-50 rounded-lg">
+              <div className="p-1 bg-blue-100 rounded-full mt-0.5">
+                <CheckCircle className="h-4 w-4 text-blue-600" />
+              </div>
+              <p className="text-gray-700 text-sm">{insight}</p>
+            </div>
+          ))}
+        </div>
+      </ChartContainer>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Satisfaction Trend */}
+        <ChartContainer title="Satisfaction Trend Over Time">
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={satisfactionTrend}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" />
+              <YAxis domain={[1, 5]} />
+              <Tooltip />
+              <Legend />
+              <Line 
+                type="monotone" 
+                dataKey="satisfactionScore" 
+                stroke="#3B82F6" 
+                strokeWidth={3}
+                name="Satisfaction Score" 
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartContainer>
+
+        {/* Common Themes */}
+        <ChartContainer title="Common Feedback Themes">
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={sentimentAnalysis.commonThemes}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip />
+              <Bar dataKey="value" fill="#8884d8" />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartContainer>
+      </div>
+
+      {/* Waiter Performance Insights */}
+      {sentimentAnalysis.waiterPerformanceInsights.length > 0 && (
+        <ChartContainer title="👥 Waiter Performance Insights">
+          <div className="space-y-4">
+            {sentimentAnalysis.waiterPerformanceInsights.map((waiter, index) => (
+              <div key={index} className="bg-white border rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-semibold text-gray-800">{waiter.waiterName}</h4>
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                    waiter.sentimentTrend === 'improving' ? 'bg-green-100 text-green-800' :
+                    waiter.sentimentTrend === 'declining' ? 'bg-red-100 text-red-800' :
+                    'bg-yellow-100 text-yellow-800'
+                  }`}>
+                    {waiter.sentimentTrend.toUpperCase()}
+                  </span>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <h5 className="text-sm font-medium text-green-700 mb-2">✅ Key Strengths</h5>
+                    <ul className="space-y-1">
+                      {waiter.keyStrengths.map((strength, idx) => (
+                        <li key={idx} className="text-xs text-gray-600 flex items-start">
+                          <span className="text-green-500 mr-2">•</span>
+                          {strength}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  
+                  <div>
+                    <h5 className="text-sm font-medium text-red-700 mb-2">🎯 Areas for Improvement</h5>
+                    <ul className="space-y-1">
+                      {waiter.areasForImprovement.map((area, idx) => (
+                        <li key={idx} className="text-xs text-gray-600 flex items-start">
+                          <span className="text-red-500 mr-2">•</span>
+                          {area}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </ChartContainer>
+      )}
+
+      {/* Business Value Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Risk Areas */}
+        <ChartContainer title="⚠️ Risk Areas">
+          <div className="space-y-3">
+            {sentimentAnalysis.businessValue.riskAreas.map((risk, index) => (
+              <div key={index} className="flex items-start space-x-3 p-3 bg-red-50 rounded-lg">
+                <AlertCircle className="h-5 w-5 text-red-500 mt-0.5 flex-shrink-0" />
+                <p className="text-red-700 text-sm">{risk}</p>
+              </div>
+            ))}
+          </div>
+        </ChartContainer>
+
+        {/* Opportunities */}
+        <ChartContainer title="🚀 Opportunities">
+          <div className="space-y-3">
+            {sentimentAnalysis.businessValue.opportunities.map((opportunity, index) => (
+              <div key={index} className="flex items-start space-x-3 p-3 bg-green-50 rounded-lg">
+                <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
+                <p className="text-green-700 text-sm">{opportunity}</p>
+              </div>
+            ))}
+          </div>
+        </ChartContainer>
+
+        {/* Priority Actions */}
+        <ChartContainer title="📋 Priority Actions">
+          <div className="space-y-3">
+            {sentimentAnalysis.businessValue.priorityActions.map((action, index) => (
+              <div key={index} className="flex items-start space-x-3 p-3 bg-blue-50 rounded-lg">
+                <div className="bg-blue-100 text-blue-600 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold mt-0.5 flex-shrink-0">
+                  {index + 1}
+                </div>
+                <p className="text-blue-700 text-sm">{action}</p>
+              </div>
+            ))}
+          </div>
+        </ChartContainer>
+      </div>
+
+      {/* Footer Summary */}
+      <div className="bg-gray-50 border rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-gray-600">Analysis Period: {rawDataSummary.dateRange}</p>
+            <p className="text-xs text-gray-500 mt-1">
+              This analysis is based on {rawDataSummary.totalRequestLogs} request handling events and {rawDataSummary.totalServiceAnalysis} service feedback items.
+            </p>
+          </div>
+          <div className="text-right">
+            
+            <div className="flex items-center justify-end mt-1">
+              <Brain className="h-4 w-4 text-indigo-500 mr-1" />
+              <span className="text-xs text-indigo-600">Powered by RedBut AI Analytics</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // Helper components
-const MetricCard: React.FC<{icon: React.ReactNode, label: string, value: string}> = ({icon, label, value}) => (
+const MetricCard: React.FC<{
+  icon: React.ReactNode, 
+  title?: string,
+  label?: string, 
+  value: string,
+  description?: string,
+  valueColor?: string
+}> = ({icon, title, label, value, description, valueColor = "text-gray-800"}) => (
   <div className="bg-gray-50 p-4 rounded-lg shadow border">
     <div className="flex items-center space-x-3 mb-1">
       <div className="p-2 bg-primary-100 text-primary-600 rounded-full">{icon}</div>
-      <h4 className="text-sm font-medium text-gray-600">{label}</h4>
+      <h4 className="text-sm font-medium text-gray-600">{title || label}</h4>
     </div>
-    <p className="text-2xl font-bold text-gray-800 ml-12">{value}</p>
+    <p className={`text-2xl font-bold ml-12 ${valueColor}`}>{value}</p>
+    {description && (
+      <p className="text-xs text-gray-500 ml-12 mt-1">{description}</p>
+    )}
   </div>
 );
 
@@ -406,7 +855,352 @@ const ChartContainer: React.FC<{title: string, children: React.ReactNode}> = ({t
   </div>
 );
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
+// Staff Detail Modal Component
+const StaffDetailModal: React.FC<{
+  staffMember: StaffPerformanceDetail;
+  onClose: () => void;
+  token: string;
+}> = ({ staffMember, onClose, token }) => {
+  const [staffDetailData, setStaffDetailData] = useState<any>(null);
+  const [aiReview, setAiReview] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [aiLoading, setAiLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Fetch detailed staff data including waiter info and analytics
+    const fetchStaffDetails = async () => {
+      try {
+        setLoading(true);
+        const detailedData = await adminApi.getStaffDetailedAnalytics(staffMember.staffId, token);
+        setStaffDetailData(detailedData);
+      } catch (err) {
+        setError('Failed to load staff details');
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // Fetch AI performance review
+    const fetchAIReview = async () => {
+      try {
+        setAiLoading(true);
+        const aiData = await adminApi.getStaffAIReview(staffMember.staffId, token);
+        setAiReview(aiData);
+      } catch (err) {
+        console.error('Failed to fetch AI review:', err);
+      } finally {
+        setAiLoading(false);
+      }
+    };
+
+    fetchStaffDetails();
+    fetchAIReview();
+  }, [staffMember, token]);
+
+  const renderStars = (rating: number) => {
+    return (
+      <div className="flex items-center">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Star
+            key={star}
+            className={`h-4 w-4 ${
+              star <= rating
+                ? 'text-yellow-400 fill-current'
+                : 'text-gray-300'
+            }`}
+          />
+        ))}
+        <span className="ml-2 text-sm text-gray-600">({rating.toFixed(1)})</span>
+      </div>
+    );
+  };
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="flex justify-center items-center h-64">
+            <Loader2 className="h-8 w-8 animate-spin text-red-600" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-800">Staff Details</h2>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
+          >
+            ×
+          </button>
+        </div>
+
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            {error}
+          </div>
+        )}
+
+        {/* Profile Section */}
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold mb-4">Profile</h3>
+          <div className="flex items-start space-x-4 bg-gray-50 p-4 rounded-lg">
+            {/* Profile Image */}
+            <div className="w-20 h-20 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden">
+              {staffDetailData?.profile?.profileImage ? (
+                <img 
+                  src={staffDetailData.profile.profileImage} 
+                  alt={`${staffDetailData.profile.name} ${staffDetailData.profile.surname}`}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <Users className="h-10 w-10 text-gray-400" />
+              )}
+            </div>
+            
+            {/* Profile Info */}
+            <div className="flex-1">
+              <h4 className="text-xl font-bold text-gray-800">
+                {staffDetailData?.profile ? 
+                  `${staffDetailData.profile.name} ${staffDetailData.profile.surname}` :
+                  staffMember.staffName
+                }
+              </h4>
+              <p className="text-gray-600 capitalize">
+                {staffDetailData?.profile?.tag ? `@${staffDetailData.profile.tag}` : ''}
+              </p>
+              <p className="text-gray-600 capitalize">{staffMember.position}</p>
+              <div className="mt-2">
+                {renderStars(staffMember.averageRating || 0)}
+              </div>
+              
+              {/* Profile details */}
+              <div className="mt-4 text-sm text-gray-600">
+                <p><strong>Email:</strong> {staffDetailData?.profile?.email || 'Not available'}</p>
+                <p><strong>Phone:</strong> {staffDetailData?.profile?.phone || 'Not available'}</p>
+                <p><strong>Address:</strong> {staffDetailData?.profile?.address || 'Not available'}</p>
+                <p><strong>Joined:</strong> {staffDetailData?.profile?.joined ? 
+                  new Date(staffDetailData.profile.joined).toLocaleDateString() : 'Not available'}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Performance Sections */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          {/* Requests Performance */}
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <h3 className="text-lg font-semibold mb-4 text-blue-800">Requests Performance</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Total Requests:</span>
+                <span className="font-semibold">
+                  {staffDetailData?.requestsPerformance?.totalRequests || staffMember.requestsHandled || 0}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Avg. Resolve Time:</span>
+                <span className="font-semibold">
+                  {staffDetailData?.requestsPerformance?.avgResolveTimeMinutes ? 
+                    `${staffDetailData.requestsPerformance.avgResolveTimeMinutes} min` : 
+                    'Not available'
+                  }
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Avg. Rating:</span>
+                <span className="font-semibold">
+                  {staffDetailData?.requestsPerformance?.avgRating ? 
+                    `${staffDetailData.requestsPerformance.avgRating}/5` : 
+                    'Not available'
+                  }
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Highest Rating:</span>
+                <span className="font-semibold">
+                  {staffDetailData?.requestsPerformance?.highestRating ? 
+                    `${staffDetailData.requestsPerformance.highestRating}/5` : 
+                    'Not available'
+                  }
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Lowest Rating:</span>
+                <span className="font-semibold">
+                  {staffDetailData?.requestsPerformance?.lowestRating ? 
+                    `${staffDetailData.requestsPerformance.lowestRating}/5` : 
+                    'Not available'
+                  }
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Orders Performance */}
+          <div className="bg-green-50 p-4 rounded-lg">
+            <h3 className="text-lg font-semibold mb-4 text-green-800">Orders Performance</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Total Orders:</span>
+                <span className="font-semibold">
+                  {staffDetailData?.ordersPerformance?.totalOrders || staffMember.ordersHandled || 0}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Avg. Rating:</span>
+                <span className="font-semibold">
+                  {staffDetailData?.ordersPerformance?.avgRating ? 
+                    `${staffDetailData.ordersPerformance.avgRating}/5` : 
+                    'Not available'
+                  }
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Highest Rating:</span>
+                <span className="font-semibold">
+                  {staffDetailData?.ordersPerformance?.highestRating ? 
+                    `${staffDetailData.ordersPerformance.highestRating}/5` : 
+                    'Not available'
+                  }
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Lowest Rating:</span>
+                <span className="font-semibold">
+                  {staffDetailData?.ordersPerformance?.lowestRating ? 
+                    `${staffDetailData.ordersPerformance.lowestRating}/5` : 
+                    'Not available'
+                  }
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* AI Performance Review */}
+        <div className="bg-purple-50 p-4 rounded-lg">
+          <div className="flex items-center gap-3 mb-4">
+            <Brain className="w-6 h-6 text-purple-600" />
+            <h3 className="text-lg font-semibold text-purple-800">Performance Review [AI]</h3>
+          </div>
+          
+          {aiLoading ? (
+            <div className="flex justify-center py-6">
+              <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+            </div>
+          ) : aiReview ? (
+            <div className="space-y-4">
+              {/* Overall Assessment */}
+              <div className="bg-white p-4 rounded-lg border border-purple-200">
+                <div className="grid grid-cols-2 gap-4 mb-3">
+                  <div>
+                    <span className="text-sm font-medium text-gray-600">Overall Sentiment</span>
+                    <p className="text-lg font-semibold text-purple-700">{aiReview.overall_sentiment}</p>
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-gray-600">Feedback Count</span>
+                    <p className="text-lg font-semibold text-purple-700">{aiReview.totalFeedback}</p>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-sm font-medium text-gray-600">Analysis Summary</span>
+                  <p className="text-gray-700 mt-1">{aiReview.overall_analysis}</p>
+                </div>
+              </div>
+
+              {/* Happiness Breakdown */}
+              {aiReview.happiness_breakdown && Object.keys(aiReview.happiness_breakdown).length > 0 && (
+                <div className="bg-white p-4 rounded-lg border border-purple-200">
+                  <h4 className="text-md font-medium text-gray-900 mb-3">Customer Happiness Breakdown</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {Object.entries(aiReview.happiness_breakdown).map(([level, count]) => (
+                      <div key={level} className="bg-gray-50 p-3 rounded-lg text-center">
+                        <div className="text-lg font-semibold text-gray-900">{count as number}</div>
+                        <div className="text-sm text-gray-600 capitalize">{level}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Strengths and Improvements in two columns */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Strengths */}
+                {aiReview.strengths && aiReview.strengths.length > 0 && (
+                  <div className="bg-white p-4 rounded-lg border border-green-200">
+                    <h4 className="text-md font-medium text-green-800 mb-3 flex items-center gap-2">
+                      <CheckCircle className="w-5 h-5" />
+                      Key Strengths
+                    </h4>
+                    <div className="space-y-2">
+                      {aiReview.strengths.map((strength: string, index: number) => (
+                        <div key={index} className="flex items-start gap-2">
+                          <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                          <span className="text-sm text-gray-700">{strength}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Improvement Points */}
+                {aiReview.improvement_points && aiReview.improvement_points.length > 0 && (
+                  <div className="bg-white p-4 rounded-lg border border-amber-200">
+                    <h4 className="text-md font-medium text-amber-800 mb-3 flex items-center gap-2">
+                      <AlertCircle className="w-5 h-5" />
+                      Areas for Improvement
+                    </h4>
+                    <div className="space-y-2">
+                      {aiReview.improvement_points.map((point: string, index: number) => (
+                        <div key={index} className="flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                          <span className="text-sm text-gray-700">{point}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Manager Recommendation */}
+              {aiReview.recommendation && (
+                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                  <h4 className="text-md font-medium text-blue-800 mb-2">Manager Recommendation</h4>
+                  <p className="text-gray-700">{aiReview.recommendation}</p>
+                </div>
+              )}
+
+              {/* Metadata */}
+              <div className="text-xs text-gray-500 pt-2 border-t">
+                Analysis Period: {aiReview.dateRange} | Last Updated: {new Date(aiReview.lastUpdated).toLocaleString()}
+                {aiReview.error && (
+                  <span className="text-amber-600 ml-4">⚠ {aiReview.error}</span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-6">
+              <Brain className="w-8 h-8 text-gray-400 mx-auto mb-3" />
+              <h4 className="text-md font-medium text-gray-700 mb-2">No AI Review Available</h4>
+              <p className="text-sm text-gray-500">
+                No customer feedback available for AI analysis in the selected period.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 
 export default AnalyticsComponent;

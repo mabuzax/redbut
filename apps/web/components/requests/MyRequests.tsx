@@ -240,6 +240,7 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
         sessionId: reviewDialog.sessionId,
         userId: reviewDialog.userId,
         waiterId: reviewDialog.waiterId || undefined,
+        serviceType: 'request',
         analysis: reviewData
       });
       

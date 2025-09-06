@@ -70,6 +70,7 @@ export class RequestsService {
           data: {
             requestId: request.id,
             action: 'New request created',
+            actor: 'user',
           },
         });
         
@@ -207,6 +208,7 @@ export class RequestsService {
             data: {
               requestId: updatedRequest.id,
               action,
+              actor: 'user',
             },
           });
         }

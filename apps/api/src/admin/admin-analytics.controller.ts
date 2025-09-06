@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Query,
+  Param,
   UseGuards,
   HttpStatus,
   HttpException,
@@ -55,6 +56,25 @@ class DateRangeQueryDto {
   @IsOptional()
   @IsISO8601({ strict: true }, { message: 'endDate must be a valid ISO 8601 date string (YYYY-MM-DD)' })
   endDate?: string;
+}
+
+class StaffPerformanceQueryDto extends DateRangeQueryDto {
+  @ApiPropertyOptional({
+    description: 'Waiter ID filter (or "all" for all waiters)',
+    example: '1',
+    type: String
+  })
+  @IsOptional()
+  waiter?: string;
+
+  @ApiPropertyOptional({
+    description: 'Sort by field',
+    example: 'completion-rate',
+    type: String,
+    enum: ['completion-rate', 'response-time', 'rating', 'productivity']
+  })
+  @IsOptional()
+  sort?: string;
 }
 
 @ApiTags('admin-analytics')
@@ -166,6 +186,43 @@ export class AdminAnalyticsController {
     }
   }
 
+  @Get('staff/:staffId/details')
+  @ApiOperation({ summary: 'Get detailed analytics for a specific staff member' })
+  @ApiQuery({ name: 'startDate', required: false, type: String, description: 'Start date (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'endDate', required: false, type: String, description: 'End date (YYYY-MM-DD)' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Detailed staff analytics data retrieved successfully.'})
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  async getStaffDetailedAnalytics(
+    @Param('staffId') staffId: string,
+    @Query() dateRangeDto: DateRangeQueryDto
+  ): Promise<any> {
+    try {
+      const dateRange = this.getDateRangeFromDto(dateRangeDto);
+      return await this.adminAnalyticsService.getStaffDetailedAnalytics(staffId, dateRange);
+    } catch (error) {
+      throw this.handleServiceError(error, 'Detailed Staff Analytics');
+    }
+  }
+
+  @Get('staff-performance')
+  @ApiOperation({ summary: 'Get comprehensive staff performance analytics for Owner Dashboard' })
+  @ApiQuery({ name: 'startDate', required: false, type: String, description: 'Start date (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'endDate', required: false, type: String, description: 'End date (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'waiter', required: false, type: String, description: 'Waiter ID filter (or "all")' })
+  @ApiQuery({ name: 'sort', required: false, type: String, description: 'Sort by field (completion-rate, response-time, rating, productivity)' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Staff performance analytics data retrieved successfully.'})
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  async getStaffPerformanceAnalytics(
+    @Query() queryDto: StaffPerformanceQueryDto
+  ): Promise<any> {
+    try {
+      const dateRange = this.getDateRangeFromDto(queryDto);
+      return await this.adminAnalyticsService.getStaffPerformanceAnalytics(dateRange, queryDto.waiter, queryDto.sort);
+    } catch (error) {
+      throw this.handleServiceError(error, 'Staff Performance Analytics');
+    }
+  }
+
   @Get('tables')
   @ApiOperation({ summary: 'Get tables analytics data' })
   @ApiQuery({ name: 'startDate', required: false, type: String, description: 'Start date (YYYY-MM-DD)' })
@@ -223,6 +280,58 @@ export class AdminAnalyticsController {
       return await this.adminAnalyticsService.getCustomerRatingsAnalytics(dateRange);
     } catch (error) {
       throw this.handleServiceError(error, 'Customer Ratings Analytics');
+    }
+  }
+
+  @Get('staff/:staffId/ai-review')
+  @ApiOperation({ summary: 'Get AI-powered performance review for a specific staff member' })
+  @ApiQuery({ name: 'startDate', required: false, type: String, description: 'Start date (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'endDate', required: false, type: String, description: 'End date (YYYY-MM-DD)' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'AI performance review retrieved successfully.'})
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  async getStaffAIPerformanceReview(
+    @Param('staffId') staffId: string,
+    @Query() dateRangeDto: DateRangeQueryDto
+  ): Promise<any> {
+    try {
+      const dateRange = this.getDateRangeFromDto(dateRangeDto);
+      return await this.adminAnalyticsService.getStaffAIPerformanceReview(staffId, dateRange);
+    } catch (error) {
+      throw this.handleServiceError(error, 'AI Performance Review');
+    }
+  }
+
+  @Get('executive-summary')
+  @ApiOperation({ summary: 'Get comprehensive executive summary with AI-powered insights from operational data' })
+  @ApiQuery({ name: 'startDate', required: false, type: String, description: 'Start date (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'endDate', required: false, type: String, description: 'End date (YYYY-MM-DD)' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Executive summary with AI insights retrieved successfully.' })
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  async getExecutiveSummaryAnalytics(
+    @Query() dateRangeDto: DateRangeQueryDto
+  ): Promise<any> {
+    try {
+      const dateRange = this.getDateRangeFromDto(dateRangeDto);
+      return await this.adminAnalyticsService.getExecutiveSummaryAnalytics(dateRange);
+    } catch (error) {
+      throw this.handleServiceError(error, 'Executive Summary Analytics');
+    }
+  }
+
+  @Get('ai-insights')
+  @ApiOperation({ summary: 'Get AI-powered insights including performance analysis, sentiment analysis, and operational recommendations' })
+  @ApiQuery({ name: 'startDate', required: false, type: String, description: 'Start date (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'endDate', required: false, type: String, description: 'End date (YYYY-MM-DD)' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'AI insights retrieved successfully.' })
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  async getAIInsights(
+    @Query() dateRangeDto: DateRangeQueryDto
+  ): Promise<any> {
+    try {
+      const dateRange = this.getDateRangeFromDto(dateRangeDto);
+      return await this.adminAnalyticsService.getAIInsights(dateRange);
+    } catch (error) {
+      throw this.handleServiceError(error, 'AI Insights');
     }
   }
 }

@@ -41,7 +41,7 @@ model User {
 
 model ClosedSession {
   id             String         @id @default(uuid())
-  originalUserId String         @map("original_user_id") // Reference to original user ID
+  userId String         @map("user_id")
   name           String?
   tableNumber    Int            @map("table_number")
   sessionId      String         @map("session_id")
@@ -132,10 +132,12 @@ model RequestLog {
 
   /* what happened -------------------------------------------------------- */
   action    String
+  actor     String   @default("system") // "user", "waiter", "system"
   dateTime  DateTime @default(now()) @map("date_time")
 
   @@index([requestId])
   @@index([dateTime])
+  @@index([actor])
   @@map("requests_log")
 }
 
@@ -262,13 +264,14 @@ model ChatMessage {
 /* -------------------------------------------------------------------------- */
 
 model ServiceAnalysis {
-  id        String   @id @default(uuid())
-  sessionId String   @map("session_id")
-  userId    String   @map("user_id")
-  waiterId  String   @map("waiter_id")
-  rating    Int      // 1-5 rating derived from analysis
-  analysis  Json     // Full analysis data
-  createdAt DateTime @default(now()) @map("created_at")
+  id          String   @id @default(uuid())
+  sessionId   String   @map("session_id")
+  userId      String   @map("user_id")
+  waiterId    String   @map("waiter_id")
+  serviceType String   @default("request") @map("service_type") // 'request' or 'order'
+  rating      Int      // 1-5 rating derived from analysis
+  analysis    Json     // Full analysis data
+  createdAt   DateTime @default(now()) @map("created_at")
 
   /* relations ------------------------------------------------------------- */
   user      User     @relation(fields: [userId], references: [id])
@@ -278,6 +281,7 @@ model ServiceAnalysis {
   @@index([userId])
   @@index([waiterId])
   @@index([createdAt])
+  @@index([serviceType])
   @@map("service_analysis")
 }
 

@@ -21,6 +21,7 @@ export class ServiceAnalysisService {
         sessionId: data.sessionId,
         userId: data.userId,
         waiterId: data.waiterId,
+        serviceType: data.serviceType,
         rating: rating,
         analysis: data.analysis as any, // Cast to any for Json type
       },

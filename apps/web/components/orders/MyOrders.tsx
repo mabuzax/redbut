@@ -327,6 +327,7 @@ const MyOrders = ({ userId, token, tableNumber }: MyOrdersProps) => {
         sessionId: reviewDialog.sessionId,
         userId: reviewDialog.userId,
         waiterId: reviewDialog.waiterId || undefined,
+        serviceType: 'order',
         analysis: reviewData
       });
       

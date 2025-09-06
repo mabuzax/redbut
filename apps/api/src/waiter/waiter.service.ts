@@ -229,6 +229,7 @@ export class WaiterService {
           data: {
             requestId: id,
             action: `Status changed from ${currentRequestInTx.status} to ${targetStatus}`,
+            actor: 'waiter',
           },
         });
 
@@ -1007,7 +1008,7 @@ Example format:
       // Move session to closed_sessions table
       await this.prisma.closedSession.create({
         data: {
-          originalUserId: user.id,
+          userId: user.id,
           name: user.name,
           tableNumber: user.tableNumber,
           sessionId: user.sessionId,

@@ -35,5 +35,6 @@ export interface ServiceAnalysisRequest {
   sessionId: string;
   userId: string;
   waiterId?: string;
+  serviceType: string; // 'request' or 'order'
   analysis: ServiceAnalysisData;
 }

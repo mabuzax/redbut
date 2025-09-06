@@ -10,13 +10,10 @@ import { clearRedButLocalStorage } from "../lib/redbut-localstorage";
 // Import extracted components
 import DashboardGrid, { Section } from "../components/dashboard/DashboardGrid";
 import SectionPlaceholder from "../components/dashboard/SectionPlaceholder";
-import RequestsComponent from "../components/requests/RequestsComponent";
 import FoodMenuComponent from "../components/food-menu/FoodMenuComponent";
 import StaffComponent from "../components/staff/StaffComponent"; 
-import ShiftsComponent from "../components/shifts/ShiftsComponent";
-import TableAllocationsComponent from "../components/table-allocations/TableAllocationsComponent";
-import OrdersComponent from "../components/orders/OrdersComponent";
-import AnalyticsComponent from "../components/analytics/AnalyticsComponent"; // Fixed import path
+import AnalyticsComponent from "../components/analytics/AnalyticsComponent";
+import OwnerDashboardComponent from "../components/owner/OwnerDashboardComponent";
 
 export default function AdminDashboard() {
   type Stage = "splash" | "login" | "dashboard";
@@ -117,20 +114,14 @@ export default function AdminDashboard() {
               <h2 className="text-2xl font-bold text-gray-900 mb-6">Admin Dashboard</h2>
               <DashboardGrid onSelect={setSelectedSection} />
             </>
-          ) : selectedSection === "Requests" ? (
-            <RequestsComponent onBack={handleBackToDashboard} />
           ) : selectedSection === "Food Menu" ? (
             <FoodMenuComponent onBack={handleBackToDashboard} />
           ) : selectedSection === "Staff" ? (
             <StaffComponent onBack={handleBackToDashboard} />
-          ) : selectedSection === "Shifts" ? (
-            <ShiftsComponent onBack={handleBackToDashboard} />
-          ) : selectedSection === "Table Allocations" ? (
-            <TableAllocationsComponent onBack={handleBackToDashboard} />
-          ) : selectedSection === "Orders" ? (
-            <OrdersComponent onBack={handleBackToDashboard} />
           ) : selectedSection === "Analytics" ? (
             <AnalyticsComponent /> 
+          ) : selectedSection === "Owner Dashboard" ? (
+            <OwnerDashboardComponent onBack={handleBackToDashboard} />
           ) : (
             <SectionPlaceholder
               section={selectedSection}

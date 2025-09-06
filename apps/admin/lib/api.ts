@@ -451,11 +451,59 @@ export interface StaffPerformanceDetail {
   totalHoursWorked: number;
   averageRating?: number; 
   requestsHandled?: number; 
+  ordersHandled?: number;
+  // Request handling specific metrics
+  totalRequests?: number;
+  completedRequests?: number;
+  averageResponseTime?: number; // in minutes
+  completionRate?: number; // percentage
 }
 export interface StaffAnalyticsData {
   salesPerformance: StaffSalesPerformance[];
   orderCounts: StaffOrderCount[]; 
   performanceDetails: StaffPerformanceDetail[]; 
+}
+
+// Staff Performance Analytics for LLM-powered insights
+export interface WaiterPerformanceAnalytics {
+  waiterId: number;
+  waiterName: string;
+  totalRequests: number;
+  completedRequests: number;
+  completionRate: number;
+  avgResponseTime: number;
+  avgRating: number;
+  sentimentScore: number;
+  activeHours: number;
+  requestsPerHour: number;
+  trends: {
+    week: 'up' | 'down' | 'stable';
+    month: 'up' | 'down' | 'stable';
+  };
+}
+
+export interface StaffPerformanceAnalytics {
+  overview: {
+    totalStaff: number;
+    topPerformer: string;
+    avgCompletionRate: number;
+    avgResponseTime: number;
+    performanceGrowth: number;
+  };
+  staffRankings: WaiterPerformanceAnalytics[];
+  teamMetrics: {
+    productivityTrend: Array<{ date: string; productivity: number; efficiency: number }>;
+    serviceQuality: Array<{ metric: string; score: number; target: number }>;
+    workloadDistribution: Array<{ waiter: string; requests: number; hours: number }>;
+  };
+  insights?: {
+    summary: string;
+    strengths: string[];
+    improvements: string[];
+    recommendations: string[];
+  };
+  error?: string;
+  llmUnavailable?: boolean;
 }
 
 // 6. Tables Analytics
@@ -491,6 +539,9 @@ export interface RecentComment {
   commentText: string;
   commentDate: string; 
   tableName?: string; 
+  overallSentiment?: string;
+  isServiceAnalysis?: boolean;
+  serviceType?: string;
 }
 export interface WaiterRatingsBreakdown {
     waiterId: string;
@@ -513,9 +564,12 @@ export interface WaiterRatingsAnalyticsData {
 // 8. Requests Analytics
 export interface RequestsSummaryMetrics {
   totalRequests: number;
+  openRequests: number;
   averageResponseTimeMinutes: number; 
   completionRatePercentage: number; 
-  openRequests: number;
+  cancelledRatePercentage: number;
+  completedRequests: number;
+  cancelledRequests: number;
 }
 export interface RequestStatusDistribution extends NameValuePair {}
 export interface RequestsOverTimeDataPoint {
@@ -525,6 +579,8 @@ export interface RequestsOverTimeDataPoint {
 }
 export interface WaiterResponseTimeDataPoint extends NameValuePair {
     waiterId: string;
+    waiterName: string;
+    averageResponseTime: number;
 }
 export interface RequestsAnalyticsData {
   summaryMetrics: RequestsSummaryMetrics;
@@ -546,10 +602,33 @@ export interface CustomerSatisfactionTrendDataPoint {
 export interface FeedbackTheme extends NameValuePair {
   sentiment?: 'positive' | 'negative' | 'neutral';
 }
+export interface SentimentAnalysisResult {
+  overallSentiment: 'positive' | 'negative' | 'neutral';
+  sentimentScore: number;
+  keyInsights: string[];
+  commonThemes: FeedbackTheme[];
+  waiterPerformanceInsights: {
+    waiterName: string;
+    sentimentTrend: 'improving' | 'declining' | 'stable';
+    keyStrengths: string[];
+    areasForImprovement: string[];
+  }[];
+  businessValue: {
+    riskAreas: string[];
+    opportunities: string[];
+    priorityActions: string[];
+  };
+}
 export interface CustomerRatingsAnalyticsData {
   overallRestaurantRating: OverallRestaurantRating;
   satisfactionTrend: CustomerSatisfactionTrendDataPoint[];
   topFeedbackThemes: FeedbackTheme[]; 
+  sentimentAnalysis: SentimentAnalysisResult;
+  rawDataSummary: {
+    totalRequestLogs: number;
+    totalServiceAnalysis: number;
+    dateRange: string;
+  };
 }
 
 export type AiAnalyticsQueryResponse = 
@@ -964,6 +1043,22 @@ export const adminApi = {
     return callApi<StaffAnalyticsData>(`/admin/analytics/staff${queryString}`, token);
   },
 
+  getStaffDetailedAnalytics: async (staffId: string, token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<any> => {
+    const queryParams = new URLSearchParams();
+    if (dateRangeDto?.startDate) queryParams.append('startDate', dateRangeDto.startDate);
+    if (dateRangeDto?.endDate) queryParams.append('endDate', dateRangeDto.endDate);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return callApi<any>(`/admin/analytics/staff/${staffId}/details${queryString}`, token);
+  },
+
+  getStaffAIReview: async (staffId: string, token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<any> => {
+    const queryParams = new URLSearchParams();
+    if (dateRangeDto?.startDate) queryParams.append('startDate', dateRangeDto.startDate);
+    if (dateRangeDto?.endDate) queryParams.append('endDate', dateRangeDto.endDate);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return callApi<any>(`/admin/analytics/staff/${staffId}/ai-review${queryString}`, token);
+  },
+
   getTablesAnalytics: async (token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<TablesAnalyticsData> => {
     const queryParams = new URLSearchParams();
     if (dateRangeDto?.startDate) queryParams.append('startDate', dateRangeDto.startDate);
@@ -1082,5 +1177,41 @@ export const adminApi = {
       otp,
       userType,
     });
+  },
+
+  // Staff Performance Analytics with LLM insights
+  getStaffPerformanceAnalytics: async (
+    token: string,
+    params?: {
+      startDate?: string;
+      endDate?: string;
+      waiter?: string;
+      sort?: string;
+    }
+  ): Promise<StaffPerformanceAnalytics> => {
+    const queryParams = new URLSearchParams();
+    if (params?.startDate) queryParams.append('startDate', params.startDate);
+    if (params?.endDate) queryParams.append('endDate', params.endDate);
+    if (params?.waiter && params.waiter !== 'all') queryParams.append('waiter', params.waiter);
+    if (params?.sort) queryParams.append('sort', params.sort);
+    
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return callApi<StaffPerformanceAnalytics>(`/admin/analytics/staff-performance${queryString}`, token);
+  },
+
+  // Executive Summary Analytics with LLM insights
+  getExecutiveSummaryAnalytics: async (
+    token: string,
+    params?: {
+      startDate?: string;
+      endDate?: string;
+    }
+  ): Promise<any> => {
+    const queryParams = new URLSearchParams();
+    if (params?.startDate) queryParams.append('startDate', params.startDate);
+    if (params?.endDate) queryParams.append('endDate', params.endDate);
+    
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return callApi<any>(`/admin/analytics/executive-summary${queryString}`, token);
   },
 };
