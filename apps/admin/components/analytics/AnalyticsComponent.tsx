@@ -124,7 +124,11 @@ const AnalyticsComponent = () => {
           setRequestsData(await adminApi.getRequestsAnalytics(token, currentRange));
           break;
         case "Overall Sentiments":
+          console.log(`[Frontend] Fetching Overall Sentiments data for range: ${JSON.stringify(currentRange)}`);
+          const startTime = Date.now();
           setCustomerRatingsData(await adminApi.getCustomerRatingsAnalytics(token, currentRange));
+          const endTime = Date.now();
+          console.log(`[Frontend] Overall Sentiments data fetched in ${endTime - startTime}ms`);
           break;
         default:
           console.warn("Unknown tab:", tab);
@@ -160,7 +164,7 @@ const AnalyticsComponent = () => {
   
   const renderTabContent = () => {
     if (loading[activeTab]) {
-      return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary-500" /> <span className="ml-2">Loading data...</span></div>;
+      return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary-500" /> <span className="ml-2">AI analysis in progress...</span></div>;
     }
     if (error[activeTab]) {
       return <div className="text-red-500 text-center p-4">{error[activeTab]}</div>;

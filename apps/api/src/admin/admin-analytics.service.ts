@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
-import { Prisma, Review, Shift, Waiter, WaiterRating, OrderStatus, RequestStatus as PrismaRequestStatus, Order, OrderItem, MenuItem, Request as PrismaRequestType, RequestLog } from '@prisma/client';
+import { CacheService } from '../common/cache.service';
+import { Prisma, Review, Shift, Waiter, OrderStatus, RequestStatus as PrismaRequestStatus, Order, OrderItem, MenuItem, Request as PrismaRequestType, RequestLog, ServiceAnalysis } from '@prisma/client';
 import {
   SalesAnalyticsData,
   PopularItemsAnalyticsData,
@@ -8,7 +9,6 @@ import {
   HourlySalesAnalyticsData,
   StaffAnalyticsData,
   TablesAnalyticsData,
-  WaiterRatingsAnalyticsData,
   RequestsAnalyticsData,
   CustomerRatingsAnalyticsData,
   DateRange,
@@ -31,6 +31,7 @@ import {
   RatingsOverTimeDataPoint,
   RecentComment,
   WaiterRatingsBreakdown,
+  WaiterRatingsAnalyticsData,
   RequestsSummaryMetrics,
   RequestStatusDistribution,
   RequestsOverTimeDataPoint,
@@ -52,7 +53,15 @@ import { subDays, startOfMonth, endOfMonth, startOfDay, endOfDay, eachDayOfInter
 export class AdminAnalyticsService {
   private readonly logger = new Logger(AdminAnalyticsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cacheService: CacheService
+  ) {
+    // Run cache cleanup every 10 minutes
+    setInterval(() => {
+      this.cacheService.cleanup();
+    }, 10 * 60 * 1000);
+  }
 
   private getDefaultDateRange(days = 7): DateRange {
     const endDate = endOfDay(new Date());
@@ -667,123 +676,128 @@ Analyze patterns in the feedback and provide insights that would be valuable for
     return { utilization, revenueByTable };
   }
 
-  async getWaiterRatingsAnalytics(dateRange?: DateRange): Promise<WaiterRatingsAnalyticsData> {
+  async getWaiterRatingsAnalyticsFromServiceAnalysis(dateRange?: DateRange): Promise<WaiterRatingsAnalyticsData> {
     const { startDate, endDate } = dateRange || this.getDefaultDateRange(30);
-    this.logger.log(`Fetching waiter ratings analytics from ${startDate} to ${endDate}`);
+    this.logger.log(`Fetching waiter ratings analytics from service analysis from ${startDate} to ${endDate}`);
 
-    const waiters = await this.prisma.waiter.findMany({ 
-        include: { 
-            ratings: { 
-                where: { createdAt: { gte: new Date(startDate), lte: new Date(endDate) } },
-                orderBy: { createdAt: 'desc'}
-            } 
-        } 
-    });
-    
-    const allRatingsInPeriod = await this.prisma.waiterRating.findMany({ 
-        where: { createdAt: { gte: new Date(startDate), lte: new Date(endDate) } }, 
-        include: {waiter: {select: {name: true, surname: true, tag_nickname: true}}},
-        orderBy: { createdAt: 'desc'}
-    });
-
-    const averageRatingsPerWaiter: WaiterAverageRating[] = waiters.map(waiter => {
-      const ratings = waiter.ratings;
-      const avg = ratings.length > 0 ? ratings.reduce((sum, r) => sum + (r.friendliness + r.orderAccuracy + r.speed + r.attentiveness + r.knowledge) / 5, 0) / ratings.length : 0;
-      return { name: `${waiter.name} ${waiter.surname} (${waiter.tag_nickname})`, value: parseFloat(avg.toFixed(1)), waiterId: waiter.id, totalRatings: ratings.length };
-    }).sort((a,b) => b.value - a.value);
-
-    const ratingCounts = [0,0,0,0,0]; // for 1 to 5 stars
-    allRatingsInPeriod.forEach(r => {
-        const avgForRating = Math.round((r.friendliness + r.orderAccuracy + r.speed + r.attentiveness + r.knowledge) / 5);
-        if(avgForRating >=1 && avgForRating <=5) ratingCounts[avgForRating-1]++;
+    try {
+      // Get all waiters
+      const waiters = await this.prisma.waiter.findMany({
+        select: {
+          id: true,
+          name: true,
+          surname: true,
+          tag_nickname: true,
+        }
       });
-    const overallRatingDistribution: RatingDistributionDataPoint[] = ratingCounts.map((count, i) => ({ name: `${i+1} Star${i === 0 ? '': 's'}`, value: count }));
 
-    const ratingsTrendMap = new Map<string, { sum: number; count: number }>();
-    allRatingsInPeriod.forEach(r => {
-        const day = format(r.createdAt, 'yyyy-MM-dd');
+      // Get all service analysis data for the period
+      const serviceAnalyses = await this.prisma.serviceAnalysis.findMany({
+        where: {
+          createdAt: { gte: new Date(startDate), lte: new Date(endDate) }
+        },
+        include: {
+          waiter: {
+            select: {
+              id: true,
+              name: true,
+              surname: true,
+              tag_nickname: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      // Calculate average ratings per waiter using service analysis ratings
+      const averageRatingsPerWaiter: WaiterAverageRating[] = waiters.map(waiter => {
+        const waiterAnalyses = serviceAnalyses.filter(sa => sa.waiterId === waiter.id);
+        const avgRating = waiterAnalyses.length > 0 
+          ? waiterAnalyses.reduce((sum, sa) => sum + sa.rating, 0) / waiterAnalyses.length
+          : 0;
+        
+        return {
+          name: `${waiter.name} ${waiter.surname} (${waiter.tag_nickname})`,
+          value: parseFloat(avgRating.toFixed(1)),
+          waiterId: waiter.id,
+          totalRatings: waiterAnalyses.length
+        };
+      }).sort((a, b) => b.value - a.value);
+
+      // Overall rating distribution (1-5 stars) across ALL service analyses
+      const ratingCounts = [0, 0, 0, 0, 0]; // for 1 to 5 stars
+      serviceAnalyses.forEach(sa => {
+        if (sa.rating >= 1 && sa.rating <= 5) {
+          ratingCounts[sa.rating - 1]++;
+        }
+      });
+      const overallRatingDistribution: RatingDistributionDataPoint[] = ratingCounts.map((count, i) => ({
+        name: `${i + 1} Star${i === 0 ? '' : 's'}`,
+        value: count
+      }));
+
+      // Ratings trend over time using service analysis data
+      const ratingsTrendMap = new Map<string, { sum: number; count: number }>();
+      serviceAnalyses.forEach(sa => {
+        const day = format(sa.createdAt, 'yyyy-MM-dd');
         const current = ratingsTrendMap.get(day) || { sum: 0, count: 0 };
-        current.sum += (r.friendliness + r.orderAccuracy + r.speed + r.attentiveness + r.knowledge) / 5;
+        current.sum += sa.rating;
         current.count += 1;
         ratingsTrendMap.set(day, current);
-    });
-    const ratingsTrend: RatingsOverTimeDataPoint[] = Array.from(ratingsTrendMap.entries()).map(([date, data]) => ({
-        date, averageRating: data.count > 0 ? parseFloat((data.sum/data.count).toFixed(1)) : 0
-    })).sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      });
+      const ratingsTrend: RatingsOverTimeDataPoint[] = Array.from(ratingsTrendMap.entries()).map(([date, data]) => ({
+        date,
+        averageRating: data.count > 0 ? parseFloat((data.sum / data.count).toFixed(1)) : 0
+      })).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    const recentComments: RecentComment[] = allRatingsInPeriod
-        .filter(r => r.comment)
-        .slice(0,5) // Get fewer from waiter ratings
-        .map(r => ({
-            commentId: r.id,
-            waiterId: r.waiterId,
-            waiterName: `${r.waiter.name} ${r.waiter.surname}`,
-            rating: Math.round((r.friendliness + r.orderAccuracy + r.speed + r.attentiveness + r.knowledge) / 5),
-            commentText: r.comment!,
-            commentDate: r.createdAt.toISOString(),
-        }));
+      // Recent comments from service analysis
+      const recentComments: RecentComment[] = serviceAnalyses
+        .filter(sa => sa.analysis && typeof sa.analysis === 'object')
+        .slice(0, 10)
+        .map(sa => {
+          const analysis = sa.analysis as any;
+          return {
+            commentId: `sa_${sa.id}`,
+            waiterId: sa.waiterId,
+            waiterName: `${sa.waiter.name} ${sa.waiter.surname}`,
+            rating: sa.rating,
+            commentText: analysis?.reason || 'No reason provided',
+            commentDate: sa.createdAt.toISOString(),
+          };
+        });
 
-    // Add service analysis data for recent comments
-    const serviceAnalysisComments = await this.prisma.serviceAnalysis.findMany({
-      where: {
-        createdAt: { 
-          gte: new Date(startDate), 
-          lte: new Date(endDate) 
-        },
-        analysis: {
-          not: Prisma.DbNull
-        }
-      },
-      include: {
-        waiter: {
-          select: {
-            name: true,
-            surname: true,
-            tag_nickname: true
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      },
-      take: 10
-    });
-
-    const serviceAnalysisFormattedComments = serviceAnalysisComments.map(sa => {
-      const analysis = sa.analysis as any;
-      return {
-        commentId: `sa_${sa.id}`,
-        waiterId: sa.waiterId,
-        waiterName: `${sa.waiter.name} ${sa.waiter.surname}`,
-        rating: sa.rating || 3,
-        commentText: analysis?.reason || 'No reason provided',
-        commentDate: sa.createdAt.toISOString(),
-        overallSentiment: analysis?.overall_sentiment || 'neutral',
-        isServiceAnalysis: true,
-        serviceType: sa.serviceType || 'request'
-      };
-    });
-
-    // Combine and sort all comments by date, keeping the 10 most recent
-    const allComments = [...recentComments, ...serviceAnalysisFormattedComments]
-      .sort((a, b) => new Date(b.commentDate).getTime() - new Date(a.commentDate).getTime())
-      .slice(0, 10);
+      // Ratings breakdown per waiter - since service analysis only has single rating, 
+      // we'll use that rating for all categories as a simplified breakdown
+      const ratingsBreakdownPerWaiter: WaiterRatingsBreakdown[] = waiters.map(waiter => {
+        const waiterAnalyses = serviceAnalyses.filter(sa => sa.waiterId === waiter.id);
+        const avgRating = waiterAnalyses.length > 0 
+          ? waiterAnalyses.reduce((sum, sa) => sum + sa.rating, 0) / waiterAnalyses.length
+          : 0;
         
-    const ratingsBreakdownPerWaiter: WaiterRatingsBreakdown[] = waiters.map(waiter => {
-        const ratings = waiter.ratings;
         return {
-            waiterId: waiter.id,
-            waiterName: `${waiter.name} ${waiter.surname} (${waiter.tag_nickname})`,
-            averageFriendliness: ratings.length > 0 ? parseFloat((ratings.reduce((s,r) => s + r.friendliness, 0) / ratings.length).toFixed(1)) : 0,
-            averageOrderAccuracy: ratings.length > 0 ? parseFloat((ratings.reduce((s,r) => s + r.orderAccuracy, 0) / ratings.length).toFixed(1)) : 0,
-            averageSpeed: ratings.length > 0 ? parseFloat((ratings.reduce((s,r) => s + r.speed, 0) / ratings.length).toFixed(1)) : 0,
-            averageAttentiveness: ratings.length > 0 ? parseFloat((ratings.reduce((s,r) => s + r.attentiveness, 0) / ratings.length).toFixed(1)) : 0,
-            averageKnowledge: ratings.length > 0 ? parseFloat((ratings.reduce((s,r) => s + r.knowledge, 0) / ratings.length).toFixed(1)) : 0,
-            totalRatings: ratings.length,
+          waiterId: waiter.id,
+          waiterName: `${waiter.name} ${waiter.surname} (${waiter.tag_nickname})`,
+          averageFriendliness: parseFloat(avgRating.toFixed(1)),
+          averageOrderAccuracy: parseFloat(avgRating.toFixed(1)),
+          averageSpeed: parseFloat(avgRating.toFixed(1)),
+          averageAttentiveness: parseFloat(avgRating.toFixed(1)),
+          averageKnowledge: parseFloat(avgRating.toFixed(1)),
+          totalRatings: waiterAnalyses.length,
         };
-    });
+      });
 
-    return { averageRatingsPerWaiter, overallRatingDistribution, ratingsTrend, recentComments: allComments, ratingsBreakdownPerWaiter };
+      return {
+        averageRatingsPerWaiter,
+        overallRatingDistribution,
+        ratingsTrend,
+        recentComments,
+        ratingsBreakdownPerWaiter
+      };
+
+    } catch (error) {
+      this.logger.error('Failed to fetch waiter ratings analytics from service analysis:', error);
+      throw new Error('Failed to load waiter ratings analytics');
+    }
   }
 
   async getRequestsAnalytics(dateRange?: DateRange): Promise<RequestsAnalyticsData> {
@@ -972,28 +986,48 @@ Analyze patterns in the feedback and provide insights that would be valuable for
     };
   }
 
-  async getCustomerRatingsAnalytics(dateRange?: DateRange): Promise<CustomerRatingsAnalyticsData> {
-    const { startDate, endDate } = dateRange || this.getDefaultDateRange(30);
-    this.logger.log(`Fetching overall sentiments analytics from ${startDate} to ${endDate}`);
+  async getCustomerRatingsAnalytics(dateRange?: DateRange, adminSessionId?: string): Promise<CustomerRatingsAnalyticsData> {
+    const methodStartTime = Date.now();
+    this.logger.log(`[CACHE] Starting getCustomerRatingsAnalytics for admin: ${adminSessionId || 'unknown'}, dateRange: ${JSON.stringify(dateRange)}`);
+    
+    // Check cache first if adminSessionId is provided
+    if (adminSessionId) {
+      const cacheKey = `getCustomerRatingsAnalytics_${adminSessionId}_${JSON.stringify(dateRange)}`;
+      this.logger.log(`[CACHE] Checking cache with key: ${cacheKey}`);
+      const cachedResult = this.cacheService.get(cacheKey);
+      if (cachedResult) {
+        const cacheTime = Date.now() - methodStartTime;
+        this.logger.log(`[CACHE HIT] ✅ Returning cached customer ratings analytics for admin ${adminSessionId} in ${cacheTime}ms - NO LLM CALL MADE`);
+        return cachedResult;
+      } else {
+        this.logger.log(`[CACHE MISS] ❌ No cached data found for admin ${adminSessionId} - will fetch fresh data and call LLM`);
+      }
+    } else {
+      this.logger.log(`[CACHE] No admin user ID provided - skipping cache check`);
+    }
 
-    // Fetch request logs for request resolution analysis
-    const requestLogs = await this.prisma.requestLog.findMany({
-      where: { 
-        dateTime: { gte: new Date(startDate), lte: new Date(endDate) }
-      },
-      include: {
-        request: {
-          include: {
-            user: {
-              include: {
-                waiter: true
+    const { startDate, endDate } = dateRange || this.getDefaultDateRange(30);
+    this.logger.log(`[DATA FETCH] Fetching overall sentiments analytics from ${startDate} to ${endDate}`);
+
+    try {
+      // Fetch request logs for request resolution analysis
+      const requestLogs = await this.prisma.requestLog.findMany({
+        where: { 
+          dateTime: { gte: new Date(startDate), lte: new Date(endDate) }
+        },
+        include: {
+          request: {
+            include: {
+              user: {
+                include: {
+                  waiter: true
+                }
               }
             }
           }
-        }
-      },
-      orderBy: { dateTime: 'asc' }
-    });
+        },
+        orderBy: { dateTime: 'asc' }
+      });
 
     // Fetch service analysis data for request-type feedback
     const serviceAnalysis = await this.prisma.serviceAnalysis.findMany({
@@ -1033,17 +1067,16 @@ Analyze patterns in the feedback and provide insights that would be valuable for
     };
 
     // Generate AI sentiment analysis
+    this.logger.log(`[LLM] 🤖 Starting LLM sentiment analysis with ${analysisData.requestLogs.length} request logs and ${analysisData.serviceAnalysis.length} service analysis items`);
+    const llmStartTime = Date.now();
     const sentimentAnalysis = await this.generateSentimentAnalysis(analysisData);
+    const llmEndTime = Date.now();
+    this.logger.log(`[LLM] ✅ LLM sentiment analysis completed in ${llmEndTime - llmStartTime}ms`);
 
-    // Calculate traditional metrics for backwards compatibility
-    const reviews = await this.prisma.review.findMany({
-      where: { createdAt: { gte: new Date(startDate), lte: new Date(endDate) } },
-      orderBy: { createdAt: 'desc' },
-    });
-
+    // Calculate overall restaurant rating from service analysis data
     const overallRestaurantRating: OverallRestaurantRating = {
-      averageOverallRating: reviews.length > 0 ? parseFloat((reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)) : 0,
-      totalReviews: reviews.length,
+      averageOverallRating: serviceAnalysis.length > 0 ? parseFloat((serviceAnalysis.reduce((sum, sa) => sum + sa.rating, 0) / serviceAnalysis.length).toFixed(1)) : 0,
+      totalReviews: serviceAnalysis.length,
     };
     
     const satisfactionTrendMap = new Map<string, { sum: number; count: number }>();
@@ -1069,13 +1102,30 @@ Analyze patterns in the feedback and provide insights that would be valuable for
       dateRange: `${startDate} to ${endDate}`
     };
 
-    return { 
+    const result = { 
       overallRestaurantRating, 
       satisfactionTrend, 
       topFeedbackThemes, 
       sentimentAnalysis,
       rawDataSummary
     };
+
+    // Cache the result if adminSessionId is provided
+    if (adminSessionId) {
+      const cacheKey = `getCustomerRatingsAnalytics_${adminSessionId}_${JSON.stringify(dateRange)}`;
+      this.cacheService.set(cacheKey, result);
+      const totalTime = Date.now() - methodStartTime;
+      this.logger.log(`[CACHE STORE] 💾 Cached customer ratings analytics for admin ${adminSessionId} (total method time: ${totalTime}ms)`);
+    } else {
+      const totalTime = Date.now() - methodStartTime;
+      this.logger.log(`[NO CACHE] Result not cached (no admin user ID) - total method time: ${totalTime}ms`);
+    }
+
+    return result;
+    } catch (error) {
+      this.logger.error('Failed to fetch customer ratings analytics:', error);
+      throw new Error('Failed to load customer ratings analytics');
+    }
   }
 
   private async generateSentimentAnalysis(data: any): Promise<SentimentAnalysisResult> {
@@ -1124,6 +1174,8 @@ Focus on:
 5. Business impact and actionable recommendations
 `;
 
+      this.logger.log(`[OPENAI] 🚀 Making OpenAI API call to gpt-4o for sentiment analysis...`);
+      const openaiStartTime = Date.now();
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -1235,16 +1287,21 @@ Focus on:
       });
 
       if (!response.ok) {
+        this.logger.error(`[OPENAI] ❌ OpenAI API error: ${response.statusText}`);
         throw new Error(`OpenAI API error: ${response.statusText}`);
       }
 
       const aiResponse = await response.json();
+      const openaiEndTime = Date.now();
+      this.logger.log(`[OPENAI] ✅ OpenAI API call completed in ${openaiEndTime - openaiStartTime}ms`);
+      
       const content = aiResponse.choices[0].message.content;
       
       // With structured output, the content should be valid JSON
       let analysisResult;
       try {
         analysisResult = JSON.parse(content);
+        this.logger.log(`[OPENAI] 📊 Successfully parsed sentiment analysis result`);
       } catch (parseError) {
         this.logger.warn('Failed to parse AI response as JSON, attempting to clean content:', content);
         // Try to extract JSON from markdown code blocks if present
@@ -1289,8 +1346,19 @@ Focus on:
   async getStaffPerformanceAnalytics(
     dateRange?: DateRange,
     waiterId?: string,
-    sortBy?: string
+    sortBy?: string,
+    adminSessionId?: string
   ): Promise<StaffPerformanceAnalytics> {
+    // Check cache first if adminSessionId is provided
+    if (adminSessionId) {
+      const cacheKey = `getStaffPerformanceAnalytics_${adminSessionId}_${JSON.stringify(dateRange)}_${waiterId || 'all'}_${sortBy || 'default'}`;
+      const cachedResult = this.cacheService.get(cacheKey);
+      if (cachedResult) {
+        this.logger.log(`Returning cached staff performance analytics for admin ${adminSessionId}`);
+        return cachedResult;
+      }
+    }
+
     const startDate = dateRange?.startDate ? new Date(dateRange.startDate) : subDays(new Date(), 30);
     const endDate = dateRange?.endDate ? new Date(dateRange.endDate) : new Date();
 
@@ -1433,8 +1501,8 @@ Focus on:
           ? responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length 
           : 0;
 
-        // Get waiter ratings
-        const ratings = await this.prisma.waiterRating.findMany({
+        // Get service analysis ratings
+        const serviceAnalysisRatings = await this.prisma.serviceAnalysis.findMany({
           where: {
             waiterId: waiter.id,
             createdAt: {
@@ -1444,22 +1512,17 @@ Focus on:
           }
         });
 
-        const avgRating = ratings.length > 0
-          ? ratings.reduce((sum, r) => sum + (r.friendliness + r.orderAccuracy + r.speed + r.attentiveness + r.knowledge), 0) / (ratings.length * 5)
+        const avgRating = serviceAnalysisRatings.length > 0
+          ? serviceAnalysisRatings.reduce((sum, r) => sum + r.rating, 0) / serviceAnalysisRatings.length
           : 0;
 
-        const ratingBreakdown = ratings.length > 0 ? {
-          friendliness: ratings.reduce((sum, r) => sum + r.friendliness, 0) / ratings.length,
-          orderAccuracy: ratings.reduce((sum, r) => sum + r.orderAccuracy, 0) / ratings.length,
-          speed: ratings.reduce((sum, r) => sum + r.speed, 0) / ratings.length,
-          attentiveness: ratings.reduce((sum, r) => sum + r.attentiveness, 0) / ratings.length,
-          knowledge: ratings.reduce((sum, r) => sum + r.knowledge, 0) / ratings.length,
-        } : {
-          friendliness: 0,
-          orderAccuracy: 0,
-          speed: 0,
-          attentiveness: 0,
-          knowledge: 0,
+        // Since service_analysis only has a single rating field, we'll provide default breakdown
+        const ratingBreakdown = {
+          friendliness: avgRating,
+          orderAccuracy: avgRating,
+          speed: avgRating,
+          attentiveness: avgRating,
+          knowledge: avgRating,
         };
 
         // Get sentiment score from service analysis
@@ -1631,7 +1694,7 @@ Focus on:
         performanceGrowth: llmAnalysis?.performanceGrowth || 15.3, // Use LLM insight or fallback
       };
 
-      return {
+      const result = {
         overview,
         staffRankings: staffMetrics,
         teamMetrics: {
@@ -1640,6 +1703,14 @@ Focus on:
           workloadDistribution,
         },
       };
+
+      // Cache the result if adminSessionId is provided
+      if (adminSessionId) {
+        const cacheKey = `getStaffPerformanceAnalytics_${adminSessionId}_${JSON.stringify(dateRange)}_${waiterId || 'all'}_${sortBy || 'default'}`;
+        this.cacheService.set(cacheKey, result);
+      }
+
+      return result;
 
     } catch (error) {
       this.logger.error('Failed to fetch staff performance analytics:', error);
@@ -1676,8 +1747,8 @@ Focus on:
       }
     });
 
-    // Get waiter ratings
-    const waiterRatings = await this.prisma.waiterRating.findMany({
+    // Get service analysis instead of waiter ratings
+    const serviceAnalyses = await this.prisma.serviceAnalysis.findMany({
       where: {
         waiterId: { in: waiterIds },
         createdAt: { gte: startDate, lte: endDate }
@@ -1691,7 +1762,7 @@ Focus on:
     return {
       waiters,
       userSessions,
-      waiterRatings,
+      serviceAnalyses,
       dateRange: { startDate, endDate }
     };
   }
@@ -1704,9 +1775,9 @@ Focus on:
       const totalRequests = rawData.userSessions.reduce((sum: number, session: any) => sum + session.requests.length, 0);
       const totalCompletedRequests = rawData.userSessions.reduce((sum: number, session: any) => 
         sum + session.requests.filter((r: any) => r.status === 'Completed' || r.status === 'Done').length, 0);
-      const totalRatings = rawData.waiterRatings.length;
+      const totalRatings = rawData.serviceAnalyses.length;
       const avgRating = totalRatings > 0 ? 
-        rawData.waiterRatings.reduce((sum: number, r: any) => sum + (r.friendliness + r.orderAccuracy + r.speed + r.attentiveness + r.knowledge), 0) / (totalRatings * 5) : 0;
+        rawData.serviceAnalyses.reduce((sum: number, r: any) => sum + r.rating, 0) / totalRatings : 0;
 
       const analysisPrompt = `Analyze the following restaurant staff performance data and provide insights:
 
@@ -1724,9 +1795,9 @@ ${rawData.waiters.map((waiter: any) => {
   const waiterRequests = waiterSessions.reduce((sum: number, s: any) => sum + s.requests.length, 0);
   const waiterCompleted = waiterSessions.reduce((sum: number, s: any) => 
     sum + s.requests.filter((r: any) => r.status === 'Completed' || r.status === 'Done').length, 0);
-  const waiterRatings = rawData.waiterRatings.filter((r: any) => r.waiterId === waiter.id);
-  const waiterAvgRating = waiterRatings.length > 0 ? 
-    waiterRatings.reduce((sum: number, r: any) => sum + (r.friendliness + r.orderAccuracy + r.speed + r.attentiveness + r.knowledge), 0) / (waiterRatings.length * 5) : 0;
+  const waiterServiceAnalyses = rawData.serviceAnalyses.filter((r: any) => r.waiterId === waiter.id);
+  const waiterAvgRating = waiterServiceAnalyses.length > 0 ? 
+    waiterServiceAnalyses.reduce((sum: number, r: any) => sum + r.rating, 0) / waiterServiceAnalyses.length : 0;
 
   return `${waiter.name} ${waiter.surname}: ${waiterRequests} requests, ${waiterCompleted} completed (${waiterRequests > 0 ? ((waiterCompleted / waiterRequests) * 100).toFixed(1) : 0}%), Rating: ${waiterAvgRating.toFixed(2)}/5.0`;
 }).join('\n')}
@@ -1816,7 +1887,17 @@ Respond in JSON format with structured insights.`;
     }
   }
 
-  async getExecutiveSummaryAnalytics(dateRange?: DateRange): Promise<any> {
+  async getExecutiveSummaryAnalytics(dateRange?: DateRange, adminSessionId?: string): Promise<any> {
+    // Check cache first if adminSessionId is provided
+    if (adminSessionId) {
+      const cacheKey = `getExecutiveSummaryAnalytics_${adminSessionId}_${JSON.stringify(dateRange)}`;
+      const cachedResult = this.cacheService.get(cacheKey);
+      if (cachedResult) {
+        this.logger.log(`Returning cached executive summary analytics for admin ${adminSessionId}`);
+        return cachedResult;
+      }
+    }
+
     const { startDate, endDate } = dateRange || this.getDefaultDateRange(7);
     this.logger.log(`Fetching executive summary analytics from ${startDate} to ${endDate}`);
 
@@ -2046,7 +2127,7 @@ Respond in JSON format with structured insights.`;
       // Generate LLM analysis
       const llmAnalysis = await this.generateExecutiveSummaryWithLLM(executiveDataForLLM);
 
-      return {
+      const result = {
         overview: {
           totalRequests,
           completedRequests,
@@ -2076,6 +2157,14 @@ Respond in JSON format with structured insights.`;
         },
         insights: llmAnalysis
       };
+
+      // Cache the result if adminSessionId is provided
+      if (adminSessionId) {
+        const cacheKey = `getExecutiveSummaryAnalytics_${adminSessionId}_${JSON.stringify(dateRange)}`;
+        this.cacheService.set(cacheKey, result);
+      }
+
+      return result;
 
     } catch (error) {
       this.logger.error('Failed to fetch executive summary analytics:', error);
@@ -2151,7 +2240,7 @@ Format as JSON with keys: summary, keyFindings, recommendations, alerts`;
       });
 
       if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.statusText}`);
+        throw new Error(`AI error: ${response.statusText}`);
       }
 
       const result = await response.json();
@@ -2168,9 +2257,9 @@ Format as JSON with keys: summary, keyFindings, recommendations, alerts`;
       } catch (parseError) {
         this.logger.warn('Failed to parse LLM response as JSON, providing fallback');
         analysisResult = {
-          summary: analysisText,
-          keyFindings: ['Analysis completed but formatting needs improvement'],
-          recommendations: ['Review system configuration for better AI integration'],
+          summary: "Something went wrong while getting AI response.",
+          keyFindings: ['Analysis not done'],
+          recommendations: ['Retry the analysis at a later time'],
           alerts: []
         };
       }
@@ -2183,10 +2272,20 @@ Format as JSON with keys: summary, keyFindings, recommendations, alerts`;
     }
   }
 
-  async getAIInsights(dateRange?: DateRange): Promise<any> {
+  async getAIInsights(dateRange?: DateRange, adminSessionId?: string): Promise<any> {
+    // Check cache first if adminSessionId is provided
+    if (adminSessionId) {
+      const cacheKey = `getAIInsights_${adminSessionId}_${JSON.stringify(dateRange)}`;
+      const cachedResult = this.cacheService.get(cacheKey);
+      if (cachedResult) {
+        this.logger.log(`Returning cached AI insights for admin ${adminSessionId}`);
+        return cachedResult;
+      }
+    }
+
     try {
       // Fetch the same data as staff performance and executive summary
-      const staffData = await this.getStaffPerformanceAnalytics(dateRange);
+      const staffData = await this.getStaffPerformanceAnalytics(dateRange, undefined, undefined, adminSessionId);
       
       if (!staffData.overview || !staffData.staffRankings) {
         throw new Error('Unable to retrieve performance data for AI analysis');
@@ -2247,8 +2346,8 @@ Format as JSON with keys: summary, keyFindings, recommendations, alerts`;
         orderBy: { dateTime: 'desc' }
       });
 
-      // Get waiter ratings for additional sentiment data
-      const waiterRatings = await this.prisma.waiterRating.findMany({
+      // Get additional service analysis data for sentiment
+      const additionalServiceAnalysis = await this.prisma.serviceAnalysis.findMany({
         where: {
           createdAt: {
             gte: new Date(startDate),
@@ -2289,21 +2388,17 @@ Format as JSON with keys: summary, keyFindings, recommendations, alerts`;
             requestContent: log.request.content,
             requestStatus: log.request.status
           })),
-          waiterRatings: waiterRatings.map(rating => ({
-            waiterId: rating.waiterId,
-            waiterName: `${rating.waiter.name} ${rating.waiter.surname}`,
-            friendliness: rating.friendliness,
-            orderAccuracy: rating.orderAccuracy,
-            speed: rating.speed,
-            attentiveness: rating.attentiveness,
-            knowledge: rating.knowledge,
-            averageRating: (rating.friendliness + rating.orderAccuracy + rating.speed + rating.attentiveness + rating.knowledge) / 5,
-            comment: rating.comment,
-            createdAt: rating.createdAt
+          additionalServiceAnalysis: additionalServiceAnalysis.map(sa => ({
+            waiterId: sa.waiterId,
+            waiterName: `${sa.waiter.name} ${sa.waiter.surname}`,
+            rating: sa.rating,
+            analysis: sa.analysis,
+            serviceType: sa.serviceType,
+            createdAt: sa.createdAt
           })),
           totalServiceAnalysis: serviceAnalysis.length,
           totalRequestLogs: requestLogs.length,
-          totalWaiterRatings: waiterRatings.length
+          totalAdditionalServiceAnalysis: additionalServiceAnalysis.length
         },
         dateRange: dateRange,
         timestamp: new Date().toISOString()
@@ -2588,7 +2683,7 @@ Focus on data-driven insights using the actual sentiment data provided. Calculat
         }
       }
 
-      return {
+      const result = {
         insights: aiInsights.insights || [],
         sentiment: aiInsights.sentiment || null,
         performance: aiInsights.performance || null,
@@ -2598,6 +2693,14 @@ Focus on data-driven insights using the actual sentiment data provided. Calculat
           llmAvailable: true
         }
       };
+
+      // Cache the result if adminSessionId is provided
+      if (adminSessionId) {
+        const cacheKey = `getAIInsights_${adminSessionId}_${JSON.stringify(dateRange)}`;
+        this.cacheService.set(cacheKey, result);
+      }
+
+      return result;
 
     } catch (error) {
       this.logger.error('Failed to generate AI insights:', error);

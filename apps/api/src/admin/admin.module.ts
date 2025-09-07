@@ -31,6 +31,7 @@ import { RequestsModule } from '../requests/requests.module';
 import { CacheInvalidatorService } from '../common/cache-invalidator.service';
 import { DataPreloaderService } from '../common/data-preloader.service';
 import { RedisCacheModule } from '../common/redis-cache.module';
+import { CacheService } from '../common/cache.service';
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { RedisCacheModule } from '../common/redis-cache.module';
     PrismaService,
     CacheInvalidatorService,
     DataPreloaderService,
+    CacheService,
   ],
   exports: [
     AdminService,

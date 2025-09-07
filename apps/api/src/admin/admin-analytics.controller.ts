@@ -21,6 +21,7 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles, RolesGuard } from '../auth/guards/role.guard';
+import { GetUser } from '../auth/decorators/get-user.decorator';
 import { AdminAnalyticsService } from './admin-analytics.service';
 import {
   SalesAnalyticsData,
@@ -213,11 +214,12 @@ export class AdminAnalyticsController {
   @ApiResponse({ status: HttpStatus.OK, description: 'Staff performance analytics data retrieved successfully.'})
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
   async getStaffPerformanceAnalytics(
-    @Query() queryDto: StaffPerformanceQueryDto
+    @Query() queryDto: StaffPerformanceQueryDto,
+    @GetUser('id') adminUserId: string
   ): Promise<any> {
     try {
       const dateRange = this.getDateRangeFromDto(queryDto);
-      return await this.adminAnalyticsService.getStaffPerformanceAnalytics(dateRange, queryDto.waiter, queryDto.sort);
+      return await this.adminAnalyticsService.getStaffPerformanceAnalytics(dateRange, queryDto.waiter, queryDto.sort, adminUserId);
     } catch (error) {
       throw this.handleServiceError(error, 'Staff Performance Analytics');
     }
@@ -239,7 +241,7 @@ export class AdminAnalyticsController {
   }
 
   @Get('waiter-ratings')
-  @ApiOperation({ summary: 'Get waiter ratings analytics data' })
+  @ApiOperation({ summary: 'Get waiter ratings analytics data based on service analysis' })
   @ApiQuery({ name: 'startDate', required: false, type: String, description: 'Start date (YYYY-MM-DD)' })
   @ApiQuery({ name: 'endDate', required: false, type: String, description: 'End date (YYYY-MM-DD)' })
   @ApiResponse({ status: HttpStatus.OK, description: 'Waiter ratings analytics data retrieved successfully.'})
@@ -247,7 +249,7 @@ export class AdminAnalyticsController {
   async getWaiterRatingsAnalytics(@Query() dateRangeDto: DateRangeQueryDto): Promise<WaiterRatingsAnalyticsData> {
     try {
       const dateRange = this.getDateRangeFromDto(dateRangeDto);
-      return await this.adminAnalyticsService.getWaiterRatingsAnalytics(dateRange);
+      return await this.adminAnalyticsService.getWaiterRatingsAnalyticsFromServiceAnalysis(dateRange);
     } catch (error) {
       throw this.handleServiceError(error, 'Waiter Ratings Analytics');
     }
@@ -274,10 +276,13 @@ export class AdminAnalyticsController {
   @ApiQuery({ name: 'endDate', required: false, type: String, description: 'End date (YYYY-MM-DD)' })
   @ApiResponse({ status: HttpStatus.OK, description: 'Customer ratings analytics data retrieved successfully.'})
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
-  async getCustomerRatingsAnalytics(@Query() dateRangeDto: DateRangeQueryDto): Promise<CustomerRatingsAnalyticsData> {
+  async getCustomerRatingsAnalytics(
+    @Query() dateRangeDto: DateRangeQueryDto,
+    @GetUser('id') adminUserId: string
+  ): Promise<CustomerRatingsAnalyticsData> {
     try {
       const dateRange = this.getDateRangeFromDto(dateRangeDto);
-      return await this.adminAnalyticsService.getCustomerRatingsAnalytics(dateRange);
+      return await this.adminAnalyticsService.getCustomerRatingsAnalytics(dateRange, adminUserId);
     } catch (error) {
       throw this.handleServiceError(error, 'Customer Ratings Analytics');
     }
@@ -308,11 +313,12 @@ export class AdminAnalyticsController {
   @ApiResponse({ status: HttpStatus.OK, description: 'Executive summary with AI insights retrieved successfully.' })
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
   async getExecutiveSummaryAnalytics(
-    @Query() dateRangeDto: DateRangeQueryDto
+    @Query() dateRangeDto: DateRangeQueryDto,
+    @GetUser('id') adminUserId: string
   ): Promise<any> {
     try {
       const dateRange = this.getDateRangeFromDto(dateRangeDto);
-      return await this.adminAnalyticsService.getExecutiveSummaryAnalytics(dateRange);
+      return await this.adminAnalyticsService.getExecutiveSummaryAnalytics(dateRange, adminUserId);
     } catch (error) {
       throw this.handleServiceError(error, 'Executive Summary Analytics');
     }
@@ -325,11 +331,12 @@ export class AdminAnalyticsController {
   @ApiResponse({ status: HttpStatus.OK, description: 'AI insights retrieved successfully.' })
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
   async getAIInsights(
-    @Query() dateRangeDto: DateRangeQueryDto
+    @Query() dateRangeDto: DateRangeQueryDto,
+    @GetUser('id') adminUserId: string
   ): Promise<any> {
     try {
       const dateRange = this.getDateRangeFromDto(dateRangeDto);
-      return await this.adminAnalyticsService.getAIInsights(dateRange);
+      return await this.adminAnalyticsService.getAIInsights(dateRange, adminUserId);
     } catch (error) {
       throw this.handleServiceError(error, 'AI Insights');
     }

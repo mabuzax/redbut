@@ -99,11 +99,12 @@ Example questions you can answer:
       { name: 'getTablesSummaryTool', description: 'Retrieves tables summary: utilization, revenue by table, and most popular tables.', schema: dateRangeInputSchema },
     );
 
-    const getWaiterRatingsSummaryTool = tool(
-      async (input?: z.infer<typeof dateRangeInputSchema>): Promise<string> =>
-        JSON.stringify(await this.adminAnalyticsService.getWaiterRatingsAnalytics(input as DateRange)),
-      { name: 'getWaiterRatingsSummaryTool', description: 'Retrieves waiter ratings summary: average ratings, rating distribution, trend over time, recent comments, and breakdown per waiter.', schema: dateRangeInputSchema },
-    );
+    // Note: Waiter ratings functionality removed - using service analysis instead
+    // const getWaiterRatingsSummaryTool = tool(
+    //   async (input?: z.infer<typeof dateRangeInputSchema>): Promise<string> =>
+    //     JSON.stringify(await this.adminAnalyticsService.getWaiterRatingsAnalytics(input as DateRange)),
+    //   { name: 'getWaiterRatingsSummaryTool', description: 'Retrieves waiter ratings summary: average ratings, rating distribution, trend over time, recent comments, and breakdown per waiter.', schema: dateRangeInputSchema },
+    // );
 
     const getRequestsSummaryTool = tool(
       async (input?: z.infer<typeof dateRangeInputSchema>): Promise<string> =>
@@ -198,7 +199,7 @@ Example questions you can answer:
     const tools = [
       getSalesSummaryTool, getPopularItemsSummaryTool, getShiftsSummaryTool,
       getHourlySalesSummaryTool, getStaffSummaryTool, getTablesSummaryTool,
-      getWaiterRatingsSummaryTool, getRequestsSummaryTool, getCustomerRatingsSummaryTool,
+      getRequestsSummaryTool, getCustomerRatingsSummaryTool,
       getRawOrdersTool, getRawRequestsTool, getRawWaitersTool, getRawShiftsTool,
       getRawTableAllocationsTool, getRawWaiterRatingsTool, getRawMenuItemsTool,
     ];
