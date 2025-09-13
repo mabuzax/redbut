@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { OrderStatus, OrderStatusConfigService } from "../../lib/order-status-config";
+import { fetchWithAuth } from "../../lib/fetch-with-auth";
 
 interface MenuItem {
   id: string;
@@ -54,9 +55,7 @@ interface StatusOption {
 
 const statusColors = {
   [OrderStatus.New]: "bg-red-100 text-red-800 border-red-200",
-  [OrderStatus.Acknowledged]: "bg-blue-100 text-blue-800 border-blue-200",
   [OrderStatus.InProgress]: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  [OrderStatus.Complete]: "bg-purple-100 text-purple-800 border-purple-200",
   [OrderStatus.Delivered]: "bg-green-100 text-green-800 border-green-200",
   [OrderStatus.Paid]: "bg-gray-100 text-gray-800 border-gray-200",
   [OrderStatus.Cancelled]: "bg-red-100 text-red-800 border-red-200",
@@ -65,9 +64,7 @@ const statusColors = {
 
 const statusIcons = {
   [OrderStatus.New]: AlertCircle,
-  [OrderStatus.Acknowledged]: Clock,
   [OrderStatus.InProgress]: RefreshCcw,
-  [OrderStatus.Complete]: CheckCircle,
   [OrderStatus.Delivered]: Package,
   [OrderStatus.Paid]: CreditCard,
   [OrderStatus.Cancelled]: AlertCircle,
@@ -106,7 +103,7 @@ const SessionOrders = ({ sessionId, tableNumber, token, onBack }: SessionOrdersP
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${apiBase}/api/v1/waiter/orders/session/${sessionId}`, {
+      const response = await fetchWithAuth(`${apiBase}/api/v1/waiter/orders/session/${sessionId}`, {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
@@ -136,23 +133,23 @@ const SessionOrders = ({ sessionId, tableNumber, token, onBack }: SessionOrdersP
     setStatusOptions({});
   }, [orders]);
 
-  const fetchStatusOptions = useCallback(async (orderId: string, currentStatus: OrderStatus) => {
+  const fetchStatusOptions = useCallback((orderId: string, currentStatus: OrderStatus) => {
     setLoadingStatusOptions(prev => ({ ...prev, [orderId]: true }));
     try {
-      const options = await OrderStatusConfigService.getStatusOptions(currentStatus, 'waiter', token);
+      const options = OrderStatusConfigService.getStatusOptions(currentStatus);
       setStatusOptions(prev => ({ ...prev, [orderId]: options }));
     } catch (error) {
       console.error("Failed to fetch status options:", error);
     } finally {
       setLoadingStatusOptions(prev => ({ ...prev, [orderId]: false }));
     }
-  }, [token]);
+  }, []);
 
   const handleUpdateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
     console.log("Attempting to update order status:", { orderId, newStatus });
     setUpdating(orderId);
     try {
-      const response = await fetch(`${apiBase}/api/v1/waiter/orders/${orderId}/status`, {
+      const response = await fetchWithAuth(`${apiBase}/api/v1/waiter/orders/${orderId}/status`, {
         method: "PUT",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -216,7 +213,9 @@ const SessionOrders = ({ sessionId, tableNumber, token, onBack }: SessionOrdersP
   };
 
   const formatDateTime = (dateString: string) => {
-    return new Date(dateString).toLocaleString();
+    return new Date(dateString).toLocaleString('en-US', {
+      timeZone: 'Africa/Johannesburg'
+    });
   };
 
   if (loading) {

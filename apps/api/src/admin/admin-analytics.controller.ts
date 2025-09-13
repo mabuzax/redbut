@@ -26,11 +26,10 @@ import { AdminAnalyticsService } from './admin-analytics.service';
 import {
   SalesAnalyticsData,
   PopularItemsAnalyticsData,
-  ShiftsAnalyticsData,
   HourlySalesAnalyticsData,
   StaffAnalyticsData,
   TablesAnalyticsData,
-  WaiterRatingsAnalyticsData,
+  ServiceAnalysisData,
   RequestsAnalyticsData,
   CustomerRatingsAnalyticsData,
   DateRange,
@@ -142,21 +141,6 @@ export class AdminAnalyticsController {
     }
   }
 
-  @Get('shifts')
-  @ApiOperation({ summary: 'Get shifts analytics data' })
-  @ApiQuery({ name: 'startDate', required: false, type: String, description: 'Start date (YYYY-MM-DD)' })
-  @ApiQuery({ name: 'endDate', required: false, type: String, description: 'End date (YYYY-MM-DD)' })
-  @ApiResponse({ status: HttpStatus.OK, description: 'Shifts analytics data retrieved successfully.'})
-  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
-  async getShiftsAnalytics(@Query() dateRangeDto: DateRangeQueryDto): Promise<ShiftsAnalyticsData> {
-    try {
-      const dateRange = this.getDateRangeFromDto(dateRangeDto);
-      return await this.adminAnalyticsService.getShiftsAnalytics(dateRange);
-    } catch (error) {
-      throw this.handleServiceError(error, 'Shifts Analytics');
-    }
-  }
-
   @Get('hourly-sales')
   @ApiOperation({ summary: 'Get hourly sales analytics data' })
   @ApiQuery({ name: 'startDate', required: false, type: String, description: 'Start date (YYYY-MM-DD), defaults to today if not provided with endDate' })
@@ -240,18 +224,18 @@ export class AdminAnalyticsController {
     }
   }
 
-  @Get('waiter-ratings')
+  @Get('service-analysis')
   @ApiOperation({ summary: 'Get waiter ratings analytics data based on service analysis' })
   @ApiQuery({ name: 'startDate', required: false, type: String, description: 'Start date (YYYY-MM-DD)' })
   @ApiQuery({ name: 'endDate', required: false, type: String, description: 'End date (YYYY-MM-DD)' })
-  @ApiResponse({ status: HttpStatus.OK, description: 'Waiter ratings analytics data retrieved successfully.'})
+  @ApiResponse({ status: HttpStatus.OK, description: 'Service analysis data retrieved successfully.'})
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
-  async getWaiterRatingsAnalytics(@Query() dateRangeDto: DateRangeQueryDto): Promise<WaiterRatingsAnalyticsData> {
+  async getServiceAnalytics(@Query() dateRangeDto: DateRangeQueryDto): Promise<ServiceAnalysisData> {
     try {
       const dateRange = this.getDateRangeFromDto(dateRangeDto);
-      return await this.adminAnalyticsService.getWaiterRatingsAnalyticsFromServiceAnalysis(dateRange);
+      return await this.adminAnalyticsService.getServiceAnalyticsFromServiceAnalysis(dateRange);
     } catch (error) {
-      throw this.handleServiceError(error, 'Waiter Ratings Analytics');
+      throw this.handleServiceError(error, 'Service Analysis');
     }
   }
 

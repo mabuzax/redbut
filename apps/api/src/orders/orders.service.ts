@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from "@nes
 import { PrismaService } from "../common/prisma.service";
 import { Order, OrderStatus, Prisma } from "@prisma/client"; // Added Prisma for types
 import { CreateOrderDto } from "./dto/create-order.dto";
-import { OrderStatusConfigService } from "../common/order-status-config.service";
+import { OrderLogService } from "../common/order-log.service";
 
 /**
  * Service for managing orders and bill calculations
@@ -14,7 +14,7 @@ export class OrdersService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly orderStatusConfigService: OrderStatusConfigService,
+    private readonly orderLogService: OrderLogService,
   ) {}
 
   /**
@@ -51,6 +51,7 @@ export class OrdersService {
             quantity: item.quantity,
             price: new Prisma.Decimal(item.price), // Ensure price is Decimal
             status: OrderStatus.New,
+            selectedOptions: item.selectedOptions ? item.selectedOptions as Prisma.InputJsonValue : Prisma.DbNull,
           })),
         });
 
@@ -76,6 +77,15 @@ export class OrdersService {
             this.logger.error(`Failed to retrieve created order with items, ID: ${order.id}`);
             throw new Error('Order created but could not be retrieved with items.');
         }
+
+        // Log order creation with items inside the transaction
+        await this.orderLogService.logOrderCreation(
+          order.id,
+          createdOrderWithItems.orderItems,
+          'customer',
+          tx
+        );
+
         return createdOrderWithItems;
       });
     } catch (error) {
@@ -216,15 +226,20 @@ export class OrdersService {
       if (order.status === OrderStatus.Paid) throw new BadRequestException('Paid order cannot change status');
       if (order.status === status) return order;
 
-      // Validate transition against config
-      await this.orderStatusConfigService.validateTransition(
-        order.status,
-        status,
-        role,
-      );
+      // Store previous status for logging
+      const previousStatus = order.status;
 
       await tx.order.update({ where: { id }, data: { status } });
       await tx.orderItem.updateMany({ where: { orderId: id }, data: { status } });
+
+      // Log status change inside the transaction
+      await this.orderLogService.logStatusChange(
+        id,
+        previousStatus,
+        status,
+        role,
+        tx
+      );
 
       return tx.order.findUniqueOrThrow({ where: { id }, include: { orderItems: true } });
     });
@@ -238,13 +253,6 @@ export class OrdersService {
       const order = await tx.order.findUnique({ where: { id: orderId } });
       if (!order) throw new NotFoundException('Order not found');
       if (order.status === OrderStatus.Paid) throw new BadRequestException('Paid order cannot change');
-
-      // Validate transition for the item
-      await this.orderStatusConfigService.validateTransition(
-        item.status,
-        status,
-        userRole,
-      );
 
       await tx.orderItem.update({ where: { id: itemId }, data: { status } });
       const remaining = await tx.orderItem.count({ where: { orderId, NOT: { status } } });
@@ -278,6 +286,13 @@ export class OrdersService {
     this.logger.warn(`Deleting order with ID ${id}`);
     
     try {
+      // Log order deletion before removing
+      await this.orderLogService.logOrderCancellation(
+        id,
+        'Order deleted by admin',
+        'admin'
+      );
+
       // Prisma's onDelete: Cascade on OrderItem.orderId handles deleting orderItems
       return await this.prisma.order.delete({
         where: { id },

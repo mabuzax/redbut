@@ -3,8 +3,7 @@ import { OrdersService } from './orders.service';
 import { OrdersController } from './orders.controller';
 import { PrismaService } from '../common/prisma.service';
 import { AuthModule } from '../auth/auth.module';
-import { OrderStatusConfigService } from '../common/order-status-config.service';
-import { OrderStatusConfigController } from './order-status-config.controller';
+import { OrderLogService } from '../common/order-log.service';
 
 /**
  * Orders module for managing restaurant orders and bills
@@ -15,12 +14,12 @@ import { OrderStatusConfigController } from './order-status-config.controller';
     // Import AuthModule to use JwtAuthGuard and authentication services
     AuthModule,
   ],
-  controllers: [OrdersController, OrderStatusConfigController],
+  controllers: [OrdersController],
   providers: [
     OrdersService,
     PrismaService,
-    OrderStatusConfigService,
+    OrderLogService,
   ],
-  exports: [OrdersService, OrderStatusConfigService],
+  exports: [OrdersService, OrderLogService],
 })
 export class OrdersModule {}

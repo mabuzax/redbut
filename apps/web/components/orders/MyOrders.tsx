@@ -54,12 +54,10 @@ interface StatusOption {
 
 const statusColors = {
   [OrderStatus.New]: "bg-blue-100 text-blue-800 border-blue-200",
-  [OrderStatus.Acknowledged]: "bg-purple-100 text-purple-800 border-purple-200",
   [OrderStatus.InProgress]: "bg-yellow-100 text-yellow-800 border-yellow-200",
   [OrderStatus.Delivered]: "bg-green-100 text-green-800 border-green-200",
   [OrderStatus.Paid]: "bg-gray-100 text-gray-800 border-gray-200",
   [OrderStatus.Cancelled]: "bg-red-100 text-red-800 border-red-200",
-  [OrderStatus.Complete]: "bg-emerald-100 text-emerald-800 border-emerald-200",
   [OrderStatus.Rejected]: "bg-orange-100 text-orange-800 border-orange-200",
 };
 
@@ -151,7 +149,8 @@ const MyOrders = ({ userId, token, tableNumber }: MyOrdersProps) => {
       minute: 'numeric',
       hour12: true,
       month: 'short',
-      day: 'numeric'
+      day: 'numeric',
+      timeZone: 'Africa/Johannesburg'
     }).format(date);
   };
 
@@ -162,23 +161,15 @@ const MyOrders = ({ userId, token, tableNumber }: MyOrdersProps) => {
     );
   };
 
-  const loadStatusOptions = async (orderId: string, currentStatus: OrderStatus) => {
-    if (!token) return;
-    
+  const loadStatusOptions = (orderId: string, currentStatus: OrderStatus) => {
     try {
       setLoadingStatusOptions(prev => ({ ...prev, [orderId]: true }));
       
-      const options = await OrderStatusConfigService.getStatusOptions(
-        currentStatus,
-        'client',
-        token
-      );
+      const options = OrderStatusConfigService.getStatusOptions(currentStatus);
       
       setStatusOptions(prev => ({
         ...prev,
-        [orderId]: options.length > 0 
-          ? options 
-          : OrderStatusConfigService.getDefaultStatusOptions(currentStatus)
+        [orderId]: options
       }));
     } catch (error) {
       console.error('Error loading status options:', error);

@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, RefreshCw, X, Loader2 } from "lucide-react";
 import TimeAgo from "react-timeago";
 import { waiterApi, WaiterRequest } from "../../lib/api";
+import { RequestStatusConfigService } from "../../lib/request-status-config";
+import { RequestStatus } from "../../lib/types";
 
 interface SessionRequestsProps {
   sessionId: string;
@@ -28,7 +30,7 @@ export default function SessionRequests({
   const [requests, setRequests] = useState<WaiterRequest[]>([]);
   const [selectedRequest, setSelectedRequest] = useState<WaiterRequest | null>(null);
   const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<string>("Acknowledged");
+  const [status, setStatus] = useState<string>("New");
   const [statusOptions, setStatusOptions] = useState<{ targetStatus: string; label: string }[]>([]);
   const [statusOptionsLoading, setStatusOptionsLoading] = useState(false);
   const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false);
@@ -84,10 +86,16 @@ export default function SessionRequests({
   const loadStatusOptions = async (currentStatus: string) => {
     try {
       setStatusOptionsLoading(true);
-      const response = await waiterApi.getRequestStatusTransitions(currentStatus, token);
+      const options = RequestStatusConfigService.getStatusOptions(currentStatus as RequestStatus);
+      
+      // Convert StatusOption[] to the expected format for this component
+      const convertedOptions = options.map(option => ({
+        targetStatus: option.value,
+        label: option.label
+      }));
       
       // Ensure current status is always first in the dropdown
-      const sortedOptions = response.sort((a, b) => {
+      const sortedOptions = convertedOptions.sort((a, b) => {
         if (a.targetStatus === currentStatus) return -1;
         if (b.targetStatus === currentStatus) return 1;
         return 0;
@@ -98,7 +106,6 @@ export default function SessionRequests({
       console.error('Error loading status options:', error);
       // Fallback to default options if API fails
       const fallbackOptions = [
-        { targetStatus: 'Acknowledged', label: 'Acknowledged' },
         { targetStatus: 'InProgress', label: 'In Progress' },
         { targetStatus: 'Cancelled', label: 'Cancel' }
       ];
@@ -163,8 +170,6 @@ export default function SessionRequests({
     switch (status) {
       case "New":
         return "bg-blue-200 text-blue-600";
-      case "Acknowledged":
-        return "bg-yellow-200 text-yellow-600";
       case "InProgress":
         return "bg-purple-200 text-purple-600";
       case "Completed":
@@ -207,7 +212,7 @@ export default function SessionRequests({
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-primary-500 mr-2" />
-            <p className="text-gray-500">Loading requests...</p>
+            <p className="text-gray-500">Let me find you your requests...</p>
           </div>
         ) : error ? (
           <div className="p-6 text-center">
@@ -310,7 +315,7 @@ export default function SessionRequests({
                 </label>
                 {statusOptionsLoading ? (
                   <div className="w-full border border-gray-200 rounded-md p-2 bg-gray-100 text-gray-500">
-                    Loading...
+                    RedBut
                   </div>
                 ) : statusOptions.length === 0 ? (
                   <div className="w-full border border-gray-200 rounded-md p-2 bg-gray-50 text-gray-900 font-medium">

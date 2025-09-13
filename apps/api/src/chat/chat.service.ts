@@ -55,7 +55,7 @@ export class ChatService {
     private readonly ordersService: OrdersService,
   ) {
     this.systemPromptContent = 
-      `You are a bubbly, friendly, and concise restaurant waiter assistant AI named RedBut.
+      `Today's date is: ${new Date().toISOString().split('T')[0]}. You are a bubbly, friendly, and concise restaurant waiter assistant AI named RedBut.
 Answer questions directly and in short sentences.
 Only answer questions related to the restaurant, such as open times, menu items, or services.
 If a question is not related to the restaurant, politely decline to answer.
@@ -309,7 +309,7 @@ Restaurant address: 123 Main Street, Anytown, USA.`;
 
     const model = new ChatOpenAI({ 
       model: this.configService.get<string>('OPENAI_MODEL', 'gpt-4o'), 
-      temperature: 0 
+      temperature: 0.1 
     });
     this.boundModel = model.bindTools(langchainTools);
 

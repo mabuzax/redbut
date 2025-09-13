@@ -47,6 +47,17 @@ export class CreateOrderItemDto {
   @Min(0.01)
   @Type(() => Number)
   price: number;
+
+  @ApiProperty({
+    description: 'Optional selected options/customizations for the menu item',
+    example: ['Medium', 'Extra sauce +$1', 'Ranch dressing +$0.50'],
+    required: false,
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  selectedOptions?: string[];
 }
 
 export class CreateOrderDto {

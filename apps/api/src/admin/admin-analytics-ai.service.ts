@@ -6,7 +6,7 @@ import {
   // Import specific analytics data types if needed for strong typing in tool responses,
   // but the tools are currently designed to return JSON strings of these.
 } from './admin-analytics.types';
-import { Order, Request as PrismaRequest, Waiter, Shift, TableAllocation, WaiterRating, Review, User, MenuItem, RequestStatus, Prisma } from '@prisma/client';
+import { Order, Request as PrismaRequest, Waiter, User, MenuItem, RequestStatus, Prisma } from '@prisma/client';
 
 
 import { tool } from '@langchain/core/tools';
@@ -40,19 +40,18 @@ export class AdminAnalyticsAiService {
       return;
     }
 
-    this.systemPrompt = `You are 'Insight', an expert restaurant data analyst AI. Your goal is to help management understand restaurant performance, identify trends, and discover areas for improvement by analyzing data from various parts of the system.
+    this.systemPrompt = `Today's date is: ${new Date().toISOString().split('T')[0]}. You are 'Insight', an expert restaurant data analyst AI. Your goal is to help management understand restaurant performance, identify trends, and discover areas for improvement by analyzing data from various parts of the system.
 Use the provided tools to fetch raw data or pre-calculated analytics summaries.
 When asked complex questions, break them down. Fetch necessary data using multiple tool calls if needed, then synthesize the information to provide a comprehensive answer.
 Always clearly state your findings. If data is insufficient, mention it.
 Be proactive. If you find an interesting pattern or a significant metric, highlight it and offer potential explanations or recommendations.
-You can perform cross-table analysis. For example, to find the best performing waiter during peak hours, you might need to correlate data from Shifts, TableAllocations, Orders, and WaiterRatings.
+You can perform cross-table analysis. For example, to find the best performing waiter, you might need to correlate data from Orders and ServiceAnalysis.
 Prefer using summary analytics tools first (e.g., getOverallSalesSummaryTool). If you need more specific, raw, or filtered data that summary tools don't provide, use the granular data access tools (e.g., getRawOrdersTool).
 Date range filters should be in ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ).
 Example questions you can answer:
 - "What were our total sales last week?"
 - "Which waiter had the highest average rating last month?"
 - "Show me the trend of hourly orders for yesterday."
-- "Compare sales performance of morning shifts vs evening shifts for the last 7 days."
 - "What are our top 5 most popular menu items by revenue?"
 - "Which tables are most frequently occupied or generate the most revenue?"
 - "Are there any unusual patterns in customer requests recently?"`;
@@ -73,12 +72,6 @@ Example questions you can answer:
       async (input?: z.infer<typeof dateRangeInputSchema>): Promise<string> =>
         JSON.stringify(await this.adminAnalyticsService.getPopularItemsAnalytics(input as DateRange)),
       { name: 'getPopularItemsSummaryTool', description: 'Retrieves popular items summary: top selling items by quantity and revenue, and revenue by item.', schema: dateRangeInputSchema },
-    );
-
-    const getShiftsSummaryTool = tool(
-      async (input?: z.infer<typeof dateRangeInputSchema>): Promise<string> =>
-        JSON.stringify(await this.adminAnalyticsService.getShiftsAnalytics(input as DateRange)),
-      { name: 'getShiftsSummaryTool', description: 'Retrieves shifts summary: sales by shift, average order value by shift, and shift performance details.', schema: dateRangeInputSchema },
     );
 
     const getHourlySalesSummaryTool = tool(
@@ -151,37 +144,18 @@ Example questions you can answer:
         },
         { name: 'getRawWaitersTool', description: 'Retrieves raw waiter (staff) data with optional filters for ID, name (searches name, surname, tag_nickname), and limit.', schema: z.object({ waiterId: z.string().uuid().optional(), name: z.string().optional(), limit: z.number().int().optional() }).optional() }
     );
-
-    const getRawShiftsTool = tool(
-        async (filters?: { dateRange?: DateRange; limit?: number }): Promise<string> => {
-            const where: Prisma.ShiftWhereInput = {};
-            if (filters?.dateRange?.startDate && filters?.dateRange?.endDate) where.AND = [{date: {gte: new Date(filters.dateRange.startDate)}}, {date: {lte: new Date(filters.dateRange.endDate)}}];
-            const shifts = await this.prisma.shift.findMany({ where, take: filters?.limit || 100, orderBy: { startTime: 'desc' } });
-            return JSON.stringify(shifts);
-        },
-        { name: 'getRawShiftsTool', description: 'Retrieves raw shift data with optional date range filter and limit.', schema: z.object({ dateRange: dateRangeInputSchema, limit: z.number().int().optional() }).optional() }
-    );
-
-    const getRawTableAllocationsTool = tool(
-        async (filters?: { shiftId?: string; waiterId?: string; limit?: number }): Promise<string> => {
-            const where: Prisma.TableAllocationWhereInput = {};
-            if (filters?.shiftId) where.shiftId = filters.shiftId;
-            if (filters?.waiterId) where.waiterId = filters.waiterId;
-            const allocations = await this.prisma.tableAllocation.findMany({ where, take: filters?.limit || 100, include: {shift: true, waiter: {select: {name: true, surname:true, tag_nickname:true}}} });
-            return JSON.stringify(allocations);
-        },
-        { name: 'getRawTableAllocationsTool', description: 'Retrieves raw table allocation data with optional filters for shift ID, waiter ID, and limit.', schema: z.object({ shiftId: z.string().uuid().optional(), waiterId: z.string().uuid().optional(), limit: z.number().int().optional() }).optional() }
-    );
     
-    const getRawWaiterRatingsTool = tool(
-        async (filters?: { waiterId?: string; dateRange?: DateRange; minRating?: number; limit?: number }): Promise<string> => {
-            const where: Prisma.WaiterRatingWhereInput = {};
+    const getRawServiceAnalysisTool = tool(
+        async (filters?: { waiterId?: string; dateRange?: DateRange; serviceType?: string; minRating?: number; limit?: number }): Promise<string> => {
+            const where: Prisma.ServiceAnalysisWhereInput = {};
             if (filters?.waiterId) where.waiterId = filters.waiterId;
+            if (filters?.serviceType) where.serviceType = filters.serviceType;
+            if (filters?.minRating) where.rating = { gte: filters.minRating };
             if (filters?.dateRange?.startDate && filters?.dateRange?.endDate) where.createdAt = { gte: new Date(filters.dateRange.startDate), lte: new Date(filters.dateRange.endDate) };
-            const ratings = await this.prisma.waiterRating.findMany({ where, take: filters?.limit || 100, orderBy: { createdAt: 'desc' } });
-            return JSON.stringify(ratings);
+            const serviceAnalyses = await this.prisma.serviceAnalysis.findMany({ where, take: filters?.limit || 100, orderBy: { createdAt: 'desc' } });
+            return JSON.stringify(serviceAnalyses);
         },
-        { name: 'getRawWaiterRatingsTool', description: 'Retrieves raw waiter rating data with optional filters for waiter ID, date range, and limit.', schema: z.object({ waiterId: z.string().uuid().optional(), dateRange: dateRangeInputSchema, minRating: z.number().min(1).max(5).optional(), limit: z.number().int().optional() }).optional() }
+        { name: 'getRawServiceAnalysisTool', description: 'Retrieves raw service analysis data with optional filters for waiter ID, service type, date range, minimum rating, and limit.', schema: z.object({ waiterId: z.string().uuid().optional(), serviceType: z.string().optional(), dateRange: dateRangeInputSchema, minRating: z.number().min(1).max(5).optional(), limit: z.number().int().optional() }).optional() }
     );
 
     const getRawMenuItemsTool = tool(
@@ -197,11 +171,11 @@ Example questions you can answer:
     );
 
     const tools = [
-      getSalesSummaryTool, getPopularItemsSummaryTool, getShiftsSummaryTool,
+      getSalesSummaryTool, getPopularItemsSummaryTool,
       getHourlySalesSummaryTool, getStaffSummaryTool, getTablesSummaryTool,
       getRequestsSummaryTool, getCustomerRatingsSummaryTool,
-      getRawOrdersTool, getRawRequestsTool, getRawWaitersTool, getRawShiftsTool,
-      getRawTableAllocationsTool, getRawWaiterRatingsTool, getRawMenuItemsTool,
+      getRawOrdersTool, getRawRequestsTool, getRawWaitersTool,
+      getRawServiceAnalysisTool, getRawMenuItemsTool,
     ];
 
     this.boundModel = new ChatOpenAI({ model: 'gpt-4o', temperature: 0 }).bindTools(tools);

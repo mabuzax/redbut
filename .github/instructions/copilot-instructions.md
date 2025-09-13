@@ -12,9 +12,9 @@ RedBut is an AI-powered restaurant waiter assistant system. It provides three ma
 
 ### Database & State Management
 - **PostgreSQL + Prisma ORM** with centralized schema and migrations
-- **Key entities**: User (guests), Waiter (staff), Request, Order, Shift, TableAllocation
-- **Session-based architecture**: Guests are identified by `sessionId` + `tableNumber`, assigned to waiters via table allocations
-- **Status management**: Both Request and Order entities use configurable status transitions via `RequestStatusConfigService` and `OrderStatusConfigService`
+- **Key entities**: User (guests), Waiter (staff), Request, Order
+- **Session-based architecture**: Guests are identified by `sessionId` + `tableNumber`, with direct waiter assignment
+- **Status management**: Orders use configurable status transitions via `OrderStatusConfigService`, Requests use fixed statuses
 
 ### API Patterns
 - **NestJS with global `/api/v1` prefix** and JWT authentication
@@ -27,19 +27,6 @@ RedBut is an AI-powered restaurant waiter assistant system. It provides three ma
 - **WebSocket gateway** at `/chat` namespace for AI conversations
 - **Socket.IO authentication** via handshake token validation
 - **Real-time updates** for requests, orders, and waiter assignments
-
-### Table Allocation System
-Core business logic: waiters are assigned tables per shift, with conflict validation
-```typescript
-// Table allocation conflicts are prevented at service level
-const conflictingTableAllocations = await this.prisma.tableAllocation.findMany({
-  where: {
-    shiftId: dto.shiftId,
-    waiterId: { not: dto.waiterId },
-    tableNumbers: { hasSome: dto.tableNumbers },
-  }
-});
-```
 
 ## Development Workflows
 Development is on Windows, so use Powershell commands.
@@ -88,7 +75,7 @@ await this.requestStatusConfigService.validateTransition(
 
 ### AI Integration
 - **LangChain + OpenAI** for chat functionality
-- **Natural language endpoints** for admin operations (table allocations, staff management)
+- **Natural language endpoints** for admin operations (staff management, order analytics)
 - **Context-aware responses** using restaurant domain knowledge
 
 ## Key Files to Reference
@@ -103,7 +90,6 @@ await this.requestStatusConfigService.validateTransition(
 - **Database connection**: Verify Docker containers are healthy and DATABASE_URL format
 - **WebSocket authentication**: Token validation happens in handshake, check auth headers
 - **Status transition errors**: Validate transitions are allowed for user role in status config services
-- **Table allocation conflicts**: Check for existing allocations and overlapping table numbers
 - **Status badge clicks**: Status badges in waiter/admin apps need `onClick` prop and `cursor-pointer` styling to be interactive
 - **PowerShell command issues**: Use semicolon (`;`) instead of `&&` for command chaining in Windows PowerShell
 

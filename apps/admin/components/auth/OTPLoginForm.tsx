@@ -15,12 +15,9 @@ function classNames(...inputs: ClassValue[]) {
 
 type ClassValue = string | boolean | undefined | null | { [key: string]: boolean };
 
-// Step 1: Email/Phone and User Type
+// Step 1: Email/Phone only (no userType needed for tenants)
 const stepOneSchema = z.object({
   emailOrPhone: z.string().min(1, 'Email or phone number is required'),
-  userType: z.enum(['admin', 'waiter', 'manager'], {
-    required_error: 'Please select a user type',
-  }),
 });
 
 // Step 2: OTP Verification
@@ -32,21 +29,18 @@ type StepOneInputs = z.infer<typeof stepOneSchema>;
 type StepTwoInputs = z.infer<typeof stepTwoSchema>;
 
 interface OTPLoginFormProps {
-  onLoginSuccess: (userData: { id: string; name: string; token: string }) => void;
+  onLoginSuccess: (userData: { id: string; name: string; token: string; restaurants?: any[] }) => void;
+  onBack?: () => void;
 }
 
-const OTPLoginForm: React.FC<OTPLoginFormProps> = ({ onLoginSuccess }) => {
+const OTPLoginForm: React.FC<OTPLoginFormProps> = ({ onLoginSuccess, onBack }) => {
   const [step, setStep] = useState<1 | 2>(1);
   const [username, setUsername] = useState<string>('');
-  const [userType, setUserType] = useState<'admin' | 'waiter' | 'manager'>('admin');
   const [apiError, setApiError] = useState<string | null>(null);
 
   // Step 1 form
   const stepOneForm = useForm<StepOneInputs>({
     resolver: zodResolver(stepOneSchema),
-    defaultValues: {
-      userType: 'admin',
-    },
   });
 
   // Step 2 form
@@ -58,12 +52,14 @@ const OTPLoginForm: React.FC<OTPLoginFormProps> = ({ onLoginSuccess }) => {
     setApiError(null);
     
     try {
-      const response = await adminApi.generateOTP(data.emailOrPhone, data.userType);
-      setUsername(response.username);
-      setUserType(data.userType);
+      console.log('Submitting tenant OTP generation request:', { emailOrPhone: data.emailOrPhone });
+      const response = await adminApi.generateTenantOTP(data.emailOrPhone);
+      console.log('Tenant OTP generation successful:', response);
+      setUsername(data.emailOrPhone);
       setStep(2);
     } catch (err: any) {
-      setApiError(err.message || 'Failed to send OTP. Please check your email/phone and user type.');
+      console.error('Tenant OTP generation failed:', err);
+      setApiError(err.message || 'Failed to send OTP. Please check your email/phone.');
     }
   };
 
@@ -71,11 +67,12 @@ const OTPLoginForm: React.FC<OTPLoginFormProps> = ({ onLoginSuccess }) => {
     setApiError(null);
 
     try {
-      const response = await adminApi.verifyOTP(username, data.otp, userType);
+      const response = await adminApi.verifyTenantOTP(username, data.otp);
       onLoginSuccess({
-        id: response.waiter.id,
-        name: `${response.waiter.name} ${response.waiter.surname}`,
+        id: response.tenant.id,
+        name: response.tenant.name,
         token: response.token,
+        restaurants: response.tenant.restaurants,
       });
     } catch (err: any) {
       setApiError(err.message || 'Invalid OTP. Please try again.');
@@ -95,9 +92,9 @@ const OTPLoginForm: React.FC<OTPLoginFormProps> = ({ onLoginSuccess }) => {
         animate={{ opacity: 1, y: 0 }}
         className="p-8 bg-white rounded-lg shadow-xl max-w-sm w-full border border-gray-200"
       >
-        <h2 className="text-2xl font-bold text-center text-gray-900 mb-6">Staff Login</h2>
+        <h2 className="text-2xl font-bold text-center text-gray-900 mb-6">Admin Login</h2>
         <form onSubmit={stepOneForm.handleSubmit(onStepOneSubmit)}>
-          <div className="mb-4">
+          <div className="mb-6">
             <label htmlFor="emailOrPhone" className="block text-gray-700 text-sm font-bold mb-2">
               Email or Phone Number
             </label>
@@ -119,51 +116,40 @@ const OTPLoginForm: React.FC<OTPLoginFormProps> = ({ onLoginSuccess }) => {
             )}
           </div>
 
-          <div className="mb-6">
-            <label htmlFor="userType" className="block text-gray-700 text-sm font-bold mb-2">
-              User Type
-            </label>
-            <select
-              id="userType"
-              {...stepOneForm.register('userType')}
-              className={classNames(
-                'shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline',
-                stepOneForm.formState.errors.userType && 'border-red-500'
-              )}
-              disabled={stepOneForm.formState.isSubmitting}
-            >
-              <option value="admin">Admin</option>
-              <option value="waiter">Waiter</option>
-              <option value="manager">Manager</option>
-            </select>
-            {stepOneForm.formState.errors.userType && (
-              <p className="text-red-500 text-xs italic mt-1">
-                {stepOneForm.formState.errors.userType.message}
-              </p>
-            )}
-          </div>
-
           {apiError && (
             <p className="text-red-500 text-center text-sm mb-4">{apiError}</p>
           )}
 
-          <button
-            type="submit"
-            disabled={stepOneForm.formState.isSubmitting}
-            className={classNames(
-              'w-full bg-primary-500 text-white font-bold py-2 px-4 rounded-md transition-colors flex items-center justify-center space-x-2',
-              stepOneForm.formState.isSubmitting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-primary-600'
+          <div className="space-y-3">
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                className="w-full bg-gray-500 text-white font-bold py-2 px-4 rounded-md transition-colors hover:bg-gray-600"
+                disabled={stepOneForm.formState.isSubmitting}
+              >
+                Back to Main
+              </button>
             )}
-          >
-            {stepOneForm.formState.isSubmitting ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                <span>Sending OTP...</span>
-              </>
-            ) : (
-              <span>Send OTP</span>
-            )}
-          </button>
+            
+            <button
+              type="submit"
+              disabled={stepOneForm.formState.isSubmitting}
+              className={classNames(
+                'w-full bg-primary-500 text-white font-bold py-2 px-4 rounded-md transition-colors flex items-center justify-center space-x-2',
+                stepOneForm.formState.isSubmitting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-primary-600'
+              )}
+            >
+              {stepOneForm.formState.isSubmitting ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Sending OTP...</span>
+                </>
+              ) : (
+                <span>Send OTP</span>
+              )}
+            </button>
+          </div>
         </form>
       </motion.div>
     );

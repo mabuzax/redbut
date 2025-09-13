@@ -1,5 +1,3 @@
-// Prisma schema for the RedBut application – PostgreSQL edition
-
 generator client {
   provider = "prisma-client-js"
   output   = "../apps/api/node_modules/.prisma/client"
@@ -10,130 +8,79 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/* -------------------------------------------------------------------------- */
-/*  GUEST (ANONYMOUS) USERS                                                   */
-/* -------------------------------------------------------------------------- */
-
 model User {
-  id             String         @id @default(uuid())
-  name           String?
-  tableNumber    Int            @map("table_number")
-  sessionId      String         @map("session_id")
-  waiterId       String?        @map("waiter_id") // ID of assigned waiter
-  createdAt      DateTime       @default(now()) @map("created_at")
-
-  /* relations ------------------------------------------------------------- */
-  requests         Request[]
-  chatMessages     ChatMessage[]
-  reviews          Review[]
-  ratingsGiven     WaiterRating[] @relation("UserRatingAuthor")
-  orders           Order[] // Relation to Orders placed by this user
-  serviceAnalysis  ServiceAnalysis[]
-  waiter           Waiter?        @relation(fields: [waiterId], references: [id]) // Relation to assigned waiter
+  id              String            @id @default(uuid())
+  name            String?
+  tableNumber     Int               @map("table_number")
+  sessionId       String            @map("session_id")
+  waiterId        String?           @map("waiter_id")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  restaurantId    String            @map("restaurant_id")
+  chatMessages    ChatMessage[]
+  orders          Order[]
+  requests        Request[]
+  serviceAnalysis ServiceAnalysis[]
+  restaurant      Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  waiter          Waiter?           @relation(fields: [waiterId], references: [id])
 
   @@index([sessionId])
+  @@index([restaurantId])
+  @@index([waiterId])
+  @@index([waiterId, createdAt])
+  @@index([tableNumber])
+  @@index([createdAt])
+  @@index([waiterId, sessionId])
+  @@index([restaurantId, sessionId])
+  @@index([restaurantId, tableNumber])
   @@map("users")
 }
 
-/* -------------------------------------------------------------------------- */
-/*  CLOSED SESSIONS (for audit purposes)                                     */
-/* -------------------------------------------------------------------------- */
-
 model ClosedSession {
-  id             String         @id @default(uuid())
-  userId String         @map("user_id")
-  name           String?
-  tableNumber    Int            @map("table_number")
-  sessionId      String         @map("session_id")
-  waiterId       String?        @map("waiter_id") // ID of assigned waiter
-  createdAt      DateTime       @map("created_at") // Original session creation time
-  closedAt       DateTime       @default(now()) @map("closed_at") // When session was closed
+  id           String     @id @default(uuid())
+  name         String?
+  tableNumber  Int        @map("table_number")
+  sessionId    String     @map("session_id")
+  waiterId     String?    @map("waiter_id")
+  createdAt    DateTime   @map("created_at")
+  closedAt     DateTime   @default(now()) @map("closed_at")
+  userId       String     @map("user_id")
+  restaurantId String     @map("restaurant_id")
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  waiter       Waiter?    @relation(fields: [waiterId], references: [id])
 
-  /* relations ------------------------------------------------------------- */
-  waiter         Waiter?        @relation(fields: [waiterId], references: [id]) // Relation to assigned waiter
-
+  @@index([restaurantId])
   @@index([createdAt])
   @@index([closedAt])
   @@map("closed_sessions")
 }
 
-/* -------------------------------------------------------------------------- */
-/*  REQUESTS (buzz waiter / bill requests)                                    */
-/* -------------------------------------------------------------------------- */
-
 model Request {
   id          String        @id @default(uuid())
   userId      String        @map("user_id")
   tableNumber Int           @map("table_number")
-  sessionId   String        @map("session_id") // Added for consistency with orders
+  sessionId   String        @map("session_id")
   content     String
   status      RequestStatus @default(New)
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
-
-  /* relations ------------------------------------------------------------- */
   user        User          @relation(fields: [userId], references: [id])
   logs        RequestLog[]
 
   @@index([tableNumber, status])
   @@index([userId])
-  @@index([sessionId]) // Added index for session-based queries
+  @@index([sessionId])
   @@map("requests")
 }
 
-/* -------------------------------------------------------------------------- */
-/*  STATUS TRANSITION CONFIGURATION                                           */
-/* -------------------------------------------------------------------------- */
-
-model RequestStatusConfig {
-  id            String        @id @default(uuid())
-  currentStatus RequestStatus
-  targetStatus  RequestStatus
-  userRole      String
-  label         String
-  createdAt     DateTime      @default(now()) @map("created_at")
-  updatedAt     DateTime      @updatedAt @map("updated_at")
-
-  @@index([currentStatus])
-  @@index([userRole])
-  @@index([currentStatus, userRole])
-  @@map("request_status_config")
-}
-
-/* -------------------------------------------------------------------------- */
-/*  ORDER STATUS TRANSITION CONFIGURATION                                     */
-/* -------------------------------------------------------------------------- */
-
-model OrderStatusConfig {
-  id            String      @id @default(uuid())
-  currentStatus OrderStatus
-  targetStatus  OrderStatus
-  userRole      String
-  label         String
-  createdAt     DateTime    @default(now()) @map("created_at")
-  updatedAt     DateTime    @updatedAt @map("updated_at")
-
-  @@index([currentStatus])
-  @@index([userRole])
-  @@index([currentStatus, userRole])
-  @@map("order_status_config")
-}
-
-/* -------------------------------------------------------------------------- */
-/*  REQUESTS LOG – audit trail of all request state changes                   */
-/* -------------------------------------------------------------------------- */
-
 model RequestLog {
   id        String   @id @default(uuid())
-
-  /* parent request ------------------------------------------------------- */
+  /// parent request -------------------------------------------------------
   requestId String   @map("request_id")
-  request   Request  @relation(fields: [requestId], references: [id])
-
-  /* what happened -------------------------------------------------------- */
+  /// what happened --------------------------------------------------------
   action    String
-  actor     String   @default("system") // "user", "waiter", "system"
   dateTime  DateTime @default(now()) @map("date_time")
+  actor     String   @default("system")
+  request   Request  @relation(fields: [requestId], references: [id])
 
   @@index([requestId])
   @@index([dateTime])
@@ -141,22 +88,17 @@ model RequestLog {
   @@map("requests_log")
 }
 
-/* -------------------------------------------------------------------------- */
-/*  ORDERS                                                                    */
-/* -------------------------------------------------------------------------- */
-
 model Order {
   id          String      @id @default(uuid())
   tableNumber Int         @map("table_number")
-  sessionId   String      @map("session_id") // For guest orders before user association
-  userId      String?     @map("user_id")    // Optional: Link to a registered user
+  sessionId   String      @map("session_id")
+  userId      String?     @map("user_id")
   status      OrderStatus @default(New)
   createdAt   DateTime    @default(now()) @map("created_at")
   updatedAt   DateTime    @updatedAt @map("updated_at")
-
-  /* relations */
-  user        User?       @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   orderItems  OrderItem[]
+  user        User?       @relation(fields: [userId], references: [id])
+  logs        OrderLog[]
 
   @@index([tableNumber, sessionId])
   @@index([userId])
@@ -164,35 +106,232 @@ model Order {
   @@map("orders")
 }
 
-/* -------------------------------------------------------------------------- */
-/*  ORDER ITEMS                                                               */
-/* -------------------------------------------------------------------------- */
-
 model OrderItem {
-  id          String      @id @default(uuid())
-  orderId     String      @map("order_id")
-  menuItemId  String      @map("menu_item_id")
-  quantity    Int         @default(1)
-  price       Decimal     // Price of the item at the time of order
-  status      OrderStatus @default(New) // Status of the individual item, typically matches order status
-  selectedOptions Json?   @map("selected_options") // JSON array of selected options
-  selectedExtras Json?    @map("selected_extras")  // JSON array of selected extras
-  specialInstructions String? @map("special_instructions") // Special cooking instructions
-  createdAt   DateTime    @default(now()) @map("created_at")
-  updatedAt   DateTime    @updatedAt @map("updated_at")
-
-  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  menuItem  MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+  id                  String      @id @default(uuid())
+  orderId             String      @map("order_id")
+  menuItemId          String      @map("menu_item_id")
+  quantity            Int         @default(1)
+  price               Decimal
+  status              OrderStatus @default(New)
+  createdAt           DateTime    @default(now()) @map("created_at")
+  updatedAt           DateTime    @updatedAt @map("updated_at")
+  selectedExtras      Json?       @map("selected_extras")
+  selectedOptions     Json?       @map("selected_options")
+  specialInstructions String?     @map("special_instructions")
+  menuItem            MenuItem    @relation(fields: [menuItemId], references: [id])
+  order               Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
   @@index([menuItemId])
   @@map("order_items")
 }
 
+model OrderLog {
+  id       String   @id @default(uuid())
+  /// parent order ------------------------------------------------------
+  orderId  String   @map("order_id")
+  /// what happened --------------------------------------------------------
+  action   String
+  actor    String   @default("system")
+  dateTime DateTime @default(now()) @map("date_time")
+  order    Order    @relation(fields: [orderId], references: [id])
 
-/* -------------------------------------------------------------------------- */
-/*  ENUMS                                                                     */
-/* -------------------------------------------------------------------------- */
+  @@index([orderId])
+  @@index([dateTime])
+  @@index([actor])
+  @@map("orders_log")
+}
+
+model ChatMessage {
+  id              String        @id @default(uuid())
+  userId          String        @map("user_id")
+  role            ChatRole
+  content         String
+  createdAt       DateTime      @default(now()) @map("created_at")
+  parentMessageId String?       @map("parent_message_id")
+  parentMessage   ChatMessage?  @relation("MessageThread", fields: [parentMessageId], references: [id])
+  childMessages   ChatMessage[] @relation("MessageThread")
+  user            User          @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([parentMessageId])
+  @@index([userId, parentMessageId])
+  @@map("chat_messages")
+}
+
+model ServiceAnalysis {
+  id          String   @id @default(uuid())
+  sessionId   String   @map("session_id")
+  userId      String   @map("user_id")
+  waiterId    String   @map("waiter_id")
+  rating      Int
+  analysis    Json
+  createdAt   DateTime @default(now()) @map("created_at")
+  serviceType String   @default("request") @map("service_type")
+  user        User     @relation(fields: [userId], references: [id])
+  waiter      Waiter   @relation(fields: [waiterId], references: [id])
+
+  @@index([sessionId])
+  @@index([userId])
+  @@index([waiterId])
+  @@index([createdAt])
+  @@index([serviceType])
+  @@map("service_analysis")
+}
+
+model Tenant {
+  id          String       @id @default(uuid())
+  name        String
+  phone       String?
+  email       String?
+  address     String?
+  status      String       @default("Active")
+  code        String?      // OTP code for authentication
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  restaurants Restaurant[]
+
+  @@index([status])
+  @@index([email])
+  @@map("tenants")
+}
+
+model Restaurant {
+  id             String                 @id @default(uuid())
+  tenantId       String                 @map("tenant_id")
+  name           String
+  phone          String?
+  email          String?
+  location       String?
+  address        String?
+  status         String                 @default("Active")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+  closedSessions ClosedSession[]
+  menuItems      MenuItem[]
+  subscription   RestaurantSubscription?
+  tenant         Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users          User[]
+  waiters        Waiter[]
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([location])
+  @@map("restaurants")
+}
+
+model RestaurantSubscription {
+  id           String     @id @default(uuid())
+  restaurantId String     @unique @map("restaurant_id")
+  activeUntil  DateTime   @map("active_until")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([activeUntil])
+  @@index([restaurantId])
+  @@map("restaurant_subscriptions")
+}
+
+model MenuItem {
+  id                String      @id @default(uuid())
+  category          String?
+  name              String
+  description       String?
+  image             String?
+  price             Decimal
+  status            String      @default("Active")
+  video             String?
+  served_info       String?     @map("served_info")
+  available_options Json?       @map("available_options")
+  available_extras  Json?       @map("available_extras")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+  restaurantId      String      @map("restaurant_id")
+  restaurant        Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orderItems        OrderItem[]
+
+  @@index([restaurantId])
+  @@index([category])
+  @@index([status])
+  @@index([restaurantId, category])
+  @@index([restaurantId, status])
+  @@map("menu_items")
+}
+
+model Waiter {
+  id              String            @id @default(uuid())
+  name            String
+  surname         String
+  address         String?
+  phone           String?           @unique
+  email           String?           @unique
+  tag_nickname    String            @map("tag_nickname")
+  propic          String?
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  restaurantId    String            @map("restaurant_id")
+  // Authentication fields
+  code            String?           // OTP code for authentication
+  userType        UserType          @default(waiter) @map("user_type")
+  status          WaiterStatus      @default(Active)
+  accessAccount   AccessUser?
+  closedSessions  ClosedSession[]
+  serviceAnalysis ServiceAnalysis[]
+  users           User[]
+  restaurant      Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  metrics         WaiterMetric[]
+
+  @@index([restaurantId])
+  @@index([restaurantId, email])
+  @@index([email, userType])
+  @@index([phone, userType])
+  @@map("waiter")
+}
+
+model AccessUser {
+  /// The waiter this credential belongs to (1-to-1)
+  userId   String   @id @map("user_id")
+  /// Credentials
+  username String   @unique
+  code     String?
+  /// Role of this account (admin / waiter / manager)
+  userType UserType @default(waiter)
+  waiter   Waiter   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("access_users")
+}
+
+model WaiterMetric {
+  id              String   @id @default(uuid())
+  waiterId        String   @map("waiter_id")
+  metricDate      DateTime @map("metric_date")
+  openHandled     Int      @map("open_handled")
+  avgResponseTime Float    @map("avg_response_time")
+  ratingAvg       Float    @map("rating_avg")
+  createdAt       DateTime @default(now()) @map("created_at")
+  waiter          Waiter   @relation(fields: [waiterId], references: [id], onDelete: Cascade)
+
+  @@index([waiterId])
+  @@map("waiter_metrics")
+}
+
+model UserSessionLog {
+  id        String   @id @default(uuid())
+  sessionId String   @map("session_id")
+  action    String   // e.g., "created_session", "joined_session", "closed_session", "transferred_session"
+  dateTime  DateTime @default(now()) @map("date_time")
+  actorId   String?  @map("actor_id") // ID of the waiter or user who performed the action
+  actorType String?  @map("actor_type") // "waiter", "user", "system"
+  details   Json?    // Additional details about the action (e.g., transfer details, previous waiter info)
+
+  @@index([sessionId])
+  @@index([sessionId, dateTime])
+  @@index([actorId])
+  @@index([actorType])
+  @@index([dateTime])
+  @@map("user_session_logs")
+}
 
 enum ChatRole {
   user
@@ -211,14 +350,14 @@ enum RequestStatus {
 }
 
 enum OrderStatus {
-  New          // Order created by customer, not yet seen by staff
-  Acknowledged // Staff has seen the order
-  InProgress   // Order is being prepared
-  Complete     // Order preparation is complete
-  Delivered    // Order has been delivered to the table
-  Paid         // Order has been paid
-  Cancelled    // Order was cancelled by customer or staff
-  Rejected     // Order was rejected by customer after delivery
+  New
+  Acknowledged
+  InProgress
+  Complete
+  Delivered
+  Paid
+  Cancelled
+  Rejected
 }
 
 enum SortOrder {
@@ -226,253 +365,13 @@ enum SortOrder {
   desc
 }
 
-/* -------------------------------------------------------------------------- */
-/*  USER TYPES FOR ACCESS USERS                                              */
-/* -------------------------------------------------------------------------- */
-
 enum UserType {
   admin
   waiter
   manager
 }
 
-/* -------------------------------------------------------------------------- */
-/*  CHAT MESSAGES                                                             */
-/* -------------------------------------------------------------------------- */
-
-model ChatMessage {
-  id              String   @id @default(uuid())
-  userId          String   @map("user_id")
-  role            ChatRole
-  content         String
-  parentMessageId String?  @map("parent_message_id") // Links AI responses to the user message that triggered them
-  createdAt       DateTime @default(now()) @map("created_at")
-
-  /* relations ------------------------------------------------------------- */
-  user            User     @relation(fields: [userId], references: [id])
-  parentMessage   ChatMessage? @relation("MessageThread", fields: [parentMessageId], references: [id])
-  childMessages   ChatMessage[] @relation("MessageThread")
-
-  @@index([userId])
-  @@index([parentMessageId])
-  @@index([userId, parentMessageId])
-  @@map("chat_messages")
-}
-
-/* -------------------------------------------------------------------------- */
-/*  SERVICE ANALYSIS                                                          */
-/* -------------------------------------------------------------------------- */
-
-model ServiceAnalysis {
-  id          String   @id @default(uuid())
-  sessionId   String   @map("session_id")
-  userId      String   @map("user_id")
-  waiterId    String   @map("waiter_id")
-  serviceType String   @default("request") @map("service_type") // 'request' or 'order'
-  rating      Int      // 1-5 rating derived from analysis
-  analysis    Json     // Full analysis data
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  /* relations ------------------------------------------------------------- */
-  user      User     @relation(fields: [userId], references: [id])
-  waiter    Waiter   @relation(fields: [waiterId], references: [id])
-
-  @@index([sessionId])
-  @@index([userId])
-  @@index([waiterId])
-  @@index([createdAt])
-  @@index([serviceType])
-  @@map("service_analysis")
-}
-
-/* -------------------------------------------------------------------------- */
-/*  MENU ITEMS                                                                */
-/* -------------------------------------------------------------------------- */
-
-model MenuItem {
-  id                String  @id @default(uuid())
-  category          String?
-  name              String
-  description       String?
-  image             String?
-  price             Decimal
-  status            String  @default("Active") // e.g., Active, Inactive, OutOfStock
-  video             String?
-  served_info       String? @map("served_info")
-  available_options Json?   @map("available_options")
-  available_extras  Json?   @map("available_extras")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
-
-  /* relations */
-  orderItems        OrderItem[] // Relation to order items featuring this menu item
-
-  @@index([category])
-  @@index([status])
-  @@map("menu_items")
-}
-
-/* -------------------------------------------------------------------------- */
-/*  WAITER-FACING TABLES                                                      */
-/* -------------------------------------------------------------------------- */
-
-model Review {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  rating    Int
-  content   String
-  createdAt DateTime @default(now()) @map("created_at")
-
-  /* relations ------------------------------------------------------------- */
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@map("reviews")
-}
-
-/* -------------------------------------------------------------------------- */
-/*  STAFF (Waiter)                                                            */
-/* -------------------------------------------------------------------------- */
-
-model Waiter {
-  id        String   @id @default(uuid())
-
-  name      String
-  surname   String
-  address   String?
-  phone     String?  @unique
-  email     String   @unique
-  tag_nickname String @map("tag_nickname")
-  propic    String?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at") 
-
-  /* waiter-centric analytics & feedback ----------------------------------- */
-  metrics          WaiterMetric[]
-  ratings          WaiterRating[]
-  serviceAnalysis  ServiceAnalysis[]
-
-  /* one-to-one credential record used for dashboard login */
-  accessAccount AccessUser?
-
-  /* relations to table allocations */
-  tableAllocations TableAllocation[]
-
-  /* relations to users assigned to this waiter */
-  users     User[]
-  closedSessions ClosedSession[]
-
-  @@map("waiter")
-}
-
-/* -------------------------------------------------------------------------- */
-/*  SHIFTS                                                                    */
-/* -------------------------------------------------------------------------- */
-
-model Shift {
-  id        String   @id @default(uuid())
-  date      DateTime // Stores the date of the shift (time part at midnight UTC for easy date querying)
-  startTime DateTime @map("start_time") // Full start date and time
-  endTime   DateTime @map("end_time")   // Full end date and time
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  /* relations */
-  tableAllocations TableAllocation[]
-
-  @@index([date])
-  @@index([startTime])
-  @@map("shifts")
-}
-
-/* -------------------------------------------------------------------------- */
-/*  TABLE ALLOCATIONS                                                         */
-/* -------------------------------------------------------------------------- */
-
-model TableAllocation {
-  id           String   @id @default(uuid())
-  shiftId      String   @map("shift_id")
-  tableNumbers Int[]    @map("table_numbers") // Array of table numbers
-  waiterId     String   @map("waiter_id")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  /* relations */
-  shift        Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
-  waiter       Waiter   @relation(fields: [waiterId], references: [id], onDelete: Cascade)
-
-  @@index([shiftId])
-  @@index([waiterId])
-  @@index([shiftId, waiterId]) 
-  @@map("table_allocations")
-}
-
-
-/* -------------------------------------------------------------------------- */
-/*  ACCESS USERS – credentials for waiter dashboard login                     */
-/* -------------------------------------------------------------------------- */
-
-model AccessUser {
-  /* The waiter this credential belongs to (1-to-1) */
-  userId   String @id @map("user_id")
-  waiter   Waiter @relation(fields: [userId], references: [id], onDelete: Cascade) 
-
-  /* Credentials */
-  username String @unique
-  code     String?                     // OTP code for authentication (6 digits)
-
-  /* Role of this account (admin / waiter / manager) */
-  userType UserType @default(waiter)
-
-  @@map("access_users")
-}
-
-/* -------------------------------------------------------------------------- */
-/*  ANALYTICS PER WAITER (AI-generated)                                       */
-/* -------------------------------------------------------------------------- */
-
-model WaiterMetric {
-  id              String   @id @default(uuid())
-  waiterId        String   @map("waiter_id")
-  metricDate      DateTime @map("metric_date")
-  openHandled     Int      @map("open_handled")
-  avgResponseTime Float    @map("avg_response_time")
-  ratingAvg       Float    @map("rating_avg")
-  createdAt       DateTime @default(now()) @map("created_at")
-
-  /* relations ------------------------------------------------------------- */
-  waiter          Waiter   @relation(fields: [waiterId], references: [id], onDelete: Cascade) 
-
-  @@index([waiterId])
-  @@map("waiter_metrics")
-}
-
-/* -------------------------------------------------------------------------- */
-/*  RATING GIVEN BY A DINER TO A SPECIFIC WAITER                              */
-/* -------------------------------------------------------------------------- */
-
-model WaiterRating {
-  id              String   @id @default(uuid())
-
-  /* author (diner) */
-  userId          String   @map("user_id")
-  user            User     @relation("UserRatingAuthor", fields: [userId], references: [id], onDelete: Cascade) 
-
-  /* target waiter */
-  waiterId        String   @map("waiter_id")
-  waiter          Waiter   @relation(fields: [waiterId], references: [id], onDelete: Cascade) 
-
-  /* 1-5 metrics */
-  friendliness    Int
-  orderAccuracy   Int
-  speed           Int
-  attentiveness   Int
-  knowledge       Int
-
-  comment         String?
-  createdAt       DateTime @default(now()) @map("created_at")
-
-  @@index([userId])
-  @@index([waiterId])
-  @@map("waiter_rating")
+enum WaiterStatus {
+  Active
+  Inactive
 }

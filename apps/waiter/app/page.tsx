@@ -17,6 +17,9 @@ import CreateSessionModal from "../components/session/CreateSessionModal";
 import WaiterBurgerMenu from "../components/session/WaiterBurgerMenu";
 import CloseSessionModal from "../components/session/CloseSessionModal";
 import TableSessionsDisplay from "../components/session/TableSessionsDisplay";
+import WaiterProfileMenu from "../components/profile/WaiterProfileMenu";
+import WaiterProfileModal from "../components/profile/WaiterProfileModal";
+import TableTransferDialog from "../components/profile/TableTransferDialog";
 import { clearRedButLocalStorage } from "../lib/redbut-localstorage";
 
 /* -------------------------------------------------------------------------- */
@@ -35,7 +38,7 @@ function AllRequestsView({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<WaiterRequest | null>(null);
   const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<WaiterRequest['status']>(RequestStatus.Acknowledged);
+  const [status, setStatus] = useState<WaiterRequest['status']>(RequestStatus.New);
   const [statusOptions, setStatusOptions] = useState<{ value: string; label: string }[]>([]);
   const [statusOptionsLoading, setStatusOptionsLoading] = useState(false);
   const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false);
@@ -140,8 +143,6 @@ function AllRequestsView({ token }: { token: string }) {
     switch (status) {
       case 'New':
         return 'bg-blue-200 text-blue-600';
-      case 'Acknowledged':
-        return 'bg-yellow-200 text-yellow-600';
       case 'InProgress':
         return 'bg-purple-200 text-purple-600';
       case 'Completed':
@@ -185,7 +186,6 @@ function AllRequestsView({ token }: { token: string }) {
           className="border border-gray-300 rounded-md p-2">
           <option value="all">All Statuses</option>
           <option value="New">New</option>
-          <option value="Acknowledged">Acknowledged</option>
           <option value="InProgress">In Progress</option>
           <option value="Completed">Completed</option>
           <option value="OnHold">On Hold</option>
@@ -204,7 +204,7 @@ function AllRequestsView({ token }: { token: string }) {
       {loading ? (
         <div className="flex items-center justify-center h-32">
           <Loader2 className="h-8 w-8 animate-spin text-primary-500 mr-2" />
-          <p className="text-gray-500">Loading requests...</p>
+          <p className="text-gray-500">Let me find you your requests...</p>
         </div>
       ) : error ? (
         <p className="text-red-600 text-center">{error}</p>
@@ -220,21 +220,13 @@ function AllRequestsView({ token }: { token: string }) {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="border border-gray-200 rounded-lg p-4 bg-white shadow-sm cursor-pointer"
-              onClick={async () => {
+              onClick={() => {
                 setSelected(r);
                 setStatus(r.status as any);
                 setStatusOptions([]);
                 setStatusOptionsLoading(true);
-                const opts = await RequestStatusConfigService.getStatusOptions(
-                  r.status as any,
-                  'waiter',
-                  token
-                );
-                setStatusOptions(
-                  opts.length > 0
-                    ? opts
-                    : RequestStatusConfigService.getDefaultStatusOptions(r.status as any)
-                );
+                const opts = RequestStatusConfigService.getStatusOptions(r.status as any);
+                setStatusOptions(opts);
                 setStatusOptionsLoading(false);
               }}
             >
@@ -419,19 +411,8 @@ function SessionsSummaryCard({ token, onOpen }: SessionsSummaryCardProps) {
           return;
         }
 
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/waiter/sessions/${waiterId}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-        
-        if (response.ok) {
-          const sessions = await response.json();
-          setSessionsCount(sessions.length);
-        } else {
-          setSessionsCount(0);
-        }
+        const sessions = await waiterApi.getWaiterSessions(waiterId, token);
+        setSessionsCount(sessions.length);
       } catch (error) {
         console.error("Failed to fetch sessions count", error);
         setSessionsCount(0);
@@ -483,21 +464,78 @@ function AIAnalysisCard({ token }: { token: string }) {
   const [analysis, setAnalysis] = useState<AIAnalysisResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastFetched, setLastFetched] = useState<number | null>(null);
+
+  // Cache TTL: 10 minutes (600,000 milliseconds)
+  const CACHE_TTL = 10 * 60 * 1000;
+  const CACHE_KEY = 'waiter_ai_analysis';
+  const CACHE_TIMESTAMP_KEY = 'waiter_ai_analysis_timestamp';
+
+  // Load from localStorage on component mount
+  useEffect(() => {
+    const cachedData = localStorage.getItem(CACHE_KEY);
+    const cachedTimestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
+    
+    if (cachedData && cachedTimestamp) {
+      const timestamp = parseInt(cachedTimestamp);
+      if (Date.now() - timestamp < CACHE_TTL) {
+        setAnalysis(JSON.parse(cachedData));
+        setLastFetched(timestamp);
+      } else {
+        // Clear expired cache
+        localStorage.removeItem(CACHE_KEY);
+        localStorage.removeItem(CACHE_TIMESTAMP_KEY);
+      }
+    }
+  }, []);
+
+  const isCacheValid = () => {
+    if (!lastFetched || !analysis) return false;
+    return Date.now() - lastFetched < CACHE_TTL;
+  };
+
+  const fetchAnalysis = async (forceRefresh = false) => {
+    if (!forceRefresh && isCacheValid()) {
+      return; // Use cached data
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await waiterApi.getAIAnalysis(token);
+      const timestamp = Date.now();
+      
+      setAnalysis(res);
+      setLastFetched(timestamp);
+      
+      // Save to localStorage
+      localStorage.setItem(CACHE_KEY, JSON.stringify(res));
+      localStorage.setItem(CACHE_TIMESTAMP_KEY, timestamp.toString());
+    } catch (e: any) {
+      setError(e.message);
+      // Clear cache on error
+      setAnalysis(null);
+      setLastFetched(null);
+      localStorage.removeItem(CACHE_KEY);
+      localStorage.removeItem(CACHE_TIMESTAMP_KEY);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleOpen = async () => {
     setOpen(true);
-    if (!analysis) {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await waiterApi.getAIAnalysis(token);
-        setAnalysis(res);
-      } catch (e: any) {
-        setError(e.message);
-      } finally {
-        setLoading(false);
-      }
-    }
+    await fetchAnalysis();
+  };
+
+  const handleRefresh = async () => {
+    await fetchAnalysis(true); // Force refresh
+  };
+
+  const getCacheStatus = () => {
+    if (!lastFetched) return null;
+    const ageMinutes = Math.floor((Date.now() - lastFetched) / (1000 * 60));
+    return ageMinutes;
   };
 
   const getSentimentColor = (sentiment: string | undefined | null) => {
@@ -523,10 +561,15 @@ function AIAnalysisCard({ token }: { token: string }) {
       <div className="bg-white text-gray-900 rounded-lg shadow-md p-6 border border-gray-200 flex flex-col items-center justify-center text-center">
         <div className="flex items-center mb-4">
           <Bot className="h-12 w-12 text-primary-500 mr-2" />
-          <span className="text-xl font-extrabold text-purple-800">AI</span>
         </div>
-        <h2 className="text-xl tracking-tight mb-4 text-purple-800 font-bold">Performance Analysis</h2>
-        <p className="mb-4 text-gray-500 text-sm">Pull AI analysis of your performance for today.</p>
+        <h2 className="text-xl tracking-tight mb-4 text-purple-800 font-bold">AI Performance Analysis</h2>
+        <p className="mb-4 text-gray-500 text-sm">AI analysis of your performance for today.</p>
+        {getCacheStatus() !== null && (
+          <p className="mb-3 text-xs text-gray-400">
+            Last updated {getCacheStatus()}min ago
+            {getCacheStatus()! >= 8 && ' • Refresh recommended'}
+          </p>
+        )}
         <button
           onClick={handleOpen}
           className="inline-flex items-center justify-center px-4 py-2 font-semibold text-red-500 bg-white rounded-full hover:bg-gray-200 active:bg-gray-300 transition-all shadow-lg text-sm"
@@ -552,14 +595,34 @@ function AIAnalysisCard({ token }: { token: string }) {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-semibold tracking-tight text-gray-900">AI Performance Analysis</h3>
-                <button
-                  onClick={() => setOpen(false)}
-                  className="inline-flex items-center justify-center p-2 font-medium text-gray-600 bg-gray-100 rounded-full hover:bg-gray-200 active:bg-gray-300 transition-all"
-                  aria-label="Close modal"
-                >
-                  <X className="h-5 w-5" />
-                </button>
+                <div>
+                  <h3 className="text-xl font-semibold tracking-tight text-gray-900">AI Performance Analysis</h3>
+                  {getCacheStatus() !== null && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Data updated {getCacheStatus()}min ago {getCacheStatus()! >= 8 && '(refreshing recommended)'}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {analysis && (
+                    <button
+                      onClick={handleRefresh}
+                      disabled={loading}
+                      className="inline-flex items-center justify-center p-2 font-medium text-blue-600 bg-blue-50 rounded-full hover:bg-blue-100 active:bg-blue-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      aria-label="Refresh analysis"
+                      title="Refresh analysis"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setOpen(false)}
+                    className="inline-flex items-center justify-center p-2 font-medium text-gray-600 bg-gray-100 rounded-full hover:bg-gray-200 active:bg-gray-300 transition-all"
+                    aria-label="Close modal"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
               </div>
               
               {loading ? (
@@ -574,56 +637,200 @@ function AIAnalysisCard({ token }: { token: string }) {
                 </div>
               ) : analysis ? (
                 <div className="space-y-6">
-                  {/* Customer Sentiment */}
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                      <span className="text-2xl">{getSentimentIcon(analysis.overall_sentiment)}</span>
-                      Customer Sentiment
-                    </h4>
-                    <p className={classNames("text-lg font-medium", getSentimentColor(analysis.overall_sentiment))}>
-                      {analysis.overall_sentiment || 'No sentiment data available'}
-                    </p>
-                  </div>
-
-                  {/* Happiness Breakdown */}
-                  {analysis.happiness_breakdown && Object.keys(analysis.happiness_breakdown).length > 0 && (
-                    <div>
-                      <h4 className="font-semibold text-gray-900 mb-3">Customer Feedback Breakdown</h4>
-                      <div className="space-y-3">
-                        {Object.entries(analysis.happiness_breakdown).map(([level, summary]) => (
-                          <div key={level} className="border rounded-lg p-3 bg-white">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-sm font-medium text-gray-700">{level}</span>
-                            </div>
-                            <p className="text-sm text-gray-600">{summary}</p>
-                          </div>
-                        ))}
+                  {/* Request Management Metrics */}
+                  {analysis.requestManagement && (
+                    <div className="bg-blue-50 rounded-lg p-4">
+                      <h4 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                        <span className="text-2xl">📊</span>
+                        Request Management Performance
+                      </h4>
+                      
+                      {/* Performance Rating */}
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-gray-600">Performance Rating</span>
+                          <span className={classNames("text-lg font-bold", 
+                            analysis.requestManagement.performanceRating === 'Excellent' ? 'text-green-600' :
+                            analysis.requestManagement.performanceRating === 'Good' ? 'text-blue-600' :
+                            analysis.requestManagement.performanceRating === 'Average' ? 'text-yellow-600' :
+                            analysis.requestManagement.performanceRating === 'Needs Improvement' ? 'text-red-600' :
+                            'text-gray-600'
+                          )}>
+                            {analysis.requestManagement.performanceRating}
+                          </span>
+                        </div>
                       </div>
+
+                      {/* Key Metrics Grid */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                        <div className="bg-white rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-blue-600">{analysis.requestManagement.totalRequests}</div>
+                          <div className="text-xs text-gray-600">Total Requests</div>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-green-600">{analysis.requestManagement.completedRequests}</div>
+                          <div className="text-xs text-gray-600">Completed</div>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-purple-600">{analysis.requestManagement.completionRate.toFixed(1)}%</div>
+                          <div className="text-xs text-gray-600">Completion Rate</div>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-orange-600">{analysis.requestManagement.avgResponseTime}m</div>
+                          <div className="text-xs text-gray-600">Avg Response</div>
+                        </div>
+                      </div>
+
+                      {/* Additional Metric */}
+                      {analysis.requestManagement.avgCompletionTime > 0 && (
+                        <div className="bg-white rounded-lg p-3 mb-4">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-gray-600">Average Completion Time</span>
+                            <span className="text-lg font-bold text-indigo-600">{analysis.requestManagement.avgCompletionTime} minutes</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Request Management Insights */}
+                      {analysis.requestManagement.insights && analysis.requestManagement.insights.length > 0 && (
+                        <div>
+                          <h5 className="font-medium text-gray-900 mb-2">Request Handling Insights</h5>
+                          <ul className="space-y-2">
+                            {analysis.requestManagement.insights.map((insight, index) => (
+                              <li key={index} className="flex items-start gap-2">
+                                <span className="text-blue-500 mt-1">•</span>
+                                <span className="text-gray-700 text-sm">{insight}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {/* Improvement Points */}
-                  {analysis.improvement_points && analysis.improvement_points.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold text-gray-900 mb-3">Areas for Improvement</h4>
-                      <ul className="space-y-2">
-                        {analysis.improvement_points.map((point, index) => (
-                          <li key={index} className="flex items-start gap-2">
-                            <span className="text-yellow-500 mt-1">•</span>
-                            <span className="text-gray-700">{point}</span>
-                          </li>
-                        ))}
-                      </ul>
+                  {/* Customer Sentiment */}
+                  {analysis.customerSentiment && (
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                        <span className="text-2xl">{analysis.customerSentiment.available && analysis.customerSentiment.overallSentiment ? getSentimentIcon(analysis.customerSentiment.overallSentiment) : '💬'}</span>
+                        Customer Sentiment
+                      </h4>
+                      
+                      {analysis.customerSentiment.available ? (
+                        <div className="space-y-3">
+                          {analysis.customerSentiment.overallSentiment && (
+                            <p className={classNames("text-lg font-medium", getSentimentColor(analysis.customerSentiment.overallSentiment))}>
+                              {analysis.customerSentiment.overallSentiment}
+                            </p>
+                          )}
+                          
+                          {analysis.customerSentiment.averageRating && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-gray-600">Average Rating:</span>
+                              <span className="text-lg font-bold text-yellow-600">{analysis.customerSentiment.averageRating.toFixed(1)}</span>
+                            </div>
+                          )}
+
+                          {analysis.customerSentiment.keyStrengths && analysis.customerSentiment.keyStrengths.length > 0 && (
+                            <div>
+                              <h6 className="font-medium text-green-700 mb-2">Key Strengths</h6>
+                              <ul className="space-y-1">
+                                {analysis.customerSentiment.keyStrengths.map((strength, index) => (
+                                  <li key={index} className="flex items-start gap-2">
+                                    <span className="text-green-500 mt-1">✓</span>
+                                    <span className="text-gray-700 text-sm">{strength}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {analysis.customerSentiment.improvementAreas && analysis.customerSentiment.improvementAreas.length > 0 && (
+                            <div>
+                              <h6 className="font-medium text-yellow-700 mb-2">Areas for Improvement</h6>
+                              <ul className="space-y-1">
+                                {analysis.customerSentiment.improvementAreas.map((area, index) => (
+                                  <li key={index} className="flex items-start gap-2">
+                                    <span className="text-yellow-500 mt-1">•</span>
+                                    <span className="text-gray-700 text-sm">{area}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-gray-600">{analysis.customerSentiment.message || 'No customer feedback available for today yet'}</p>
+                      )}
                     </div>
                   )}
 
-                  {/* Overall Analysis */}
+                  {/* Legacy Support - Show old format if new format not available */}
+                  {!analysis.requestManagement && !analysis.customerSentiment && (
+                    <>
+                      {/* Legacy Customer Sentiment */}
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                          <span className="text-2xl">{getSentimentIcon(analysis.overall_sentiment)}</span>
+                          Customer Sentiment
+                        </h4>
+                        <p className={classNames("text-lg font-medium", getSentimentColor(analysis.overall_sentiment))}>
+                          {analysis.overall_sentiment || 'No sentiment data available for today yet'}
+                        </p>
+                      </div>
+
+                      {/* Legacy Happiness Breakdown */}
+                      {analysis.happiness_breakdown && Object.keys(analysis.happiness_breakdown).length > 0 && (
+                        <div>
+                          <h4 className="font-semibold text-gray-900 mb-3">Customer Feedback Breakdown</h4>
+                          <div className="space-y-3">
+                            {Object.entries(analysis.happiness_breakdown).map(([level, summary]) => (
+                              <div key={level} className="border rounded-lg p-3 bg-white">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-sm font-medium text-gray-700">{level}</span>
+                                </div>
+                                <p className="text-sm text-gray-600">{summary}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Legacy Improvement Points */}
+                      {analysis.improvement_points && analysis.improvement_points.length > 0 && (
+                        <div>
+                          <h4 className="font-semibold text-gray-900 mb-3">Areas for Improvement</h4>
+                          <ul className="space-y-2">
+                            {analysis.improvement_points.map((point, index) => (
+                              <li key={index} className="flex items-start gap-2">
+                                <span className="text-yellow-500 mt-1">•</span>
+                                <span className="text-gray-700">{point}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* Priority Focus */}
+                  {analysis.priorityFocus && (
+                    <div className="bg-yellow-50 rounded-lg p-4">
+                      <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                        <span className="text-2xl">🎯</span>
+                        Priority Focus
+                      </h4>
+                      <p className="text-gray-700 font-medium">{analysis.priorityFocus}</p>
+                    </div>
+                  )}
+
+                  {/* Overall AI Analysis */}
                   <div className="bg-blue-50 rounded-lg p-4">
                     <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
                       <Bot className="h-5 w-5 text-blue-600" />
                       AI Recommendation
                     </h4>
-                    <p className="text-gray-700">{analysis.overall_analysis || 'No detailed analysis available'}</p>
+                    <p className="text-gray-700">{analysis.overallAnalysis || 'No detailed analysis available for today yet'}</p>
                   </div>
                 </div>
               ) : (
@@ -903,6 +1110,10 @@ export default function WaiterDashboard() {
   const [showCloseSession, setShowCloseSession] = useState(false);
   /* ───── session refresh trigger ───── */
   const [sessionRefreshTrigger, setSessionRefreshTrigger] = useState(0);
+  /* ───── profile and transfer state ───── */
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showTransferDialog, setShowTransferDialog] = useState(false);
+  const [activeSessions, setActiveSessions] = useState<any[]>([]);
   const router = useRouter();
 
   /* ------------------------------------------------------------------ */
@@ -927,26 +1138,14 @@ export default function WaiterDashboard() {
           if (data.token) {
             try {
               console.log('Testing stored token...');
-              const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/waiter/requests/summary`, {
-                headers: {
-                  'Authorization': `Bearer ${data.token}`,
-                  'Content-Type': 'application/json'
-                }
-              });
-              
-              if (response.ok) {
-                console.log('Token is valid, setting user data');
-                setUserData(data);
-                setBootstrapping(false);
-                return;
-              } else {
-                // Token is invalid, clear session
-                console.log('Invalid token detected, clearing session...');
-                clearRedButLocalStorage();
-                setUserData(null);
-              }
+              await waiterApi.getRequestsSummary(data.token);
+              console.log('Token is valid, setting user data');
+              setUserData(data);
+              setBootstrapping(false);
+              return;
             } catch (error) {
-              console.log('Token validation failed, clearing session...', error);
+              // Token is invalid, clear session
+              console.log('Invalid token detected, clearing session...', error);
               clearRedButLocalStorage();
               setUserData(null);
             }
@@ -987,6 +1186,81 @@ export default function WaiterDashboard() {
     setSelectedTableNumber(tableNumber);
     setSessionView("orders");
     setView("sessions"); // Stay in sessions view but show session orders
+  };
+
+  /* ------------------------------------------------------------------ */
+  /*  Profile and sign out handlers                                    */
+  /* ------------------------------------------------------------------ */
+  const handleMyProfile = () => {
+    setShowProfileModal(true);
+  };
+
+  const handleSignOut = async () => {
+    try {
+      // Extract waiterId from token (JWT payload contains userId which is the waiter's ID)
+      const extractWaiterIdFromToken = (token: string): string | null => {
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          return payload.userId || null;
+        } catch (error) {
+          console.error('Error parsing token:', error);
+          return null;
+        }
+      };
+      
+      const waiterId = extractWaiterIdFromToken(userData.token);
+      
+      if (!waiterId) {
+        console.error('No waiter ID found in token');
+        alert('Unable to identify waiter. Please log in again.');
+        return;
+      }
+      
+      console.log('Checking sessions for waiterId:', waiterId);
+      
+      // First check if there are any active sessions
+      const sessions = await waiterApi.getWaiterSessions(waiterId, userData.token);
+      setActiveSessions(sessions);
+      
+      console.log('Active sessions found:', sessions.length);
+      
+      if (sessions.length > 0) {
+        // Show transfer dialog if there are active sessions
+        setShowTransferDialog(true);
+      } else {
+        // Direct sign out if no active sessions
+        performSignOut();
+      }
+    } catch (error) {
+      console.error('Error checking active sessions:', error);
+      // Show an error message instead of allowing sign out
+      alert('Unable to verify open tables. Please try again.');
+    }
+  };
+
+  const performSignOut = () => {
+    // Clear all session data
+    clearRedButLocalStorage();
+    localStorage.removeItem("redBut_token");
+    
+    // Reset state
+    setUserData(null);
+    setStage("splash");
+    setView("dashboard");
+    setSelectedSessionId(null);
+    setSelectedTableNumber(null);
+    setShowProfileModal(false);
+    setShowTransferDialog(false);
+    setActiveSessions([]);
+    
+    // Refresh the page to ensure clean state
+    window.location.reload();
+  };
+
+  const handleTransferComplete = () => {
+    // After successful transfer, sign out
+    setShowTransferDialog(false);
+    performSignOut();
   };
 
   const handleViewSessionRequests = (sessionId: string, tableNumber: number) => {
@@ -1043,12 +1317,16 @@ export default function WaiterDashboard() {
         />
         
         <h1 className="text-2xl font-bold">
-          {view === "dashboard" ? "Dashboard" : 
+          {view === "dashboard" ? "Your Dashboard" : 
            view === "sessions" ? (selectedSessionId ? 
-             (sessionView === "orders" ? "Orders" : "Requests") : "Sessions") : "Dashboard"}
+             (sessionView === "orders" ? "Orders" : "Requests") : "Sessions") : "Your Dashboard"}
         </h1>
         
-        <div className="w-32"></div> {/* Spacer for centering */}
+        <WaiterProfileMenu
+          userData={userData}
+          onMyProfile={handleMyProfile}
+          onSignOut={handleSignOut}
+        />
       </header>
 
       {view === "dashboard" && (
@@ -1124,6 +1402,22 @@ export default function WaiterDashboard() {
           // Trigger refresh of session display when modal closes
           setSessionRefreshTrigger(prev => prev + 1);
         }}
+        token={userData.token}
+      />
+
+      {/* Profile Modal */}
+      <WaiterProfileModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+        token={userData.token}
+      />
+
+      {/* Table Transfer Dialog */}
+      <TableTransferDialog
+        isOpen={showTransferDialog}
+        onClose={() => setShowTransferDialog(false)}
+        onTransferComplete={handleTransferComplete}
+        activeSessions={activeSessions}
         token={userData.token}
       />
     </div>

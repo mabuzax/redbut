@@ -1,11 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CacheService } from '../common/cache.service';
-import { Prisma, Review, Shift, Waiter, OrderStatus, RequestStatus as PrismaRequestStatus, Order, OrderItem, MenuItem, Request as PrismaRequestType, RequestLog, ServiceAnalysis } from '@prisma/client';
+import { Prisma, Waiter, OrderStatus, RequestStatus as PrismaRequestStatus, Order, OrderItem, MenuItem, Request as PrismaRequestType, RequestLog, ServiceAnalysis } from '@prisma/client';
 import {
   SalesAnalyticsData,
   PopularItemsAnalyticsData,
-  ShiftsAnalyticsData,
   HourlySalesAnalyticsData,
   StaffAnalyticsData,
   TablesAnalyticsData,
@@ -16,9 +15,6 @@ import {
   SalesTrendDataPoint,
   PopularItem,
   RevenueByItemDataPoint,
-  ShiftSalesDataPoint,
-  ShiftAverageOrderValueDataPoint,
-  ShiftPerformanceDetail,
   HourlySalesDataPoint,
   HourlyAverageOrderValueDataPoint,
   StaffSalesPerformance,
@@ -30,8 +26,8 @@ import {
   RatingDistributionDataPoint,
   RatingsOverTimeDataPoint,
   RecentComment,
-  WaiterRatingsBreakdown,
-  WaiterRatingsAnalyticsData,
+  ServiceAnalysisBreakdown,
+  ServiceAnalysisData,
   RequestsSummaryMetrics,
   RequestStatusDistribution,
   RequestsOverTimeDataPoint,
@@ -48,6 +44,7 @@ import {
   WorkloadDistribution,
 } from './admin-analytics.types';
 import { subDays, startOfMonth, endOfMonth, startOfDay, endOfDay, eachDayOfInterval, format, getHours } from 'date-fns';
+import { DateUtil } from '../common/utils/date.util';
 
 @Injectable()
 export class AdminAnalyticsService {
@@ -64,28 +61,15 @@ export class AdminAnalyticsService {
   }
 
   private getDefaultDateRange(days = 7): DateRange {
-    const endDate = endOfDay(new Date());
-    const startDate = startOfDay(subDays(endDate, days - 1));
-    return {
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-    };
+    return DateUtil.getDefaultDateRange(days);
   }
 
   private getCurrentMonthDateRange(): DateRange {
-    const now = new Date();
-    return {
-      startDate: startOfMonth(now).toISOString(),
-      endDate: endOfDay(now).toISOString(), 
-    };
+    return DateUtil.getCurrentMonthDateRange();
   }
 
   private getTodayDateRange(): DateRange {
-    const now = new Date();
-    return {
-      startDate: startOfDay(now).toISOString(),
-      endDate: endOfDay(now).toISOString(),
-    };
+    return DateUtil.getTodayDateRange();
   }
 
   async getSalesAnalytics(dateRange?: DateRange): Promise<SalesAnalyticsData> {
@@ -173,53 +157,6 @@ export class AdminAnalyticsService {
     return { topSellingItems: popularItems, revenueByItem };
   }
 
-  async getShiftsAnalytics(dateRange?: DateRange): Promise<ShiftsAnalyticsData> {
-    const { startDate, endDate } = dateRange || this.getDefaultDateRange(7);
-    this.logger.log(`Fetching shifts analytics from ${startDate} to ${endDate}`);
-
-    const shifts = await this.prisma.shift.findMany({
-      where: {
-        AND: [
-          { startTime: { lte: new Date(endDate) } },
-          { endTime: { gte: new Date(startDate) } },
-        ],
-      },
-      orderBy: { startTime: 'asc' },
-    });
-
-    const salesByShift: ShiftSalesDataPoint[] = [];
-    const averageOrderValueByShift: ShiftAverageOrderValueDataPoint[] = [];
-    const shiftPerformanceDetails: ShiftPerformanceDetail[] = [];
-
-    for (const shift of shifts) {
-      const ordersInShift = await this.prisma.order.findMany({
-        where: { createdAt: { gte: shift.startTime, lte: shift.endTime } },
-        include: { orderItems: true },
-      });
-      let shiftTotalSales = 0;
-      ordersInShift.forEach(order => {
-        order.orderItems.forEach(item => {
-            shiftTotalSales += item.price.toNumber() * item.quantity;
-        });
-      });
-      const totalOrders = ordersInShift.length;
-      const averageOrderValue = totalOrders > 0 ? shiftTotalSales / totalOrders : 0;
-      const shiftLabel = `${format(shift.date, 'yyyy-MM-dd')} (${format(shift.startTime, 'HH:mm')}-${format(shift.endTime, 'HH:mm')})`;
-
-      salesByShift.push({ name: shiftLabel, value: parseFloat(shiftTotalSales.toFixed(2)) });
-      averageOrderValueByShift.push({ name: shiftLabel, value: parseFloat(averageOrderValue.toFixed(2)) });
-      shiftPerformanceDetails.push({
-        shiftId: shift.id,
-        shiftLabel,
-        date: format(shift.date, 'yyyy-MM-dd'),
-        totalSales: parseFloat(shiftTotalSales.toFixed(2)),
-        totalOrders,
-        averageOrderValue: parseFloat(averageOrderValue.toFixed(2)),
-      });
-    }
-    return { salesByShift, averageOrderValueByShift, shiftPerformanceDetails };
-  }
-
   async getHourlySalesAnalytics(dateRange?: DateRange): Promise<HourlySalesAnalyticsData> {
     const { startDate, endDate } = dateRange || this.getTodayDateRange(); 
     this.logger.log(`Fetching hourly sales analytics from ${startDate} to ${endDate}`);
@@ -265,7 +202,7 @@ export class AdminAnalyticsService {
     const waiters = await this.prisma.waiter.findMany({ 
         include: { 
             accessAccount: { select: { userType: true }}, 
-            ratings: { where: { createdAt: { gte: new Date(startDate), lte: new Date(endDate) } } },
+            serviceAnalysis: { where: { createdAt: { gte: new Date(startDate), lte: new Date(endDate) } } },
         }
     });
 
@@ -322,8 +259,8 @@ export class AdminAnalyticsService {
         });
         orderCounts.push({ name: staffName, value: totalOrders });
         
-        const avgRating = waiter.ratings.length > 0 
-            ? waiter.ratings.reduce((sum, r) => sum + (r.friendliness + r.orderAccuracy + r.speed + r.attentiveness + r.knowledge) / 5, 0) / waiter.ratings.length
+        const avgRating = waiter.serviceAnalysis.length > 0 
+            ? waiter.serviceAnalysis.reduce((sum: number, analysis: any) => sum + analysis.rating, 0) / waiter.serviceAnalysis.length
             : 0;
 
         // Get requests handled by this waiter based on sessions they were involved in
@@ -362,7 +299,7 @@ export class AdminAnalyticsService {
       where: { id: staffId },
       include: { 
         accessAccount: { select: { userType: true }},
-        ratings: { where: { createdAt: { gte: new Date(startDate), lte: new Date(endDate) } } },
+        serviceAnalysis: { where: { createdAt: { gte: new Date(startDate), lte: new Date(endDate) } } },
       }
     });
 
@@ -546,12 +483,19 @@ export class AdminAnalyticsService {
     // Prepare data for AI analysis
     const analysisContent = serviceAnalysisData.map((item: any, index: number) => {
       const analysis = item.analysis as any;
-      const itemWithRating = item as any;
+      const rating = item.rating || 3;
+      const comment = analysis.comment || 'No comment provided';
+      
+      // Calculate average rating from individual metrics if available
+      const avgRating = analysis.friendliness && analysis.orderAccuracy && analysis.speed && analysis.attentiveness && analysis.knowledge
+        ? Math.round((analysis.friendliness + analysis.orderAccuracy + analysis.speed + analysis.attentiveness + analysis.knowledge) / 5)
+        : rating;
+        
       return `Review ${index + 1} (Table ${item.user?.tableNumber || 'Unknown'}, Type: ${item.serviceType || 'unknown'}):
-- Happiness Level: ${analysis.happiness} (Rating: ${itemWithRating.rating || 3}/5)
-- What customer said: "${analysis.reason}"
-- Suggested improvement: "${analysis.suggested_improvement}"
-- Overall sentiment: ${analysis.overall_sentiment}
+- Overall Rating: ${avgRating}
+- Individual Ratings: Friendliness: ${analysis.friendliness}, Order Accuracy: ${analysis.orderAccuracy}, Speed: ${analysis.speed}, Attentiveness: ${analysis.attentiveness}, Knowledge: ${analysis.knowledge}
+- Customer Comment: "${comment}"
+- Service Type: ${item.serviceType || 'request'}
 ---`;
     }).join('\n');
 
@@ -572,7 +516,7 @@ Please respond with a JSON object containing exactly these fields:
 Analyze patterns in the feedback and provide insights that would be valuable for both the waiter and their manager.`;
 
     try {
-      // Use the same AI service that the waiter endpoint uses
+      // Use structured output with JSON schema
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -584,15 +528,62 @@ Analyze patterns in the feedback and provide insights that would be valuable for
           messages: [
             {
               role: 'system',
-              content: 'You are an expert restaurant manager analyzing waiter performance. Always respond with valid JSON only, no additional text.'
+              content: `Today's date is: ${new Date().toISOString().split('T')[0]}. You are an expert restaurant manager analyzing waiter performance based on customer feedback data.`
             },
             {
               role: 'user',
               content: prompt
             }
           ],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "waiter_performance_analysis",
+              strict: false,
+              schema: {
+                type: "object",
+                properties: {
+                  overall_sentiment: {
+                    type: "string",
+                    description: "Overall sentiment assessment"
+                  },
+                  happiness_breakdown: {
+                    type: "object",
+                    description: "Analysis breakdown by sentiment/theme",
+                    additionalProperties: {
+                      type: "number"
+                    }
+                  },
+                  improvement_points: {
+                    type: "array",
+                    items: {
+                      type: "string"
+                    },
+                    description: "Specific improvement recommendations"
+                  },
+                  strengths: {
+                    type: "array",
+                    items: {
+                      type: "string"
+                    },
+                    description: "Positive aspects mentioned by customers"
+                  },
+                  overall_analysis: {
+                    type: "string",
+                    description: "Performance summary with trends and insights"
+                  },
+                  recommendation: {
+                    type: "string",
+                    description: "One actionable recommendation for the manager"
+                  }
+                },
+                required: ["overall_sentiment", "happiness_breakdown", "improvement_points", "strengths", "overall_analysis", "recommendation"],
+                additionalProperties: false
+              }
+            }
+          },
           max_tokens: 1000,
-          temperature: 0.3,
+          temperature: 0.1,
         }),
       });
 
@@ -614,10 +605,10 @@ Analyze patterns in the feedback and provide insights that would be valuable for
       this.logger.error('Failed to get AI analysis:', error);
       
       // Fallback to basic analysis if AI fails
-      const happinessCounts = serviceAnalysisData.reduce((acc: any, item: any) => {
-        const analysis = item.analysis as any;
-        const happiness = analysis.happiness || 'Unknown';
-        acc[happiness] = (acc[happiness] || 0) + 1;
+      const ratingCounts = serviceAnalysisData.reduce((acc: any, item: any) => {
+        const rating = item.rating || 3;
+        const range = rating >= 4 ? 'High (4-5)' : rating >= 3 ? 'Medium (3)' : 'Low (1-2)';
+        acc[range] = (acc[range] || 0) + 1;
         return acc;
       }, {});
 
@@ -625,10 +616,10 @@ Analyze patterns in the feedback and provide insights that would be valuable for
 
       return {
         overall_sentiment: avgRating >= 4 ? 'Good' : avgRating >= 3 ? 'Satisfactory' : 'Needs Improvement',
-        happiness_breakdown: happinessCounts,
+        happiness_breakdown: ratingCounts,
         improvement_points: ['AI analysis temporarily unavailable', 'Please review individual feedback for insights'],
         strengths: ['Manual review recommended'],
-        overall_analysis: `Based on ${serviceAnalysisData.length} feedback entries with an average rating of ${avgRating.toFixed(1)}/5. AI analysis is temporarily unavailable.`,
+        overall_analysis: `Based on ${serviceAnalysisData.length} feedback entries with an average rating of ${avgRating.toFixed(1)}. AI analysis is temporarily unavailable.`,
         recommendation: 'Review individual customer feedback for detailed insights.',
         totalFeedback: serviceAnalysisData.length,
         dateRange: `${startDate} to ${endDate}`,
@@ -676,7 +667,7 @@ Analyze patterns in the feedback and provide insights that would be valuable for
     return { utilization, revenueByTable };
   }
 
-  async getWaiterRatingsAnalyticsFromServiceAnalysis(dateRange?: DateRange): Promise<WaiterRatingsAnalyticsData> {
+  async getServiceAnalyticsFromServiceAnalysis(dateRange?: DateRange): Promise<ServiceAnalysisData> {
     const { startDate, endDate } = dateRange || this.getDefaultDateRange(30);
     this.logger.log(`Fetching waiter ratings analytics from service analysis from ${startDate} to ${endDate}`);
 
@@ -768,21 +759,32 @@ Analyze patterns in the feedback and provide insights that would be valuable for
 
       // Ratings breakdown per waiter - since service analysis only has single rating, 
       // we'll use that rating for all categories as a simplified breakdown
-      const ratingsBreakdownPerWaiter: WaiterRatingsBreakdown[] = waiters.map(waiter => {
+      const ratingsBreakdownPerWaiter: ServiceAnalysisBreakdown[] = waiters.map(waiter => {
         const waiterAnalyses = serviceAnalyses.filter(sa => sa.waiterId === waiter.id);
         const avgRating = waiterAnalyses.length > 0 
           ? waiterAnalyses.reduce((sum, sa) => sum + sa.rating, 0) / waiterAnalyses.length
           : 0;
         
+        // Calculate service type breakdowns
+        const requestAnalyses = waiterAnalyses.filter(sa => sa.serviceType === 'request');
+        const orderAnalyses = waiterAnalyses.filter(sa => sa.serviceType === 'order');
+        
+        const requestAvg = requestAnalyses.length > 0 
+          ? requestAnalyses.reduce((sum, sa) => sum + sa.rating, 0) / requestAnalyses.length
+          : 0;
+        const orderAvg = orderAnalyses.length > 0 
+          ? orderAnalyses.reduce((sum, sa) => sum + sa.rating, 0) / orderAnalyses.length
+          : 0;
+        
         return {
           waiterId: waiter.id,
           waiterName: `${waiter.name} ${waiter.surname} (${waiter.tag_nickname})`,
-          averageFriendliness: parseFloat(avgRating.toFixed(1)),
-          averageOrderAccuracy: parseFloat(avgRating.toFixed(1)),
-          averageSpeed: parseFloat(avgRating.toFixed(1)),
-          averageAttentiveness: parseFloat(avgRating.toFixed(1)),
-          averageKnowledge: parseFloat(avgRating.toFixed(1)),
-          totalRatings: waiterAnalyses.length,
+          averageRating: parseFloat(avgRating.toFixed(1)),
+          totalAnalyses: waiterAnalyses.length,
+          serviceTypes: {
+            request: { count: requestAnalyses.length, averageRating: parseFloat(requestAvg.toFixed(1)) },
+            order: { count: orderAnalyses.length, averageRating: parseFloat(orderAvg.toFixed(1)) }
+          }
         };
       });
 
@@ -791,7 +793,7 @@ Analyze patterns in the feedback and provide insights that would be valuable for
         overallRatingDistribution,
         ratingsTrend,
         recentComments,
-        ratingsBreakdownPerWaiter
+        analysisBreakdownPerWaiter: ratingsBreakdownPerWaiter
       };
 
     } catch (error) {
@@ -1187,14 +1189,14 @@ Focus on:
           messages: [
             {
               role: 'system',
-              content: 'You are an expert restaurant analytics consultant specializing in service quality and operational efficiency analysis. Provide actionable insights based on request handling and service feedback data.'
+              content: `Today's date is: ${new Date().toISOString().split('T')[0]}. You are an expert restaurant analytics consultant specializing in service quality and operational efficiency analysis. Provide actionable insights based on request handling and service feedback data.`
             },
             {
               role: 'user',
               content: prompt
             }
           ],
-          temperature: 0.3,
+          temperature: 0.1,
           max_tokens: 2000,
           response_format: {
             type: "json_schema",
@@ -1303,14 +1305,9 @@ Focus on:
         analysisResult = JSON.parse(content);
         this.logger.log(`[OPENAI] 📊 Successfully parsed sentiment analysis result`);
       } catch (parseError) {
-        this.logger.warn('Failed to parse AI response as JSON, attempting to clean content:', content);
-        // Try to extract JSON from markdown code blocks if present
-        const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
-        if (jsonMatch) {
-          analysisResult = JSON.parse(jsonMatch[1]);
-        } else {
-          throw parseError;
-        }
+        this.logger.error('Failed to parse structured AI response as JSON:', parseError);
+        this.logger.error('Response content:', content);
+        throw new Error('AI service returned invalid structured output');
       }
 
       return analysisResult;
@@ -1787,7 +1784,7 @@ STAFF DATA SUMMARY:
 - Completed Requests: ${totalCompletedRequests}
 - Completion Rate: ${totalRequests > 0 ? ((totalCompletedRequests / totalRequests) * 100).toFixed(1) : 0}%
 - Total Ratings: ${totalRatings}
-- Average Rating: ${avgRating.toFixed(2)}/5.0
+- Average Rating: ${avgRating.toFixed(2)}
 
 DETAILED WAITER DATA:
 ${rawData.waiters.map((waiter: any) => {
@@ -1799,7 +1796,7 @@ ${rawData.waiters.map((waiter: any) => {
   const waiterAvgRating = waiterServiceAnalyses.length > 0 ? 
     waiterServiceAnalyses.reduce((sum: number, r: any) => sum + r.rating, 0) / waiterServiceAnalyses.length : 0;
 
-  return `${waiter.name} ${waiter.surname}: ${waiterRequests} requests, ${waiterCompleted} completed (${waiterRequests > 0 ? ((waiterCompleted / waiterRequests) * 100).toFixed(1) : 0}%), Rating: ${waiterAvgRating.toFixed(2)}/5.0`;
+  return `${waiter.name} ${waiter.surname}: ${waiterRequests} requests, ${waiterCompleted} completed (${waiterRequests > 0 ? ((waiterCompleted / waiterRequests) * 100).toFixed(1) : 0}%), Rating: ${waiterAvgRating.toFixed(2)}`;
 }).join('\n')}
 
 Please analyze this data and provide insights on:
@@ -1821,7 +1818,7 @@ Respond in JSON format with structured insights.`;
           messages: [
             {
               role: 'system',
-              content: 'You are an expert restaurant analytics AI. Analyze staff performance data and provide actionable insights in JSON format.'
+              content: `Today's date is: ${new Date().toISOString().split('T')[0]}. You are an expert restaurant analytics AI. Analyze staff performance data and provide actionable insights in JSON format.`
             },
             {
               role: 'user',
@@ -1870,13 +1867,9 @@ Respond in JSON format with structured insights.`;
       try {
         analysisResult = JSON.parse(content);
       } catch (parseError) {
-        this.logger.warn('Failed to parse AI response as JSON, attempting to clean content:', content);
-        const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
-        if (jsonMatch) {
-          analysisResult = JSON.parse(jsonMatch[1]);
-        } else {
-          throw parseError;
-        }
+        this.logger.error('Failed to parse structured AI response as JSON:', parseError);
+        this.logger.error('Response content:', content);
+        throw new Error('AI service returned invalid structured output');
       }
 
       return analysisResult;
@@ -2193,7 +2186,7 @@ OPERATIONAL METRICS:
 - Total Requests: ${data.totalRequests}
 - Completion Rate: ${data.completionRate}%
 - Average Response Time: ${data.avgResponseTime} minutes
-- Customer Satisfaction: ${data.avgSatisfactionScore}/5.0
+- Customer Satisfaction: ${data.avgSatisfactionScore}
 - Staff Count: ${data.keyMetrics.totalStaff}
 - Top Performer: ${data.keyMetrics.topPerformer}
 
@@ -2227,15 +2220,52 @@ Format as JSON with keys: summary, keyFindings, recommendations, alerts`;
           messages: [
             {
               role: 'system',
-              content: 'You are an expert restaurant operations analyst. Provide strategic, actionable insights based on operational data. Always respond with valid JSON.'
+              content: `Today's date is: ${new Date().toISOString().split('T')[0]}. You are an expert restaurant operations analyst. Provide strategic, actionable insights based on operational data.`
             },
             {
               role: 'user',
               content: prompt
             }
           ],
-          temperature: 0.3,
-          max_tokens: 1500
+          temperature: 0.1,
+          max_tokens: 1500,
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "executive_summary",
+              strict: true,
+              schema: {
+                type: "object",
+                properties: {
+                  summary: {
+                    type: "string",
+                    description: "Executive summary (2-3 sentences)"
+                  },
+                  keyFindings: {
+                    type: "array",
+                    items: { type: "string" },
+                    minItems: 3,
+                    maxItems: 5,
+                    description: "Key performance findings (3-5 bullet points)"
+                  },
+                  recommendations: {
+                    type: "array",
+                    items: { type: "string" },
+                    minItems: 3,
+                    maxItems: 5,
+                    description: "Strategic recommendations (3-5 actionable items)"
+                  },
+                  alerts: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Critical alerts (if any performance issues detected)"
+                  }
+                },
+                required: ["summary", "keyFindings", "recommendations", "alerts"],
+                additionalProperties: false
+              }
+            }
+          }
         })
       });
 
@@ -2250,18 +2280,14 @@ Format as JSON with keys: summary, keyFindings, recommendations, alerts`;
         throw new Error('No analysis content received from OpenAI');
       }
 
-      // Parse JSON response
+      // Parse JSON response from structured output
       let analysisResult;
       try {
         analysisResult = JSON.parse(analysisText);
       } catch (parseError) {
-        this.logger.warn('Failed to parse LLM response as JSON, providing fallback');
-        analysisResult = {
-          summary: "Something went wrong while getting AI response.",
-          keyFindings: ['Analysis not done'],
-          recommendations: ['Retry the analysis at a later time'],
-          alerts: []
-        };
+        this.logger.error('Failed to parse structured AI response as JSON:', parseError);
+        this.logger.error('Response content:', analysisText);
+        throw new Error('AI service returned invalid structured output');
       }
 
       return analysisResult;
@@ -2416,7 +2442,7 @@ Analyze the following restaurant operational data and provide specific insights 
 OPERATIONAL DATA:
 ${JSON.stringify(analysisData, null, 2)}
 
-IMPORTANT: Use the real sentiment data provided (serviceAnalysis, requestLogs, waiterRatings) to generate accurate sentiment analysis.
+IMPORTANT: Use the real sentiment data provided (serviceAnalysis, requestLogs) to generate accurate sentiment analysis.
 
 Please respond with a JSON object containing:
 {
@@ -2516,14 +2542,14 @@ Focus on data-driven insights using the actual sentiment data provided. Calculat
           messages: [
             {
               role: 'system',
-              content: 'You are an expert restaurant operations analyst specializing in performance optimization, customer sentiment analysis, and operational efficiency. Provide data-driven insights with specific recommendations based on real operational metrics.'
+              content: `Today's date is: ${new Date().toISOString().split('T')[0]}. You are an expert restaurant operations analyst specializing in performance optimization, customer sentiment analysis, and operational efficiency. Provide data-driven insights with specific recommendations based on real operational metrics.`
             },
             {
               role: 'user',
               content: prompt
             }
           ],
-          temperature: 0.3,
+          temperature: 0.1,
           max_tokens: 2000,
           response_format: {
             type: "json_schema",
@@ -2672,15 +2698,9 @@ Focus on data-driven insights using the actual sentiment data provided. Calculat
         // With structured output, the content should be valid JSON
         aiInsights = JSON.parse(content);
       } catch (parseError) {
-        this.logger.error('Failed to parse LLM response for AI insights:', parseError);
-        this.logger.error('Raw LLM response:', content);
-        // Try to extract JSON from markdown code blocks if present
-        const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
-        if (jsonMatch) {
-          aiInsights = JSON.parse(jsonMatch[1]);
-        } else {
-          throw new Error('Unable to process AI insights at this time');
-        }
+        this.logger.error('Failed to parse structured AI response as JSON:', parseError);
+        this.logger.error('Response content:', content);
+        throw new Error('AI service returned invalid structured output');
       }
 
       const result = {

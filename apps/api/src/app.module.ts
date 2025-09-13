@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { join } from 'path';
 import { TerminusModule } from '@nestjs/terminus';
 import { HealthController } from './health/health.controller';
@@ -19,6 +20,8 @@ import { WaiterModule } from './waiter/waiter.module';
 import { AdminModule } from './admin/admin.module';
 import { MenuModule } from './menu/menu.module';
 import { ServiceAnalysisModule } from './service-analysis/service-analysis.module';
+import { RestaurantModule } from './restaurant/restaurant.module';
+import { TokenRefreshInterceptor } from './auth/interceptors/token-refresh.interceptor';
 
 @Module({
   imports: [
@@ -58,6 +61,7 @@ import { ServiceAnalysisModule } from './service-analysis/service-analysis.modul
     AdminModule, // Admin dashboard & endpoints
     MenuModule, // Public menu endpoints
     ServiceAnalysisModule, // Service feedback analysis
+    RestaurantModule, // Restaurant management & subscriptions
   ],
   controllers: [HealthController, HelloController, CacheController],
   providers: [
@@ -65,6 +69,11 @@ import { ServiceAnalysisModule } from './service-analysis/service-analysis.modul
     DataPreloaderService,
     CachedDataService,
     CacheInvalidatorService,
+    // Global interceptor for token refresh
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TokenRefreshInterceptor,
+    },
   ],
 })
 export class AppModule {}

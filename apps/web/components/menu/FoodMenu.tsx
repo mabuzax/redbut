@@ -243,18 +243,12 @@ const FoodMenu = ({
       // Clear cart after successful order
       clearCart();
       setShowCart(false);
-      toast.success("Order placed successfully!", {
+      toast.success("List sent to waiter!", {
         position: "bottom-center",
         duration: 3000,
         icon: '✅'
       });
       
-      // Show waiter notification popup
-      setTimeout(() => {
-        if (confirm("Once everyone is ready at your table, use the Buzz Waiter button to call waiter to the table.")) {
-          onCloseMenu();
-        }
-      }, 500);
     } catch (e: any) {
       toast.error(`Error placing order: ${e.message || "Unknown error"}`, {
         position: "bottom-center",
@@ -677,7 +671,7 @@ const FoodMenu = ({
                   }}
                   className="py-2 px-4 bg-white text-red-700 rounded-lg hover:bg-gray-50 transition-colors flex items-center justify-center text-sm font-bold shadow-lg"
                 >
-                  <ShoppingBag className="h-3.5 w-3.5 mr-1" /> Add to Order
+                  <ShoppingBag className="h-3.5 w-3.5 mr-1" /> Add to List
                 </button>
               </div>
             </motion.div>
@@ -789,7 +783,7 @@ const FoodMenu = ({
                       Processing...
                     </>
                   ) : (
-                    'Place Order'
+                    'Done! Send my list to Waiter'
                   )}
                 </button>
               </div>

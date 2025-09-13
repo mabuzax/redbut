@@ -44,13 +44,33 @@ export class AdminStaffController {
 
   @Get()
   @ApiOperation({ summary: 'Get all staff members' })
+  @ApiQuery({ name: 'restaurantId', required: false, description: 'Filter staff by restaurant ID' })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'List of all staff members retrieved successfully.',
     type: [StaffMemberResponseDto], 
   })
-  async getAllStaffMembers(): Promise<StaffMemberWithAccessInfo[]> { 
-    return this.adminStaffService.getAllStaffMembers();
+  async getAllStaffMembers(@Query('restaurantId') restaurantId?: string): Promise<StaffMemberWithAccessInfo[]> { 
+    console.log(`[Controller] getAllStaffMembers called with restaurantId: ${restaurantId}`);
+    console.log(`[Controller] About to call service with restaurantId: ${restaurantId}`);
+    const result = await this.adminStaffService.getAllStaffMembers(restaurantId);
+    console.log(`[Controller] Service returned ${result.length} staff members`);
+    return result;
+  }
+
+  @Get('debug')
+  @ApiOperation({ summary: 'Debug: Get all staff members without filtering' })
+  async debugGetAllStaffMembers(): Promise<any> { 
+    console.log(`[Controller] Debug endpoint called - fetching ALL staff members`);
+    const allStaff = await this.adminStaffService.getAllStaffMembers();
+    console.log(`[Controller] Found ${allStaff.length} total staff members`);
+    return allStaff.map(staff => ({
+      id: staff.id,
+      name: staff.name,
+      surname: staff.surname,
+      restaurantId: staff.restaurantId,
+      tag_nickname: staff.tag_nickname
+    }));
   }
 
   @Get(':id')
@@ -97,7 +117,7 @@ export class AdminStaffController {
           surname: 'Smith',
           email: 'alice.smith@example.com',
           tag_nickname: 'ChefAlice',
-          position: 'Chef',
+          position: 'Admin',
           password: 'PasswordChef!',
         } as CreateStaffMemberDto,
       },
@@ -136,7 +156,7 @@ export class AdminStaffController {
           name: 'Johnny',
           surname: 'Doer',
           tag_nickname: 'JD',
-          position: 'Supervisor',
+          position: 'Admin',
           phone: '0987654321',
         } as UpdateStaffMemberDto, 
       },

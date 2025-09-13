@@ -109,7 +109,7 @@ function TableSessionGuardInner({ children }: TableSessionGuardProps) {
       <div className="min-h-screen bg-gradient-to-br from-red-50 to-orange-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <p className="mt-4 text-gray-600">RedBut</p>
         </div>
       </div>
     );
@@ -147,7 +147,7 @@ function TableSessionGuardInner({ children }: TableSessionGuardProps) {
               Welcome to RedBut
             </h1>
             <p className="text-gray-600 text-lg">
-              Use your phone's camera to scan QR Code from your Waiter
+              Ask your waiter for the QR Code and Use your phone's camera to scan it
             </p>
           </div>
         </div>
@@ -165,7 +165,7 @@ export default function TableSessionGuard({ children }: TableSessionGuardProps) 
       <div className="min-h-screen bg-gradient-to-br from-red-50 to-orange-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <p className="mt-4 text-gray-600">RedBut</p>
         </div>
       </div>
     }>

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { QrCode, Clock, Users, X } from "lucide-react";
 import { getTableSessions, removeTableSession, TableSession } from "../../lib/table-sessions";
+import { waiterApi } from "../../lib/api";
 import QRCode from "qrcode";
 
 interface TableSessionsDisplayProps {
@@ -45,41 +46,29 @@ export default function TableSessionsDisplay({ token, onCloseSession, refreshTri
       }
     console.log('TableSessionsDisplay: waiterId:', waiterId);
       // Fetch sessions from API instead of localStorage
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/waiter/sessions/${waiterId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.ok) {
-        const apiSessions = await response.json();
-        console.log('TableSessionsDisplay: Loading sessions from API:', apiSessions);
-        
-        // Convert API response to our TableSession format
-        const tableSessions: TableSession[] = apiSessions.map((session: any) => ({
-          sessionId: session.sessionId,
-          tableNumber: session.tableNumber,
-          waiterId: session.waiterId,
-          qrCodeUrl: session.qrCodeUrl,
-          createdAt: session.createdAt,
-          orderCount: session.orderCount || 0, // Include order count from API
-          requestCount: session.requestCount || 0, // Include request count from API
-        }));
-        
-        setSessions(tableSessions);
-        
-        // Sync with localStorage for offline access
-        localStorage.setItem('redBut_table_sessions', JSON.stringify(tableSessions));
-      } else {
-        console.error('Failed to fetch sessions from API, falling back to localStorage');
-        // Fallback to localStorage if API fails
-        const tableSessions = getTableSessions();
-        setSessions(tableSessions);
-      }
+      const apiSessions = await waiterApi.getWaiterSessions(waiterId, token);
+      console.log('TableSessionsDisplay: Loading sessions from API:', apiSessions);
+      
+      // Convert API response to our TableSession format
+      const tableSessions: TableSession[] = apiSessions.map((session: any) => ({
+        sessionId: session.sessionId,
+        tableNumber: session.tableNumber,
+        waiterId: session.waiterId,
+        qrCodeUrl: session.qrCodeUrl,
+        createdAt: session.createdAt,
+        orderCount: session.orderCount || 0, // Include order count from API
+        requestCount: session.requestCount || 0, // Include request count from API
+      }));
+      
+      setSessions(tableSessions);
+      
+      // Sync with localStorage for offline access
+      localStorage.setItem('redBut_table_sessions', JSON.stringify(tableSessions));
     } catch (error) {
-      console.error('Error loading table sessions:', error);
+      console.error('Error loading table sessions from API, falling back to localStorage:', error);
       // Fallback to localStorage on error
+      const fallbackSessions = getTableSessions();
+      setSessions(fallbackSessions);
       const tableSessions = getTableSessions();
       setSessions(tableSessions);
     } finally {
@@ -112,33 +101,21 @@ export default function TableSessionsDisplay({ token, onCloseSession, refreshTri
     setIsClosing(true);
     try {
       // Close session via API
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/waiter/close-session`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ sessionId: sessionToClose.sessionId })
-      });
-
-      if (response.ok) {
-        console.log('Session closed successfully via API');
-        // Update local state immediately
-        setSessions(prev => prev.filter(s => s.sessionId !== sessionToClose.sessionId));
-        
-        // Also update localStorage for consistency
-        removeTableSession(sessionToClose.sessionId);
-        
-        if (onCloseSession) {
-          onCloseSession(sessionToClose.sessionId);
-        }
-        
-        // Close the confirmation modal
-        setSessionToClose(null);
-      } else {
-        console.error('Failed to close session via API');
-        alert('Failed to close session');
+      await waiterApi.closeSession(sessionToClose.sessionId, token);
+      console.log('Session closed successfully via API');
+      
+      // Update local state immediately
+      setSessions(prev => prev.filter(s => s.sessionId !== sessionToClose.sessionId));
+      
+      // Also update localStorage for consistency
+      removeTableSession(sessionToClose.sessionId);
+      
+      if (onCloseSession) {
+        onCloseSession(sessionToClose.sessionId);
       }
+      
+      // Close the confirmation modal
+      setSessionToClose(null);
     } catch (error) {
       console.error('Error closing session:', error);
       alert('Failed to close session');

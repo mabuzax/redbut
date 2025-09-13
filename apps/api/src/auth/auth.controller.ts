@@ -198,4 +198,75 @@ export class AuthController {
   ) {
     return this.authService.validateSession(dto.sessionId, dto.name, dto.clientId);
   }
+
+  @Post('tenant/generate-otp')
+  @ApiOperation({ summary: 'Generate OTP for tenant authentication' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        emailOrPhone: { type: 'string', description: 'Tenant email or phone number' },
+      },
+      required: ['emailOrPhone'],
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'OTP generated and sent successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+        email: { type: 'string' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Tenant not found or inactive',
+  })
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async generateTenantOTP(@Body() body: { emailOrPhone: string }) {
+    return this.authService.generateTenantOTP(body.emailOrPhone);
+  }
+
+  @Post('tenant/verify-otp')
+  @ApiOperation({ summary: 'Verify OTP and login tenant' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        emailOrPhone: { type: 'string', description: 'Tenant email or phone number' },
+        otp: { type: 'string', description: '6-digit OTP code' },
+      },
+      required: ['emailOrPhone', 'otp'],
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'OTP verified and tenant logged in successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        tenant: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            email: { type: 'string' },
+            restaurants: { type: 'array', items: { type: 'object' } },
+          },
+        },
+        token: { type: 'string', description: 'JWT authentication token' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Invalid OTP or tenant not found',
+  })
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async verifyTenantOTP(@Body() body: { emailOrPhone: string; otp: string }) {
+    return this.authService.verifyTenantOTPAndLogin(body.emailOrPhone, body.otp);
+  }
 }

@@ -109,22 +109,22 @@ const OwnerDashboardComponent: React.FC<OwnerDashboardProps> = ({ onBack }) => {
       }
 
       // Fetch data from our existing analytics endpoints
-      const [requestsAnalytics, waiterRatingsAnalytics, sentimentsAnalytics] = await Promise.all([
+      const [requestsAnalytics, serviceAnalytics, sentimentsAnalytics] = await Promise.all([
         adminApi.getRequestsAnalytics(token, dateRange),
-        adminApi.getWaiterRatingsAnalytics(token, dateRange),
+        adminApi.getServiceAnalytics(token, dateRange),
         adminApi.getCustomerRatingsAnalytics(token, dateRange)
       ]);
 
       // Set data for different tabs
       setExecutiveData({
         requests: requestsAnalytics,
-        ratings: waiterRatingsAnalytics,
+        ratings: serviceAnalytics,
         sentiments: sentimentsAnalytics
       });
 
       setStaffData({
         requests: requestsAnalytics,
-        ratings: waiterRatingsAnalytics
+        ratings: serviceAnalytics
       });
 
       setInsightsData({

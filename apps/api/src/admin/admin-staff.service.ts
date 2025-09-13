@@ -16,6 +16,7 @@ import {
   StaffPosition,
   DEFAULT_STAFF_PASSWORD,
   StaffMemberWithAccessInfo,
+  WaiterStatus,
 } from './admin-staff.types';
 
 @Injectable()
@@ -29,33 +30,56 @@ export class AdminStaffService {
 
   private mapPositionToUserType(position: StaffPosition): UserType {
     switch (position) {
-      case 'Manager':
-        return UserType.manager;
+      case 'Admin':
+        return UserType.admin;
       case 'Waiter':
-      case 'Chef':
-      case 'Supervisor':
       default:
         return UserType.waiter;
     }
   }
 
-  async getAllStaffMembers(): Promise<StaffMemberWithAccessInfo[]> {
-    this.logger.log('Fetching all staff members');
+  async getAllStaffMembers(restaurantId?: string): Promise<StaffMemberWithAccessInfo[]> {
+    this.logger.log(`Fetching staff members${restaurantId ? ` for restaurant ${restaurantId}` : ''}`);
+    
+    const whereClause: any = {};
+    if (restaurantId) {
+      whereClause.restaurantId = restaurantId;
+    }
+    
+    this.logger.log(`Query whereClause: ${JSON.stringify(whereClause)}`);
+    
     const waiters = await this.prisma.waiter.findMany({
+      where: whereClause,
       include: {
         accessAccount: {
           select: {
             username: true,
-            userType: true,
           },
         },
       },
-      orderBy: {
-        createdAt: 'desc',
-      },
+      orderBy: [
+        {
+          status: 'asc', // Active comes before Inactive alphabetically
+        },
+        {
+          name: 'asc',
+        },
+      ],
     });
 
-    return waiters;
+    this.logger.log(`Found ${waiters.length} waiters: ${waiters.map(w => `${w.name} ${w.surname} (restaurantId: ${w.restaurantId})`).join(', ')}`);
+
+    // Map waiters to include position based on userType from waiter record
+    const staffMembersWithPosition = waiters.map(waiter => {
+      let displayPosition = (waiter as any).position;
+      if (!displayPosition) {
+        if (waiter.userType === UserType.admin) displayPosition = 'Admin';
+        else displayPosition = 'Waiter';
+      }
+      return { ...waiter, position: displayPosition || 'N/A' };
+    });
+
+    return staffMembersWithPosition;
   }
 
   async getStaffMemberById(id: string): Promise<StaffMemberWithAccessInfo> {
@@ -66,7 +90,6 @@ export class AdminStaffService {
         accessAccount: {
           select: {
             username: true,
-            userType: true,
           },
         },
       },
@@ -77,9 +100,9 @@ export class AdminStaffService {
     }
     
     let displayPosition = (waiter as any).position;
-    if (!displayPosition && waiter.accessAccount) {
-      if (waiter.accessAccount.userType === UserType.manager) displayPosition = 'Manager';
-      else if (waiter.accessAccount.userType === UserType.admin) displayPosition = 'Admin';
+    if (!displayPosition) {
+      if (waiter.userType === UserType.manager) displayPosition = 'Manager';
+      else if (waiter.userType === UserType.admin) displayPosition = 'Admin';
       else displayPosition = 'Waiter';
     }
 
@@ -87,77 +110,85 @@ export class AdminStaffService {
   }
 
   async createStaffMember(dto: CreateStaffMemberDto): Promise<Waiter> {
-    this.logger.log(`Creating new staff member: ${dto.email}`);
+    this.logger.log(`Creating new staff member: ${dto.name} ${dto.surname} (${dto.position})`);
+    this.logger.log(`Restaurant ID: ${dto.restaurantId}`);
 
-    const existingWaiterByEmail = await this.prisma.waiter.findUnique({ where: { email: dto.email } });
-    if (existingWaiterByEmail) {
-      throw new ConflictException(`Waiter with email ${dto.email} already exists.`);
+    // Validate that either email or phone is provided
+    if (!dto.email && !dto.phone) {
+      throw new BadRequestException('Either email or phone number must be provided');
     }
-    if (dto.phone) {
-      const existingWaiterByPhone = await this.prisma.waiter.findUnique({ where: { phone: dto.phone } });
-      if (existingWaiterByPhone) {
-        throw new ConflictException(`Waiter with phone ${dto.phone} already exists.`);
+
+    // Check if email already exists (if provided)
+    if (dto.email) {
+      const existingByEmail = await this.prisma.waiter.findFirst({
+        where: { email: dto.email },
+      });
+      if (existingByEmail) {
+        throw new BadRequestException('A staff member with this email already exists');
       }
     }
-    const existingAccessUser = await this.prisma.accessUser.findUnique({ where: { username: dto.email } });
-    if (existingAccessUser) {
-      throw new ConflictException(`Access account with username ${dto.email} already exists.`);
+
+    // Check if phone already exists (if provided)
+    if (dto.phone) {
+      const existingByPhone = await this.prisma.waiter.findFirst({
+        where: { phone: dto.phone },
+      });
+      if (existingByPhone) {
+        throw new BadRequestException('A staff member with this phone number already exists');
+      }
     }
 
     const userType = this.mapPositionToUserType(dto.position);
 
     try {
-      const result = await this.prisma.$transaction(async (tx) => {
-        const waiterData: Prisma.WaiterCreateInput = {
-          name: dto.name,
-          surname: dto.surname,
-          email: dto.email,
-          tag_nickname: dto.tag_nickname,
-          address: dto.address,
-          phone: dto.phone,
-          propic: dto.propic,
-          // position: dto.position, // If Waiter model gets a 'position: StaffPosition' field
-        };
-        
-        // If your Prisma schema for Waiter has a 'position' field of type StaffPosition
-        // you can add it here: (waiterData as any).position = dto.position;
-        // For now, 'position' from DTO primarily influences UserType for AccessUser
+      const waiterData: Prisma.WaiterCreateInput = {
+        name: dto.name,
+        surname: dto.surname,
+        email: dto.email || null,
+        tag_nickname: dto.tag_nickname,
+        address: dto.address,
+        phone: dto.phone,
+        propic: dto.propic,
+        userType: userType, // Store userType directly in waiter record
+        status: WaiterStatus.Active, // Default status to Active
+        restaurant: {
+          connect: { id: dto.restaurantId }
+        },
+      };
 
-        const newWaiter = await tx.waiter.create({ data: waiterData });
+      const newWaiter = await this.prisma.waiter.create({ data: waiterData });
 
-        await tx.accessUser.create({
-          data: {
-            userId: newWaiter.id,
-            username: dto.email,
-            userType: userType,
-          },
-        });
-        return newWaiter;
-      });
+      // Invalidate waiters cache
+      await this.cacheInvalidator.invalidateWaiters();
 
-      // Invalidate both waiters and access_users caches
-      await Promise.all([
-        this.cacheInvalidator.invalidateWaiters(),
-        this.cacheInvalidator.invalidateAccessUsers(),
-      ]);
-
-      return result;
-    } catch (error) {
-      this.logger.error(`Failed to create staff member: ${dto.email}`, error.stack);
-      if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        if (error.code === 'P2002') {
-          throw new ConflictException(`A staff member with similar unique details (email, phone, or username) already exists.`);
-        }
+      // Calculate and add position field based on userType
+      let displayPosition = (newWaiter as any).position;
+      if (!displayPosition) {
+        if (newWaiter.userType === UserType.manager) displayPosition = 'Manager';
+        else if (newWaiter.userType === UserType.admin) displayPosition = 'Admin';
+        else displayPosition = 'Waiter';
       }
-      throw new BadRequestException(`Could not create staff member. ${error.message}`);
+
+      this.logger.log(`Staff member created successfully: ${newWaiter.id} for restaurant: ${newWaiter.restaurantId}`);
+      return { ...newWaiter, position: displayPosition } as any;
+    } catch (error) {
+      this.logger.error(`Failed to create staff member: ${error.message}`);
+      throw error;
     }
   }
 
   async updateStaffMember(id: string, dto: UpdateStaffMemberDto): Promise<Waiter> {
     this.logger.log(`Updating staff member with ID: ${id}`);
+    this.logger.log(`Update data: ${JSON.stringify(dto)}`);
+    
     const existingWaiterRecord = await this.prisma.waiter.findUnique({ where: {id}, include: {accessAccount: true}});
     if (!existingWaiterRecord) {
         throw new NotFoundException(`Staff member with ID ${id} not found`);
+    }
+
+    this.logger.log(`Existing waiter has access account: ${!!existingWaiterRecord.accessAccount}`);
+    if (existingWaiterRecord.accessAccount) {
+      this.logger.log(`Current userType: ${existingWaiterRecord.accessAccount.userType}`);
     }
 
     if (dto.phone && dto.phone !== existingWaiterRecord.phone) {
@@ -174,17 +205,20 @@ export class AdminStaffService {
       address: dto.address,
       phone: dto.phone,
       propic: dto.propic,
-      // position: dto.position, // If Waiter model gets a 'position: StaffPosition' field
     };
-     // If your Prisma schema for Waiter has a 'position' field of type StaffPosition
-     // you can add it here: (waiterUpdateData as any).position = dto.position;
 
-    let accessUserUpdateData: Prisma.AccessUserUpdateInput | undefined;
+    // Update userType directly in waiter table if position is provided
     if (dto.position) {
       const newUserType = this.mapPositionToUserType(dto.position);
-      if (existingWaiterRecord.accessAccount?.userType !== newUserType) {
-        accessUserUpdateData = { userType: newUserType };
-      }
+      this.logger.log(`Position changed to: ${dto.position}, mapping to userType: ${newUserType}`);
+      this.logger.log(`UserType will be updated from ${existingWaiterRecord.userType} to ${newUserType}`);
+      waiterUpdateData.userType = newUserType;
+    }
+
+    // Update status if provided
+    if (dto.status) {
+      this.logger.log(`Status changed to: ${dto.status}`);
+      waiterUpdateData.status = dto.status;
     }
 
     try {
@@ -192,26 +226,31 @@ export class AdminStaffService {
         const updatedWaiter = await tx.waiter.update({
           where: { id },
           data: waiterUpdateData,
+          include: {
+            accessAccount: {
+              select: {
+                username: true,
+                userType: true,
+              },
+            },
+          },
         });
 
-        if (accessUserUpdateData && existingWaiterRecord.accessAccount) { // Check if accessAccount exists
-          await tx.accessUser.update({
-            where: { userId: id },
-            data: accessUserUpdateData,
-          });
-        } else if (accessUserUpdateData && !existingWaiterRecord.accessAccount) {
-            this.logger.warn(`Access account for staff ID ${id} not found during update, cannot update role.`);
-        }
         return updatedWaiter;
       });
 
-      // Invalidate both waiters and access_users caches
-      await Promise.all([
-        this.cacheInvalidator.invalidateWaiters(),
-        this.cacheInvalidator.invalidateAccessUsers(),
-      ]);
+      // Invalidate waiters cache
+      await this.cacheInvalidator.invalidateWaiters();
 
-      return result;
+      // Calculate and add position field based on userType
+      let displayPosition = (result as any).position;
+      if (!displayPosition) {
+        if (result.userType === UserType.manager) displayPosition = 'Manager';
+        else if (result.userType === UserType.admin) displayPosition = 'Admin';
+        else displayPosition = 'Waiter';
+      }
+
+      return { ...result, position: displayPosition } as any;
     } catch (error) {
       this.logger.error(`Failed to update staff member: ${id}`, error.stack);
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -242,7 +281,7 @@ export class AdminStaffService {
         });
         
         await tx.waiterMetric.deleteMany({ where: { waiterId: id } });
-        await tx.waiterRating.deleteMany({ where: { waiterId: id } });
+        await tx.serviceAnalysis.deleteMany({ where: { waiterId: id } });
         // Add deletion for other related entities if necessary
 
         await tx.waiter.delete({

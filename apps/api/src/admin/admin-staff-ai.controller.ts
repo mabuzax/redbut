@@ -19,6 +19,7 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles, RolesGuard } from '../auth/guards/role.guard';
+import { GetUser } from '../auth/decorators/get-user.decorator';
 import { AdminStaffAiService } from './admin-staff-ai.service';
 import { IsString, IsNotEmpty, IsUUID, IsOptional  } from 'class-validator';
 import { StaffMemberResponseDto } from './admin-staff.dto';
@@ -73,11 +74,20 @@ export class AdminStaffAiController {
     description: 'Insufficient permissions.',
   })
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
-  async processStaffQuery(@Body() queryDto: AiQueryDto) {
+  async processStaffQuery(
+    @Body() queryDto: AiQueryDto,
+    @GetUser() user: any
+  ) {
     const thread_id = queryDto.threadId ?? crypto.randomUUID();
     this.logger.log(`Received AI staff query for thread ${thread_id}: "${queryDto.message}"`);
+    this.logger.log(`User context - ID: ${user.id}, restaurantId: ${user.restaurantId}`);
+    
     try {
-      const response = await this.adminStaffAiService.processStaffQuery(queryDto.message, thread_id);
+      const response = await this.adminStaffAiService.processStaffQuery(
+        queryDto.message, 
+        thread_id, 
+        user
+      );
       return response;
     } catch (error) {
       this.logger.error(`Error processing AI staff query for thread ${thread_id}: ${error.message}`, error.stack);

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { UserType } from '@prisma/client';
 
@@ -119,32 +119,22 @@ export class AdminService {
           },
         });
 
-        // Get average rating
-        const ratings = await this.prisma.waiterRating.findMany({
+        // Get average rating from service analysis
+        const serviceAnalyses = await this.prisma.serviceAnalysis.findMany({
           where: {
             waiterId: member.id,
           },
           select: {
-            friendliness: true,
-            orderAccuracy: true,
-            speed: true,
-            attentiveness: true,
-            knowledge: true,
+            rating: true,
           },
         });
 
         let averageRating = 0;
-        if (ratings.length > 0) {
-          const totalRating = ratings.reduce((sum, rating) => {
-            const ratingSum = 
-              rating.friendliness + 
-              rating.orderAccuracy + 
-              rating.speed + 
-              rating.attentiveness + 
-              rating.knowledge;
-            return sum + (ratingSum / 5); // Average of 5 rating categories
+        if (serviceAnalyses.length > 0) {
+          const totalRating = serviceAnalyses.reduce((sum: number, analysis: any) => {
+            return sum + analysis.rating;
           }, 0);
-          averageRating = totalRating / ratings.length;
+          averageRating = totalRating / serviceAnalyses.length;
         }
 
         return {
@@ -178,29 +168,19 @@ export class AdminService {
     // Total revenue (mock data for now)
     const totalRevenue = 125000;
 
-    // Average satisfaction (from waiter ratings)
-    const ratings = await this.prisma.waiterRating.findMany({
+    // Average satisfaction (from service analysis)
+    const serviceAnalyses = await this.prisma.serviceAnalysis.findMany({
       select: {
-        friendliness: true,
-        orderAccuracy: true,
-        speed: true,
-        attentiveness: true,
-        knowledge: true,
+        rating: true,
       },
     });
 
     let averageSatisfaction = 0;
-    if (ratings.length > 0) {
-      const totalRating = ratings.reduce((sum, rating) => {
-        const ratingSum = 
-          rating.friendliness + 
-          rating.orderAccuracy + 
-          rating.speed + 
-          rating.attentiveness + 
-          rating.knowledge;
-        return sum + (ratingSum / 5); // Average of 5 rating categories
+    if (serviceAnalyses.length > 0) {
+      const totalRating = serviceAnalyses.reduce((sum: number, analysis: any) => {
+        return sum + analysis.rating;
       }, 0);
-      averageSatisfaction = totalRating / ratings.length;
+      averageSatisfaction = totalRating / serviceAnalyses.length;
     }
 
     // Popular menu items (mock data for now)
@@ -219,5 +199,98 @@ export class AdminService {
       averageSatisfaction,
       popularItems,
     };
+  }
+
+  /**
+   * Register a new tenant with initial restaurant
+   */
+  async registerTenant(registerTenantDto: {
+    tenant: {
+      name: string;
+      email: string;
+      phone?: string;
+      address?: string;
+      status: string;
+    };
+    restaurant: {
+      name: string;
+      phone?: string;
+      email?: string;
+      location: string;
+      address?: string;
+      status: string;
+    };
+  }) {
+    try {
+      // Validate required fields
+      if (!registerTenantDto.tenant?.name || !registerTenantDto.tenant?.email) {
+        throw new BadRequestException('Tenant name and email are required');
+      }
+
+      if (!registerTenantDto.restaurant?.name || !registerTenantDto.restaurant?.location) {
+        throw new BadRequestException('Restaurant name and location are required');
+      }
+
+      // Check if tenant with this email already exists
+      const existingTenant = await this.prisma.tenant.findFirst({
+        where: {
+          email: registerTenantDto.tenant.email,
+        },
+      });
+
+      if (existingTenant) {
+        throw new ConflictException('A tenant with this email already exists');
+      }
+
+      // Create tenant and restaurant in a transaction
+      const result = await this.prisma.$transaction(async (prisma) => {
+        // Create tenant
+        const tenant = await prisma.tenant.create({
+          data: {
+            name: registerTenantDto.tenant.name,
+            email: registerTenantDto.tenant.email,
+            phone: registerTenantDto.tenant.phone || null,
+            address: registerTenantDto.tenant.address || null,
+            status: registerTenantDto.tenant.status || 'Active',
+          },
+        });
+
+        // Create restaurant
+        const restaurant = await prisma.restaurant.create({
+          data: {
+            tenantId: tenant.id,
+            name: registerTenantDto.restaurant.name,
+            phone: registerTenantDto.restaurant.phone || null,
+            email: registerTenantDto.restaurant.email || null,
+            location: registerTenantDto.restaurant.location,
+            address: registerTenantDto.restaurant.address || null,
+            status: registerTenantDto.restaurant.status || 'Inactive',
+          },
+        });
+
+        return { tenant, restaurant };
+      });
+
+      return {
+        tenant: {
+          id: result.tenant.id,
+          name: result.tenant.name,
+          email: result.tenant.email,
+          status: result.tenant.status,
+        },
+        restaurant: {
+          id: result.restaurant.id,
+          name: result.restaurant.name,
+          location: result.restaurant.location,
+          status: result.restaurant.status,
+        },
+        message: 'Tenant and restaurant registered successfully! You can now login with your email address.',
+      };
+    } catch (error) {
+      if (error instanceof ConflictException || error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException('Failed to register tenant: ' + error.message);
+    }
   }
 }

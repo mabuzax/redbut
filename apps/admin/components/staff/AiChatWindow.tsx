@@ -74,7 +74,7 @@ const AiChatWindow = ({ onClose, onStaffUpdate }: AiChatWindowProps) => {
           responseContent = `Available positions: ${aiResponse.join(', ')}`;
         } else { 
           responseContent = "Here are the staff members I found:\n" + 
-            (aiResponse as StaffMember[]).map(s => `- ${s.name} ${s.surname} (${s.position || s.accessAccount?.userType || 'N/A'}), ID: ${s.id.substring(0,8)}`).join('\n');
+            (aiResponse as StaffMember[]).map(s => `- ${s.name} ${s.surname} (${s.position || 'N/A'}), ID: ${s.id.substring(0,8)}`).join('\n');
           operationSuccess = true; 
         }
       } else if (typeof aiResponse === 'object' && aiResponse !== null) {
@@ -85,7 +85,7 @@ const AiChatWindow = ({ onClose, onStaffUpdate }: AiChatWindowProps) => {
           }
         } else { 
           const staff = aiResponse as StaffMember;
-          responseContent = `Staff member details: ${staff.name} ${staff.surname}, Position: ${staff.position || staff.accessAccount?.userType || 'N/A'}, Email: ${staff.email}, Tag: ${staff.tag_nickname}.`;
+          responseContent = `Staff member details: ${staff.name} ${staff.surname}, Position: ${staff.position || 'N/A'}, Email: ${staff.email}, Tag: ${staff.tag_nickname}.`;
           if (userMessage.content.toLowerCase().includes('create') || userMessage.content.toLowerCase().includes('update')) {
              responseContent = `Successfully processed: ${staff.name} ${staff.surname}.`;
           }

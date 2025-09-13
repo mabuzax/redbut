@@ -18,7 +18,7 @@ type ClassValue = string | boolean | undefined | null | { [key: string]: boolean
 // Step 1: Email/Phone and User Type
 const stepOneSchema = z.object({
   emailOrPhone: z.string().min(1, 'Email or phone number is required'),
-  userType: z.enum(['admin', 'waiter', 'manager'], {
+  userType: z.enum(['admin', 'waiter'], {
     required_error: 'Please select a user type',
   }),
 });
@@ -40,7 +40,7 @@ const OTPLoginForm: React.FC<OTPLoginFormProps> = ({ onLoginSuccess }) => {
   const [step, setStep] = useState(1);
   const [apiError, setApiError] = useState<string | null>(null);
   const [username, setUsername] = useState('');
-  const [userType, setUserType] = useState<'admin' | 'waiter' | 'manager'>('waiter');
+  const [userType, setUserType] = useState<'admin' | 'waiter'>('waiter');
   const [otpValue, setOtpValue] = useState(''); // Independent OTP state
   
   // OTP input refs for auto-focus
@@ -228,7 +228,6 @@ const OTPLoginForm: React.FC<OTPLoginFormProps> = ({ onLoginSuccess }) => {
             >
               <option value="waiter">Waiter</option>
               <option value="admin">Admin</option>
-              <option value="manager">Manager</option>
             </select>
             {stepOneForm.formState.errors.userType && (
               <p className="mt-1 text-sm text-red-600">

@@ -4,8 +4,12 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import helmet from 'helmet';
 import { IoAdapter } from '@nestjs/platform-socket.io';
+import { DateUtil } from './common/utils/date.util';
 
 async function bootstrap() {
+  // Initialize timezone for consistent date handling (works in Docker and local dev)
+  DateUtil.initializeTimezone();
+  
   const app = await NestFactory.create(AppModule);
   
   // Set global prefix for all routes

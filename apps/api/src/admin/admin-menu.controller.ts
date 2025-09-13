@@ -13,6 +13,7 @@ import {
   DefaultValuePipe,
   UseInterceptors,
   UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -225,7 +226,10 @@ export class AdminMenuController {
       },
     },
   })
-  async bulkUploadMenuItemsFromJson(@Body() data: { items: MenuItemUploadData[] }) {
-    return this.adminMenuService.bulkUploadMenuItems(data.items);
+  async bulkUploadMenuItemsFromJson(@Body() data: { items: MenuItemUploadData[]; restaurantId: string }) {
+    if (!data.restaurantId) {
+      throw new BadRequestException('Restaurant ID is required for bulk upload');
+    }
+    return this.adminMenuService.bulkUploadMenuItems(data.items, data.restaurantId);
   }
 }

@@ -1,9 +1,7 @@
 // Local copy of the OrderStatus enum (keep in sync with backend/prisma enum)
 export enum OrderStatus {
   New = 'New',
-  Acknowledged = 'Acknowledged',
   InProgress = 'InProgress',
-  Complete = 'Complete',
   Delivered = 'Delivered',
   Paid = 'Paid',
   Cancelled = 'Cancelled',
@@ -21,26 +19,20 @@ export class OrderStatusConfigService {
   /**
    * Get status options for dropdown components
    */
-  static async getStatusOptions(
-    currentStatus: OrderStatus,
-    userRole: string = 'waiter',
-    token: string
-  ): Promise<StatusOption[]> {
-    // Always use default status options for dropdown
+  static getStatusOptions(
+    currentStatus: OrderStatus
+  ): StatusOption[] {
     return this.getDefaultStatusOptions(currentStatus);
   }
 
   /**
-   * Get default status options if API fails
+   * Get status options based on current status
    */
   static getDefaultStatusOptions(currentStatus: OrderStatus): StatusOption[] {
-    
-    console.log('WAITER Getting default status options for status:', currentStatus);
     switch (currentStatus) {
       case 'New':
         return [
           { value: 'New', label: 'New' },
-          { value: 'Acknowledged', label: 'Acknowledge' },
           { value: 'InProgress', label: 'In Progress' },
           { value: 'Cancelled', label: 'Cancel' },
         ];
@@ -48,23 +40,11 @@ export class OrderStatusConfigService {
         return [
           { value: 'Cancelled', label: 'Cancelled' },
         ];
-      case 'Acknowledged':
-        return [
-          { value: 'Acknowledged', label: 'Acknowledged' },
-          { value: 'InProgress', label: 'In Progress' },
-          { value: 'Cancelled', label: 'Cancel' },
-        ];
       case 'InProgress':
         return [
-          { value: 'InProgress', label: 'In Progress' },
-          { value: 'Complete', label: 'Complete' },
+          { value: 'InProgress', label: 'In Progress1' },
+          { value: 'Delivered', label: 'Mark Delivered' },
           { value: 'Cancelled', label: 'Cancel' },
-        ];
-      case 'Complete':
-        return [
-          { value: 'Complete', label: 'Completed' },
-          { value: 'InProgress', label: 'In Progress' },
-          { value: 'Delivered', label: 'Delivered' },
         ];
       case 'Delivered':
         return [

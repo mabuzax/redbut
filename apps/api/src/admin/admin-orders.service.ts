@@ -15,29 +15,16 @@ export class AdminOrdersService {
 
   private async getCurrentShiftTimeframe(): Promise<{ start: Date; end: Date; label: string }> {
     const now = new Date();
-    const activeShift = await this.prisma.shift.findFirst({
-      where: {
-        startTime: { lte: now },
-        endTime: { gte: now },
-      },
-      orderBy: {
-        startTime: 'desc', 
-      },
-    });
-
-    if (activeShift) {
-      this.logger.log(`Active shift found: ${activeShift.id}, ${activeShift.startTime} - ${activeShift.endTime}`);
-      return { 
-        start: activeShift.startTime, 
-        end: activeShift.endTime,
-        label: `Shift (${activeShift.startTime.toLocaleTimeString()} - ${activeShift.endTime.toLocaleTimeString()})`
-      };
-    } else {
-      this.logger.log('No active shift found, defaulting to today (00:00 to now)');
-      const startOfDay = new Date(now);
-      startOfDay.setHours(0, 0, 0, 0);
-      return { start: startOfDay, end: now, label: "Today (No Active Shift)" };
-    }
+    // Since we removed shift system, use current day timeframe
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    this.logger.log(`Using current day timeframe: ${startOfDay} - ${now}`);
+    return { 
+      start: startOfDay, 
+      end: now, 
+      label: "Today"
+    };
   }
 
   async getCurrentShiftOrdersByStatus(): Promise<CurrentShiftOrdersDataPoint[]> {

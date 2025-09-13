@@ -4,6 +4,7 @@ import { CacheInvalidatorService } from '../common/cache-invalidator.service';
 import { MenuItem, Prisma } from '@prisma/client';
 
 export interface CreateMenuItemDto {
+  restaurantId: string; // Required restaurant ID
   category?: string;
   name: string;
   description?: string;
@@ -128,10 +129,22 @@ export class AdminMenuService {
    */
   private async createMenuItemWithoutCacheInvalidation(data: CreateMenuItemDto): Promise<MenuItem> {
     try {
+      // Validate that restaurantId is provided
+      if (!data.restaurantId) {
+        throw new BadRequestException('Restaurant ID is required to create a menu item');
+      }
+
       const menuItem = await this.prisma.menuItem.create({
         data: {
-          ...data,
+          restaurantId: data.restaurantId,
+          category: data.category,
+          name: data.name,
+          description: data.description,
+          image: data.image,
           price: new Prisma.Decimal(data.price),
+          status: data.status,
+          video: data.video,
+          served_info: data.served_info,
           available_options: data.available_options ? data.available_options : Prisma.JsonNull,
           available_extras: data.available_extras ? data.available_extras : Prisma.JsonNull,
         },
@@ -207,9 +220,14 @@ export class AdminMenuService {
   /**
    * Bulk upload menu items from processed XLSX data
    */
-  async bulkUploadMenuItems(items: MenuItemUploadData[]): Promise<{ created: number; failed: number }> {
+  async bulkUploadMenuItems(items: MenuItemUploadData[], restaurantId: string): Promise<{ created: number; failed: number }> {
     let created = 0;
     let failed = 0;
+
+    // Validate that restaurantId is provided
+    if (!restaurantId) {
+      throw new BadRequestException('Restaurant ID is required for bulk upload');
+    }
 
     for (const item of items) {
       try {
@@ -244,6 +262,7 @@ export class AdminMenuService {
         }
         
         const createData: CreateMenuItemDto = {
+          restaurantId: restaurantId,
           category: item.category,
           name: item.name,
           description: item.description,

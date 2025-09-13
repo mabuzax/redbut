@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, QrCode, Loader2 } from "lucide-react";
 import QRCode from "qrcode";
 import { addTableSession, TableSession } from "../../lib/table-sessions";
+import { waiterApi } from "../../lib/api";
 
 interface CreateSessionModalProps {
   isOpen: boolean;
@@ -47,19 +48,8 @@ export default function CreateSessionModal({ isOpen, onClose, token }: CreateSes
   const fetchWaiters = async () => {
     setWaitersLoading(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/waiter/all`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setWaiters(data);
-      } else {
-        console.error('Failed to fetch waiters');
-      }
+      const data = await waiterApi.getAllWaiters(token);
+      setWaiters(data);
     } catch (error) {
       console.error('Error fetching waiters:', error);
     } finally {
@@ -93,37 +83,25 @@ export default function CreateSessionModal({ isOpen, onClose, token }: CreateSes
     try {
       const sessionId = `${crypto.randomUUID()}_${tableNumber}_${selectedWaiterId}`;
       
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/waiter/create-session`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          tableNumber: parseInt(tableNumber),
-          waiterId: selectedWaiterId,
-          sessionId
-        })
-      });
+      await waiterApi.createSession({
+        tableNumber: parseInt(tableNumber),
+        waiterId: selectedWaiterId,
+        sessionId
+      }, token);
 
-      if (response.ok) {
-        const webAppUrl = process.env.NEXT_PUBLIC_WEB_URL || 'http://localhost:3000';
-        const qrCodeUrl = `${webAppUrl}?session=${sessionId}`;
-        
-        // No need to save to localStorage anymore - sessions will be fetched from API
-        // The session is already created in the database via the API call above
-        
-        setSessionCreated({
-          sessionId,
-          qrCodeUrl
-        });
-      } else {
-        const error = await response.json();
-        alert(`Failed to create session: ${error.message}`);
-      }
+      const webAppUrl = process.env.NEXT_PUBLIC_WEB_URL || 'http://localhost:3000';
+      const qrCodeUrl = `${webAppUrl}?session=${sessionId}`;
+      
+      // No need to save to localStorage anymore - sessions will be fetched from API
+      // The session is already created in the database via the API call above
+      
+      setSessionCreated({
+        sessionId,
+        qrCodeUrl
+      });
     } catch (error) {
       console.error('Error creating session:', error);
-      alert('Failed to create session');
+      alert(`Failed to create session: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setLoading(false);
     }

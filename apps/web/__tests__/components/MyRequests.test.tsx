@@ -34,7 +34,7 @@ describe('MyRequests Component', () => {
     test('shows loading state initially', () => {
       mockFetch.mockReturnValueOnce(new Promise(() => {})); // Never resolve to keep it loading
       renderComponent();
-      expect(screen.getByText('Loading requests...')).toBeInTheDocument();
+      expect(screen.getByText('Let me find you your requests...')).toBeInTheDocument();
     });
 
     test('shows "No requests found" when no data is fetched', async () => {

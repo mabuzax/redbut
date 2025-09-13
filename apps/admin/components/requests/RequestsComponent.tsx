@@ -188,7 +188,6 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
   const getStatusClass = (status: string) => {
     switch (status) {
       case 'New': return 'bg-blue-200 text-blue-600';
-      case 'Acknowledged': return 'bg-yellow-200 text-yellow-600';
       case 'InProgress': return 'bg-purple-200 text-purple-600';
       case 'Completed': return 'bg-green-200 text-green-600';
       case 'Done': return 'bg-green-200 text-green-600';
@@ -462,7 +461,6 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
             >
               <option value="all">All Statuses</option>
               <option value="New">New</option>
-              <option value="Acknowledged">Acknowledged</option>
               <option value="InProgress">In Progress</option>
               <option value="Completed">Completed</option>
               <option value="Done">Done</option>
@@ -482,7 +480,7 @@ const RequestsComponent = ({ onBack }: RequestsComponentProps) => {
           
           <div className="space-y-3 mt-4">
             {loadingList ? (
-              <div className="flex items-center justify-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary-500 mr-2" /> <p>Loading requests...</p></div>
+              <div className="flex items-center justify-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary-500 mr-2" /> <p>Let me find you your requests...</p></div>
             ) : errorList ? (
               <div className="text-center py-8"><p className="text-red-500 mb-2">{errorList}</p><button onClick={fetchList} className="btn-subtle"><RefreshCw className="h-4 w-4 mr-1" /> Try Again</button></div>
             ) : (requests && requests.length > 0) ? (

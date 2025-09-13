@@ -26,11 +26,10 @@ import * as crypto from 'crypto';
 import {
   SalesAnalyticsData,
   PopularItemsAnalyticsData,
-  ShiftsAnalyticsData,
   HourlySalesAnalyticsData,
   StaffAnalyticsData,
   TablesAnalyticsData,
-  WaiterRatingsAnalyticsData,
+  ServiceAnalysisData,
   RequestsAnalyticsData,
   CustomerRatingsAnalyticsData,
 } from './admin-analytics.types';

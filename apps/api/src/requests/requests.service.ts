@@ -3,7 +3,6 @@ import { PrismaService } from '../common/prisma.service';
 import { Request, RequestStatus, Prisma } from '@prisma/client'; // Updated import
 import { CreateRequestDto } from './dto/create-request.dto';
 import { UpdateRequestDto } from './dto/update-request.dto';
-import { RequestStatusConfigService } from '../common/request-status-config.service';
 
 /**
  * Service for managing waiter requests
@@ -15,7 +14,6 @@ export class RequestsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly requestStatusConfigService: RequestStatusConfigService,
   ) {}
 
   /**
@@ -165,13 +163,6 @@ export class RequestsService {
     const currentRequest = await this.findOne(id);
     
     const newStatus = updateRequestDto.status ?? currentRequest.status;
-
-    // Validate transition before proceeding
-    await this.requestStatusConfigService.validateTransition(
-      currentRequest.status,
-      newStatus,
-      userRole,
-    );
     
     try {
       return await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
@@ -183,15 +174,6 @@ export class RequestsService {
 
         if (!currentRequestInTx) {
           throw new NotFoundException(`Request with ID ${id} not found`);
-        }
-
-        // Re-validate within transaction if status changed due to race condition
-        if (currentRequestInTx.status !== currentRequest.status) {
-          await this.requestStatusConfigService.validateTransition(
-            currentRequestInTx.status,
-            newStatus,
-            userRole,
-          );
         }
 
         const updatedRequest = await tx.request.update({

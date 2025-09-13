@@ -2,9 +2,7 @@ import { Module } from '@nestjs/common';
 import { RequestsService } from './requests.service';
 import { RequestsController } from './requests.controller';
 import { PrismaService } from '../common/prisma.service';
-import { RequestStatusConfigService } from '../common/request-status-config.service';
 import { AuthModule } from '../auth/auth.module';
-import { RequestStatusConfigController } from './request-status-config.controller';
 
 /**
  * Requests module for handling waiter buzz requests
@@ -15,12 +13,11 @@ import { RequestStatusConfigController } from './request-status-config.controlle
     // Import AuthModule to use JwtAuthGuard and authentication services
     AuthModule,
   ],
-  controllers: [RequestsController, RequestStatusConfigController],
+  controllers: [RequestsController],
   providers: [
     RequestsService,
     PrismaService,
-    RequestStatusConfigService,
   ],
-  exports: [RequestsService, RequestStatusConfigService],
+  exports: [RequestsService],
 })
 export class RequestsModule {}

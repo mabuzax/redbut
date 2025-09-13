@@ -11,6 +11,7 @@ import {
   ArrowUp, ArrowDown, Minus, RefreshCw, Eye
 } from 'lucide-react';
 import { DateRange } from "../../lib/api";
+import { fetchWithAuth } from "../../lib/fetch-with-auth";
 
 interface AIInsight {
   id: string;
@@ -84,7 +85,7 @@ const AiInsightsTab: React.FC<AiInsightsTabProps> = ({ data, dateRange }) => {
     try {
       setLoading(true);
       const token = localStorage.getItem('redBut_token');
-      const response = await fetch(`/api/admin/analytics/ai-insights?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`, {
+      const response = await fetchWithAuth(`/api/admin/analytics/ai-insights?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',

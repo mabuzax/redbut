@@ -23,7 +23,7 @@ import { RolesGuard } from './guards/role.guard';
       useFactory: async (configService: ConfigService) => ({
         secret: configService.get('JWT_SECRET', 'super-secret-for-redbut-dev'),
         signOptions: {
-          expiresIn: configService.get('JWT_EXPIRES_IN', '7d'),
+          expiresIn: configService.get('JWT_EXPIRES_IN', '1h'), // Changed to 1 hour
         },
       }),
     }),

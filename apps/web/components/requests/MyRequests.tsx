@@ -91,29 +91,23 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
     fetchRequests();
   }, [fetchRequests, userId, token]);
 
-  const handleRowClick = async (request: Request) => {
+  const handleRowClick = (request: Request) => {
     setSelectedRequest(request);
     setEditContent(request.content);
     setEditStatus(request.status);
     setIsModalOpen(true);
     
     // Load status options for the selected request
-    await loadStatusOptions(request.status);
+    loadStatusOptions(request.status);
   };
 
-  const loadStatusOptions = async (currentStatus: Request['status']) => {
+  const loadStatusOptions = (currentStatus: Request['status']) => {
     setStatusOptionsLoading(true);
     try {
-      const options = await RequestStatusConfigService.getStatusOptions(
-        currentStatus,
-        'client',
-        token
-      );
-      
-      const finalOptions = options.length > 0 ? options : RequestStatusConfigService.getDefaultStatusOptions(currentStatus);
+      const options = RequestStatusConfigService.getStatusOptions(currentStatus);
       
       // Ensure current status is always first in the dropdown
-      const sortedOptions = finalOptions.sort((a, b) => {
+      const sortedOptions = options.sort((a, b) => {
         if (a.value === currentStatus) return -1;
         if (b.value === currentStatus) return 1;
         return 0;
@@ -279,8 +273,6 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
         return 'bg-red-200 text-red-600';
       case 'Done':
         return 'bg-green-200 text-green-600';
-      case 'Acknowledged':
-        return 'bg-purple-200 text-purple-600';
       case 'InProgress':
         return 'bg-indigo-200 text-indigo-600';
       case 'Completed':
@@ -290,7 +282,7 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
     }
   };
 
-  const isEditable = selectedRequest && ['New', 'OnHold', 'Acknowledged', 'Completed'].includes(selectedRequest.status);
+  const isEditable = selectedRequest && ['New', 'OnHold', 'Completed'].includes(selectedRequest.status);
 
   return (
     <div className="p-4 bg-white rounded-lg shadow-md h-full flex flex-col">
@@ -313,7 +305,7 @@ const MyRequests: React.FC<MyRequestsProps> = ({ userId, token }) => {
             exit={{ opacity: 0 }}
           >
             <Loader2 className="h-10 w-10 animate-spin text-primary-500 mb-4" />
-            <p className="text-gray-600">Loading requests...</p>
+            <p className="text-gray-600">Let me find you your requests...</p>
           </motion.div>
         </div>
       ) : error ? (

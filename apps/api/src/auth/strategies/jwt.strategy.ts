@@ -28,7 +28,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  /**
+    /**
    * Validate the JWT payload and return the user
    * @param payload JWT payload with user information
    * @returns User object to attach to the request
@@ -36,7 +36,21 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: any) {
     console.log('[JWT Strategy] VALIDATE METHOD CALLED');
     console.log('[JWT Strategy] Validating token payload:', JSON.stringify(payload, null, 2));
-    const { sub: username, role, userId } = payload;
+    const { sub: username, role, userId, type, email, name, tenantId } = payload;
+
+    // Handle tenant authentication (admin users) - no database lookup needed
+    if (type === 'tenant') {
+      console.log('[JWT Strategy] Validating tenant token - no database lookup required');
+      return {
+        id: username, // Use the tenant ID from the token
+        role: 'admin',
+        name: name || 'Tenant Admin',
+        email: email,
+        userType: 'admin',
+        type: 'tenant',
+        tenantId: tenantId || username // Include tenantId for data filtering
+      };
+    }
 
     if (role === 'waiter') {
       const waiter = await this.validateWaiter(userId || username);
@@ -72,70 +86,113 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   /**
-   * Validate waiter credentials via access_users table.
+   * Validate waiter credentials via waiters table directly.
    */
-  private async validateWaiter(userIdOrUsername: string) {
-    console.log('[JWT Strategy] Validating waiter with identifier:', userIdOrUsername);
+  private async validateWaiter(userIdOrEmailOrPhone: string) {
+    console.log('[JWT Strategy] Validating waiter with identifier:', userIdOrEmailOrPhone);
     
-    // Try to find by userId first, then by username
+    // Try to find by userId first, then by email/phone
     console.log('[JWT Strategy] Searching by userId...');
-    let accessUser = await this.prisma.accessUser.findUnique({
-      where: { userId: userIdOrUsername },
-      include: { waiter: true },
+    let waiter = await this.prisma.waiter.findUnique({
+      where: { id: userIdOrEmailOrPhone },
+      select: {
+        id: true,
+        name: true,
+        surname: true,
+        email: true,
+        phone: true,
+        userType: true,
+        restaurantId: true,
+        createdAt: true,
+        updatedAt: true,
+      }
     });
 
-    if (!accessUser) {
-      console.log('[JWT Strategy] User not found by userId, trying username...');
-      // Try to find by username
-      accessUser = await this.prisma.accessUser.findFirst({
-        where: { username: userIdOrUsername },
-        include: { waiter: true },
+    if (!waiter) {
+      console.log('[JWT Strategy] User not found by userId, trying email/phone...');
+      // Try to find by email or phone
+      waiter = await this.prisma.waiter.findFirst({
+        where: {
+          OR: [
+            { email: userIdOrEmailOrPhone },
+            { phone: userIdOrEmailOrPhone },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          surname: true,
+          email: true,
+          phone: true,
+          userType: true,
+          restaurantId: true,
+          createdAt: true,
+          updatedAt: true,
+        }
       });
     }
 
-    console.log('[JWT Strategy] Found access user:', accessUser ? 'YES' : 'NO');
-    if (accessUser) {
-      console.log('[JWT Strategy] Access user details - userId:', accessUser.userId, 'username:', accessUser.username);
-      console.log('[JWT Strategy] Waiter relation exists:', !!accessUser.waiter);
+    console.log('[JWT Strategy] Found waiter:', waiter ? 'YES' : 'NO');
+    if (waiter) {
+      console.log('[JWT Strategy] Waiter details - id:', waiter.id, 'email:', waiter.email, 'userType:', waiter.userType);
     }
     
-    if (!accessUser || !accessUser.waiter) {
-      console.log('[JWT Strategy] Throwing error - accessUser exists:', !!accessUser, 'waiter exists:', !!(accessUser?.waiter));
+    if (!waiter) {
+      console.log('[JWT Strategy] Throwing error - waiter not found');
       throw new UnauthorizedException('Invalid waiter token');
     }
 
-    console.log('[JWT Strategy] Validation successful, returning waiter:', accessUser.waiter.id);
-    return accessUser.waiter;
+    console.log('[JWT Strategy] Validation successful, returning waiter:', waiter.id);
+    return waiter;
   }
 
   /**
-   * Validate admin credentials via access_users table.
+   * Validate admin credentials via waiters table directly.
    */
-  private async validateAdmin(userIdOrUsername: string) {
-    // Try to find by userId first, then by username
-    let accessUser = await this.prisma.accessUser.findUnique({
-      where: { userId: userIdOrUsername },
-      include: { waiter: true },
+  private async validateAdmin(userIdOrEmailOrPhone: string) {
+    // Try to find by userId first, then by email/phone
+    let waiter = await this.prisma.waiter.findUnique({
+      where: { id: userIdOrEmailOrPhone },
+      select: {
+        id: true,
+        name: true,
+        surname: true,
+        email: true,
+        phone: true,
+        userType: true,
+        restaurantId: true,
+        createdAt: true,
+        updatedAt: true,
+      }
     });
 
-    if (!accessUser) {
-      // Try to find by username
-      accessUser = await this.prisma.accessUser.findFirst({
-        where: { username: userIdOrUsername },
-        include: { waiter: true },
+    if (!waiter) {
+      // Try to find by email or phone
+      waiter = await this.prisma.waiter.findFirst({
+        where: {
+          OR: [
+            { email: userIdOrEmailOrPhone },
+            { phone: userIdOrEmailOrPhone },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          surname: true,
+          email: true,
+          phone: true,
+          userType: true,
+          restaurantId: true,
+          createdAt: true,
+          updatedAt: true,
+        }
       });
     }
 
-    if (!accessUser || accessUser.userType !== 'admin') {
+    if (!waiter || waiter.userType !== 'admin') {
       throw new UnauthorizedException('Invalid admin token');
     }
 
-    // Re-use waiter table to store personal details for now
-    const adminProfile = accessUser.waiter;
-    if (!adminProfile) {
-      throw new UnauthorizedException('Admin profile not found');
-    }
-
-    return adminProfile;
+    return waiter;
   }
 }

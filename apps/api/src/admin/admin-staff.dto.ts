@@ -12,10 +12,29 @@ import {
   ValidateNested,
   MaxLength,
   IsEnum,
+  ValidateIf,
+  registerDecorator,
+  ValidationOptions,
+  ValidationArguments,
+  Validate,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { UserType } from '@prisma/client';
-import { STAFF_POSITIONS, StaffPosition } from './admin-staff.types';
+import { STAFF_POSITIONS, StaffPosition, WaiterStatus } from './admin-staff.types';
+
+@ValidatorConstraint({ name: 'EmailOrPhoneRequired', async: false })
+export class EmailOrPhoneRequiredConstraint implements ValidatorConstraintInterface {
+  validate(value: any, args: ValidationArguments) {
+    const object = args.object as any;
+    return !!(object.email || object.phone);
+  }
+
+  defaultMessage(args: ValidationArguments) {
+    return 'Either email or phone number must be provided';
+  }
+}
 
 export class CreateStaffMemberDto {
   @ApiProperty({ description: 'First name of the staff member.', example: 'John' })
@@ -28,13 +47,14 @@ export class CreateStaffMemberDto {
   @IsNotEmpty()
   surname: string;
 
-  @ApiProperty({
-    description: 'Email address of the staff member. This will also be used as their login username.',
+  @ApiPropertyOptional({
+    description: 'Email address of the staff member. Either email or phone must be provided.',
     example: 'john.doe@example.com',
   })
+  @IsOptional()
+  @ValidateIf((o) => !o.phone || o.email) // Require email if no phone, or validate if email is provided
   @IsEmail()
-  @IsNotEmpty()
-  email: string;
+  email?: string;
 
   @ApiProperty({ description: 'Unique tag name or nickname for the staff member.', example: 'JohnnyD' })
   @IsString()
@@ -54,8 +74,12 @@ export class CreateStaffMemberDto {
   @IsString()
   address?: string;
 
-  @ApiPropertyOptional({ description: 'Phone number of the staff member.', example: '555-123-4567' })
+  @ApiPropertyOptional({ 
+    description: 'Phone number of the staff member. Either email or phone must be provided.', 
+    example: '555-123-4567' 
+  })
   @IsOptional()
+  @ValidateIf((o) => !o.email || o.phone) // Require phone if no email, or validate if phone is provided
   @IsString()
   @MinLength(7)
   @MaxLength(20)
@@ -75,6 +99,14 @@ export class CreateStaffMemberDto {
   @IsString()
   @MinLength(6)
   password?: string;
+
+  @ApiProperty({
+    description: 'Restaurant ID to assign the staff member to.',
+    example: 'uuid-restaurant-id',
+  })
+  @IsNotEmpty()
+  @IsUUID()
+  restaurantId: string;
 }
 
 export class UpdateStaffMemberDto {
@@ -104,6 +136,15 @@ export class UpdateStaffMemberDto {
   @IsOptional()
   @IsIn(STAFF_POSITIONS)
   position?: StaffPosition;
+
+  @ApiPropertyOptional({
+    description: 'Status of the staff member.',
+    enum: WaiterStatus,
+    example: WaiterStatus.Active,
+  })
+  @IsOptional()
+  @IsEnum(WaiterStatus)
+  status?: WaiterStatus;
 
   @ApiPropertyOptional({ description: 'Home address of the staff member.', example: '123 Main St, Anytown, USA' })
   @IsOptional()

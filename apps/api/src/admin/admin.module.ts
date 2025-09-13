@@ -13,14 +13,6 @@ import { AdminStaffController } from './admin-staff.controller';
 import { AdminStaffService } from './admin-staff.service';
 import { AdminStaffAiService } from './admin-staff-ai.service';
 import { AdminStaffAiController } from './admin-staff-ai.controller';
-import { AdminShiftsController } from './admin-shifts.controller';
-import { AdminShiftsService } from './admin-shifts.service';
-import { AdminShiftsAiController } from './admin-shifts-ai.controller';
-import { AdminShiftsAiService } from './admin-shifts-ai.service';
-import { AdminTableAllocationsController } from './admin-table-allocations.controller';
-import { AdminTableAllocationsService } from './admin-table-allocations.service';
-import { AdminTableAllocationsAiController } from './admin-table-allocations-ai.controller';
-import { AdminTableAllocationsAiService } from './admin-table-allocations-ai.service';
 import { AdminOrdersController } from './admin-orders.controller';
 import { AdminOrdersService } from './admin-orders.service';
 import { AdminAnalyticsController } from './admin-analytics.controller';
@@ -32,11 +24,13 @@ import { CacheInvalidatorService } from '../common/cache-invalidator.service';
 import { DataPreloaderService } from '../common/data-preloader.service';
 import { RedisCacheModule } from '../common/redis-cache.module';
 import { CacheService } from '../common/cache.service';
+import { RestaurantModule } from '../restaurant/restaurant.module';
 
 @Module({
   imports: [
     AuthModule,
     RequestsModule, // Import RequestsModule to access RequestsService
+    RestaurantModule, // Import RestaurantModule to access RestaurantService
     RedisCacheModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -55,10 +49,6 @@ import { CacheService } from '../common/cache.service';
     AdminMenuController,
     AdminStaffController,
     AdminStaffAiController,
-    AdminShiftsController,
-    AdminShiftsAiController,
-    AdminTableAllocationsController,
-    AdminTableAllocationsAiController,
     AdminOrdersController,
     AdminAnalyticsController,
     AdminAnalyticsAiController,
@@ -69,10 +59,6 @@ import { CacheService } from '../common/cache.service';
     AdminMenuService,
     AdminStaffService,
     AdminStaffAiService,
-    AdminShiftsService,
-    AdminShiftsAiService,
-    AdminTableAllocationsService,
-    AdminTableAllocationsAiService,
     AdminOrdersService,
     AdminAnalyticsService,
     AdminAnalyticsAiService,
@@ -87,10 +73,6 @@ import { CacheService } from '../common/cache.service';
     AdminMenuService,
     AdminStaffService,
     AdminStaffAiService,
-    AdminShiftsService,
-    AdminShiftsAiService,
-    AdminTableAllocationsService,
-    AdminTableAllocationsAiService,
     AdminOrdersService,
     AdminAnalyticsService,
     AdminAnalyticsAiService,

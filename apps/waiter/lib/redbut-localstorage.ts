@@ -1,4 +1,4 @@
-// Utility to clear all localStorage items prefixed with 'redBut_'
+// Utility to clear all localStorage items prefixed with 'redBut_' and AI analysis cache
 export function clearRedButLocalStorage() {
   if (typeof window === 'undefined') return;
   const keysToRemove = [];
@@ -8,5 +8,9 @@ export function clearRedButLocalStorage() {
       keysToRemove.push(key);
     }
   }
+  
+  // Also clear AI analysis cache
+  keysToRemove.push('waiter_ai_analysis', 'waiter_ai_analysis_timestamp');
+  
   keysToRemove.forEach(key => localStorage.removeItem(key));
 }

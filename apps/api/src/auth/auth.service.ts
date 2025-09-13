@@ -138,7 +138,7 @@ export class AuthService {
    * -------------------------------------------------------------------- */
 
   /**
-   * Generate and send OTP for staff login
+   * Generate and send OTP for waiter login (updated to use waiters table directly)
    * @param emailOrPhone   Email or phone number provided by the user
    * @param userType       The type of user ('waiter' | 'admin' | 'manager')
    * @returns Success message
@@ -147,98 +147,112 @@ export class AuthService {
     emailOrPhone: string,
     userType: 'waiter' | 'admin' | 'manager' = 'waiter',
   ): Promise<{ message: string; username: string }> {
-    this.logger.log(`[Auth] OTP generation for ${userType}: ${emailOrPhone}`);
+    this.logger.log(`[Auth] Waiter OTP generation for ${userType}: ${emailOrPhone}`);
 
-    // Find access user by userType and join with waiter table to check email/phone
-    const accessUser = await this.prisma.accessUser.findFirst({
+    // Find waiter by userType and email/phone directly in waiters table
+    const waiter = await this.prisma.waiter.findFirst({
       where: {
         userType,
-        waiter: {
-          OR: [
-            { email: emailOrPhone },
-            { phone: emailOrPhone },
-          ],
-        },
-      },
-      include: {
-        waiter: true,
+        OR: [
+          { email: emailOrPhone },
+          { phone: emailOrPhone },
+        ],
       },
     });
 
-    if (!accessUser || !accessUser.waiter) {
-      throw new UnauthorizedException('User not found or invalid user type');
+    if (!waiter) {
+      throw new UnauthorizedException('Waiter not found or invalid user type');
     }
 
     // Generate 6-digit OTP
     const otp = this.generateSixDigitOTP();
     
-    // Store OTP in database
-    await this.prisma.accessUser.update({
-      where: { userId: accessUser.userId },
+    // Store OTP in waiter record
+    await this.prisma.waiter.update({
+      where: { id: waiter.id },
       data: { code: otp },
     });
 
     // In a real application, you would send the OTP via SMS/Email
     // For demo purposes, we'll log it
-    this.logger.log(`[Auth] OTP for ${emailOrPhone}: ${otp}`);
+    this.logger.log(`[Auth] Waiter OTP for ${emailOrPhone}: ${otp}`);
     
     // TODO: Implement actual SMS/Email sending here
-    // await this.sendOTPViaSMS(accessUser.waiter.phone, otp);
-    // await this.sendOTPViaEmail(accessUser.waiter.email, otp);
+    // await this.sendOTPViaSMS(waiter.phone, otp);
+    // await this.sendOTPViaEmail(waiter.email, otp);
 
     return { 
       message: 'OTP sent successfully',
-      username: accessUser.username 
+      username: waiter.email || waiter.phone || ''
     };
   }
 
   /**
-   * Verify OTP and authenticate staff user
-   * @param username   Username/email of the user
-   * @param otp        6-digit OTP code
-   * @param userType   The type of user ('waiter' | 'admin' | 'manager')
+   * Verify OTP and authenticate waiter (updated to use waiters table directly)
+   * @param emailOrPhone   Email/phone of the waiter (used as username)
+   * @param otp            6-digit OTP code
+   * @param userType       The type of user ('waiter' | 'admin' | 'manager')
    * @returns The waiter record plus JWT token
    */
   async verifyOTPAndLogin(
-    username: string,
+    emailOrPhone: string,
     otp: string,
     userType: 'waiter' | 'admin' | 'manager' = 'waiter',
   ): Promise<{ waiter: any; token: string }> {
-    this.logger.log(`[Auth] OTP verification for ${userType}: ${username}`);
+    this.logger.log(`[Auth] Waiter OTP verification for ${userType}: ${emailOrPhone}`);
 
-    // Find access user by username and userType
-    const accessUser = await this.prisma.accessUser.findFirst({
+    // Find waiter by email/phone and userType, include all necessary fields
+    const waiter = await this.prisma.waiter.findFirst({
       where: {
-        username,
-        userType,
+        AND: [
+          { userType },
+          {
+            OR: [
+              { email: emailOrPhone },
+              { phone: emailOrPhone },
+            ],
+          },
+        ],
       },
-      include: { waiter: true },
+      select: {
+        id: true,
+        name: true,
+        surname: true,
+        email: true,
+        phone: true,
+        userType: true,
+        code: true,
+        restaurantId: true,
+        createdAt: true,
+        updatedAt: true,
+      }
     });
 
-    if (!accessUser) {
-      throw new UnauthorizedException('Invalid username');
+    if (!waiter) {
+      throw new UnauthorizedException('Waiter not found');
     }
 
-    if (!accessUser.code || accessUser.code !== otp) {
+    if (!waiter.code || waiter.code !== otp) {
       throw new UnauthorizedException('Invalid OTP code');
     }
 
     // Clear the OTP after successful verification
-    await this.prisma.accessUser.update({
-      where: { userId: accessUser.userId },
+    await this.prisma.waiter.update({
+      where: { id: waiter.id },
       data: { code: null },
     });
 
     // Generate JWT token with userType as role
     const token = this.jwtService.sign({
-      sub: accessUser.username,
-      role: userType,
-      userId: accessUser.userId,
+      sub: waiter.email || waiter.phone,
+      role: waiter.userType,
+      userId: waiter.id,
+      userType: waiter.userType,
     });
 
-    this.logger.log(`[Auth] Generated token for ${userType} ${accessUser.username} with userId ${accessUser.userId}`);
+    this.logger.log(`[Auth] Generated token for ${waiter.userType} waiter ${waiter.email || waiter.phone} with id ${waiter.id}`);
 
-    return { waiter: accessUser.waiter, token };
+    return { waiter, token };
   }
 
   /**
@@ -446,6 +460,164 @@ export class AuthService {
       // we'll rely on TTL expiration and validation checks during session access
     } catch (error) {
       this.logger.error(`Error cleaning up client sessions for user ${userId}: ${error.message}`);
+    }
+  }
+
+  /**
+   * Generate OTP for tenant authentication
+   */
+  async generateTenantOTP(emailOrPhone: string): Promise<{ message: string; email: string }> {
+    this.logger.log(`[Auth] Tenant OTP generation for: ${emailOrPhone}`);
+
+    // Find tenant by email or phone
+    const tenant = await this.prisma.tenant.findFirst({
+      where: {
+        AND: [
+          { status: 'Active' },
+          {
+            OR: [
+              { email: emailOrPhone },
+              { phone: emailOrPhone },
+            ],
+          },
+        ],
+      },
+    });
+
+    if (!tenant) {
+      throw new UnauthorizedException('Tenant not found or inactive');
+    }
+
+    // Generate 6-digit OTP
+    const otp = this.generateSixDigitOTP();
+    
+    // Store OTP in tenant record
+    await this.prisma.tenant.update({
+      where: { id: tenant.id },
+      data: { code: otp },
+    });
+
+    this.logger.log(`[Auth] Tenant OTP for ${emailOrPhone}: ${otp}`);
+
+    return {
+      message: 'OTP sent successfully',
+      email: tenant.email || emailOrPhone,
+    };
+  }
+
+  /**
+   * Verify OTP and login tenant
+   */
+  async verifyTenantOTPAndLogin(
+    emailOrPhone: string,
+    otp: string,
+  ): Promise<{ tenant: any; token: string }> {
+    this.logger.log(`[Auth] Tenant OTP verification for: ${emailOrPhone}`);
+
+    // Find tenant with matching OTP
+    const tenant = await this.prisma.tenant.findFirst({
+      where: {
+        AND: [
+          { status: 'Active' },
+          { code: otp },
+          {
+            OR: [
+              { email: emailOrPhone },
+              { phone: emailOrPhone },
+            ],
+          },
+        ],
+      },
+      include: {
+        restaurants: true,
+      },
+    });
+
+    if (!tenant) {
+      throw new UnauthorizedException('Invalid OTP or tenant not found');
+    }
+
+    // Clear the OTP after successful verification
+    await this.prisma.tenant.update({
+      where: { id: tenant.id },
+      data: { code: null },
+    });
+
+    // Generate JWT token for tenant
+    const payload = {
+      sub: tenant.id,
+      type: 'tenant',
+      tenantId: tenant.id, // Add tenantId for data isolation
+      email: tenant.email,
+      name: tenant.name,
+    };
+
+    const token = this.jwtService.sign(payload);
+
+    this.logger.log(`[Auth] Tenant login successful: ${tenant.email}`);
+
+    return {
+      tenant: {
+        id: tenant.id,
+        name: tenant.name,
+        email: tenant.email,
+        restaurants: tenant.restaurants,
+      },
+      token,
+    };
+  }
+
+  /**
+   * Refresh JWT token to extend expiry by another hour
+   * Used for sliding session functionality
+   */
+  async refreshToken(currentToken: string): Promise<{ token: string; tenant: any } | null> {
+    try {
+      // Verify and decode the current token
+      const decoded = this.jwtService.verify(currentToken);
+      
+      if (decoded.type === 'tenant') {
+        // Get fresh tenant data
+        const tenant = await this.prisma.tenant.findUnique({
+          where: { id: decoded.sub },
+          include: {
+            restaurants: true,
+          },
+        });
+
+        if (!tenant) {
+          throw new UnauthorizedException('Tenant not found');
+        }
+
+        // Generate new token with fresh expiry
+        const payload = {
+          sub: tenant.id,
+          type: 'tenant',
+          tenantId: tenant.id,
+          email: tenant.email,
+          name: tenant.name,
+        };
+
+        const newToken = this.jwtService.sign(payload);
+
+        this.logger.log(`[Auth] Token refreshed for tenant: ${tenant.email}`);
+
+        return {
+          tenant: {
+            id: tenant.id,
+            name: tenant.name,
+            email: tenant.email,
+            restaurants: tenant.restaurants,
+          },
+          token: newToken,
+        };
+      }
+
+      // For other token types, implement as needed
+      return null;
+    } catch (error) {
+      this.logger.error(`[Auth] Token refresh failed: ${error.message}`);
+      throw new UnauthorizedException('Invalid token for refresh');
     }
   }
 }

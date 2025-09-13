@@ -1,4 +1,5 @@
 import { UserType } from './types';
+import { clearRedButLocalStorage } from './redbut-localstorage';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
@@ -12,9 +13,38 @@ export interface RestaurantMetrics {
 }
 
 
-export const STAFF_POSITIONS = ['Waiter', 'Chef', 'Manager', 'Supervisor'] as const;
+export const STAFF_POSITIONS = ['Waiter', 'Admin'] as const;
 export type StaffPosition = typeof STAFF_POSITIONS[number];
 
+// Use the same enum structure as the backend
+export enum WaiterStatus {
+  Active = 'Active',
+  Inactive = 'Inactive'
+}
+
+export enum RestaurantStatus {
+  Active = 'Active',
+  Inactive = 'Inactive'
+}
+
+export interface RestaurantSubscription {
+  id: string;
+  restaurantId: string;
+  activeUntil: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Restaurant {
+  id: string;
+  name: string;
+  location?: string;
+  address?: string;
+  status?: RestaurantStatus; // Optional since existing restaurants might not have status
+  subscription?: RestaurantSubscription; // Optional subscription info
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 export interface StaffMember {
   id: string;
@@ -26,11 +56,13 @@ export interface StaffMember {
   address?: string | null;
   phone?: string | null;
   propic?: string | null;
+  userType: UserType; // Direct userType from waiter record
+  status: WaiterStatus; // Status of the staff member
   createdAt: string; 
   updatedAt: string; 
   accessAccount?: {
     username: string; 
-    userType: UserType; 
+    userType?: UserType; // Optional since we use userType directly from waiter
   } | null;
   averageRating?: number;
   requestsHandled?: number;
@@ -40,13 +72,13 @@ export interface StaffMember {
 export interface CreateStaffMemberDto {
   name: string;
   surname: string;
-  email: string; 
+  email?: string; 
   tag_nickname: string;
   position: StaffPosition;
   address?: string;
   phone?: string; 
   propic?: string;
-  password?: string; 
+  restaurantId: string;
 }
 
 
@@ -55,6 +87,7 @@ export interface UpdateStaffMemberDto {
   surname?: string;
   tag_nickname?: string;
   position?: StaffPosition;
+  status?: WaiterStatus;
   address?: string;
   phone?: string; 
   propic?: string;
@@ -222,98 +255,15 @@ export type AiQueryResponse =
   | { message: string } 
   | string[]; 
 
-
-export interface Shift {
-  id: string;
-  date: string; 
-  startTime: string; 
-  endTime: string; 
-  createdAt: string; 
-  updatedAt: string; 
-}
-
-export interface CreateShiftDto {
-  startTime: string; 
-  endTime: string; 
-}
-
-export interface UpdateShiftDto {
-  startTime?: string; 
-  endTime?: string; 
-}
-
-export type AiShiftsQueryResponse =
-  | string
-  | Shift
-  | Shift[]
-  | { message: string }
-  | string[];
-
-// Table Allocations Section
-export interface ShiftForDropdown {
-  id: string;
-  displayLabel: string; // e.g., "2025-06-01 (9AM to 5PM)"
-}
-
-export interface WaiterForDropdown {
-  id: string;
-  displayLabel: string; // e.g., "John Doe (JohnnyD)"
-}
-
-export interface TableAllocation {
-  id: string;
-  shiftId: string;
-  tableNumbers: number[];
-  waiterId: string;
-  createdAt: string; 
-  updatedAt: string; 
-}
-
-export interface ShiftInfoForAllocation {
-  id: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-}
-  
-export interface WaiterInfoForAllocation {
+// User management types
+export interface User {
   id: string;
   name: string;
   surname: string;
   tag_nickname: string;
 }
 
-export interface TableAllocationWithDetails extends TableAllocation {
-  shift?: ShiftInfoForAllocation | null;
-  waiter?: WaiterInfoForAllocation | null;
-}
-
-export interface CreateTableAllocationDto {
-  shiftId: string;
-  tableNumbers: number[];
-  waiterId: string;
-}
-
-export interface UpdateTableAllocationDto {
-  shiftId?: string;
-  tableNumbers?: number[];
-  waiterId?: string;
-}
-
-export type AiTableAllocationsQueryResponse =
-  | string
-  | TableAllocationWithDetails
-  | TableAllocationWithDetails[]
-  | { message: string }
-  | string[];
-
 // Orders Analytics Section
-export interface CurrentShiftOrdersDataPoint {
-  timeLabel: string; // e.g., "09:00", "10:00"
-  newOrders: number;
-  inProgressOrders: number;
-  completedOrders: number;
-}
 
 export interface DailyOrdersDataPoint {
   date: string; // Format: "YYYY-MM-DD"
@@ -399,26 +349,7 @@ export interface PopularItemsAnalyticsData {
   revenueByItem: RevenueByItemDataPoint[];
 }
 
-// 3. Shifts Analytics
-export interface ShiftSalesDataPoint extends NameValuePair {}
-export interface ShiftAverageOrderValueDataPoint extends NameValuePair {}
-export interface ShiftPerformanceDetail {
-  shiftId: string;
-  shiftLabel: string; 
-  date: string; 
-  totalSales: number;
-  totalOrders: number;
-  averageOrderValue: number;
-  totalRequestsHandled?: number; 
-  averageRequestResponseTime?: number; 
-}
-export interface ShiftsAnalyticsData {
-  salesByShift: ShiftSalesDataPoint[];
-  averageOrderValueByShift: ShiftAverageOrderValueDataPoint[];
-  shiftPerformanceDetails: ShiftPerformanceDetail[];
-}
-
-// 4. Hourly Sales Analytics
+// 3. Hourly Sales Analytics
 export interface HourlySalesDataPoint {
   hour: string; 
   sales: number;
@@ -447,7 +378,6 @@ export interface StaffPerformanceDetail {
   staffId: string;
   staffName: string;
   position: string;
-  shiftsWorked: number;
   totalHoursWorked: number;
   averageRating?: number; 
   requestsHandled?: number; 
@@ -543,22 +473,22 @@ export interface RecentComment {
   isServiceAnalysis?: boolean;
   serviceType?: string;
 }
-export interface WaiterRatingsBreakdown {
+export interface ServiceAnalysisBreakdown {
     waiterId: string;
     waiterName: string;
-    averageFriendliness: number;
-    averageOrderAccuracy: number;
-    averageSpeed: number;
-    averageAttentiveness: number;
-    averageKnowledge: number;
-    totalRatings: number;
+    averageRating: number;
+    totalAnalyses: number;
+    serviceTypes: {
+      request: { count: number; averageRating: number };
+      order: { count: number; averageRating: number };
+    };
 }
-export interface WaiterRatingsAnalyticsData {
+export interface ServiceAnalysisData {
   averageRatingsPerWaiter: WaiterAverageRating[];
   overallRatingDistribution: RatingDistributionDataPoint[]; 
   ratingsTrend: RatingsOverTimeDataPoint[];
   recentComments: RecentComment[];
-  ratingsBreakdownPerWaiter: WaiterRatingsBreakdown[];
+  analysisBreakdownPerWaiter: ServiceAnalysisBreakdown[];
 }
 
 // 8. Requests Analytics
@@ -635,11 +565,10 @@ export type AiAnalyticsQueryResponse =
   | string 
   | SalesAnalyticsData
   | PopularItemsAnalyticsData
-  | ShiftsAnalyticsData
   | HourlySalesAnalyticsData
   | StaffAnalyticsData
   | TablesAnalyticsData
-  | WaiterRatingsAnalyticsData
+  | ServiceAnalysisData
   | RequestsAnalyticsData
   | CustomerRatingsAnalyticsData
   | { message: string } 
@@ -652,7 +581,6 @@ export interface OTPGenerationRequest {
 }
 
 export interface OTPGenerationResponse {
-  success: boolean;
   message: string;
   username: string;
 }
@@ -713,10 +641,38 @@ async function callApi<T>(
   const url = `${API_BASE_URL}/api/v1${endpoint}`;  
   const response = await fetch(url, config);
 
+  // Check for new token in response headers (sliding session)
+  const newToken = response.headers.get('X-New-Token');
+  if (newToken) {
+    console.log('🔄 Received refreshed token, updating localStorage');
+    localStorage.setItem('redBut_token', newToken);
+    
+    // Update session data if it exists
+    const existingSession = localStorage.getItem('redBut_adminSession');
+    if (existingSession) {
+      try {
+        const sessionData = JSON.parse(existingSession);
+        sessionData.token = newToken;
+        localStorage.setItem('redBut_adminSession', JSON.stringify(sessionData));
+      } catch (error) {
+        console.error('Error updating session with new token:', error);
+      }
+    }
+  }
+
   const rawText = await response.clone().text();
   console.log('API responded with:', rawText);
 
   if (!response.ok) {
+    // If we get a 401, the token is expired/invalid - clear all session data
+    if (response.status === 401) {
+      console.error('Authentication failed (401) - JWT token expired or invalid, clearing all session data');
+      clearRedButLocalStorage();
+      // Redirect to login page
+      window.location.href = '/';
+      return; // Early return to prevent further execution
+    }
+    
     const errorData = await response.json().catch(() => ({ message: response.statusText }));
     throw new Error(errorData.message || `API call failed with status ${response.status}`);
   }
@@ -742,6 +698,22 @@ async function callPublicApi<T>(
   const url = `${API_BASE_URL}/api/v1${endpoint}`;
   const response = await fetch(url, config);
   if (!response.ok) {
+    // If we get a 401, check if it's an OTP endpoint
+    if (response.status === 401) {
+      // For OTP endpoints, don't redirect - let the form handle the error
+      if (endpoint.includes('/otp/')) {
+        const errorData = await response.json().catch(() => ({ message: response.statusText }));
+        throw new Error(errorData.message || `API call failed with status ${response.status}`);
+      }
+      
+      // For other endpoints, the token is expired/invalid - clear all session data
+      console.error('Authentication failed (401) - JWT token expired or invalid, clearing all session data');
+      clearRedButLocalStorage();
+      // Redirect to login page
+      window.location.href = '/';
+      return; // Early return to prevent further execution
+    }
+    
     const errorData = await response.json().catch(() => ({ message: response.statusText }));
     throw new Error(errorData.message || `API call failed with status ${response.status}`);
   }
@@ -882,8 +854,15 @@ export const adminApi = {
   },
 
 
-  getAllStaffMembers: async (token: string): Promise<StaffMember[]> => {
-    return callApi<StaffMember[]>('/admin/staff', token);
+  getAllStaffMembers: async (token: string, restaurantId?: string): Promise<StaffMember[]> => {
+    const queryParams = restaurantId ? `?restaurantId=${restaurantId}` : '';
+    console.log(`Fetching staff members with restaurantId: ${restaurantId}`);
+    console.log(`API endpoint: /admin/staff${queryParams}`);
+    return callApi<StaffMember[]>(`/admin/staff${queryParams}`, token);
+  },
+
+  getRestaurants: async (token: string): Promise<Restaurant[]> => {
+    return callApi<Restaurant[]>('/restaurants', token);
   },
 
 
@@ -920,80 +899,7 @@ export const adminApi = {
     return callApi<AiQueryResponse>('/admin/staff/ai/query', token, 'POST', query);
   },
 
-  getAllShifts: async (token: string): Promise<Shift[]> => {
-    return callApi<Shift[]>('/admin/shifts', token);
-  },
-
-  getShiftById: async (token: string, id: string): Promise<Shift> => {
-    return callApi<Shift>(`/admin/shifts/${id}`, token);
-  },
-
-  createShift: async (
-    token: string,
-    data: CreateShiftDto,
-  ): Promise<Shift> => {
-    return callApi<Shift>('/admin/shifts', token, 'POST', data);
-  },
-
-  updateShift: async (
-    token: string,
-    id: string,
-    data: UpdateShiftDto,
-  ): Promise<Shift> => {
-    return callApi<Shift>(`/admin/shifts/${id}`, token, 'PUT', data);
-  },
-
-  deleteShift: async (token: string, id: string): Promise<void> => {
-    await callApi<void>(`/admin/shifts/${id}`, token, 'DELETE');
-  },
-
-  processShiftsAiQuery: async (
-    token: string,
-    query: AiQueryRequest,
-  ): Promise<AiShiftsQueryResponse> => {
-    return callApi<AiShiftsQueryResponse>('/admin/shifts/ai/query', token, 'POST', query);
-  },
-
-  // Table Allocations API functions
-  getAllTableAllocations: async (token: string): Promise<TableAllocationWithDetails[]> => {
-    return callApi<TableAllocationWithDetails[]>('/admin/table-allocations', token);
-  },
-
-  getTableAllocationById: async (token: string, id: string): Promise<TableAllocationWithDetails> => {
-    return callApi<TableAllocationWithDetails>(`/admin/table-allocations/${id}`, token);
-  },
-
-  createTableAllocation: async (
-    token: string,
-    data: CreateTableAllocationDto,
-  ): Promise<TableAllocationWithDetails> => {
-    return callApi<TableAllocationWithDetails>('/admin/table-allocations', token, 'POST', data);
-  },
-
-  updateTableAllocation: async (
-    token: string,
-    id: string,
-    data: UpdateTableAllocationDto,
-  ): Promise<TableAllocationWithDetails> => {
-    return callApi<TableAllocationWithDetails>(`/admin/table-allocations/${id}`, token, 'PUT', data);
-  },
-
-  deleteTableAllocation: async (token: string, id: string): Promise<void> => {
-    await callApi<void>(`/admin/table-allocations/${id}`, token, 'DELETE');
-  },
-
-  processTableAllocationsAiQuery: async (
-    token: string,
-    query: AiQueryRequest,
-  ): Promise<AiTableAllocationsQueryResponse> => {
-    return callApi<AiTableAllocationsQueryResponse>('/admin/table-allocations/ai/query', token, 'POST', query);
-  },
-
   // Orders Analytics API functions
-  getCurrentShiftOrdersByStatus: async (token: string): Promise<CurrentShiftOrdersDataPoint[]> => {
-    return callApi<CurrentShiftOrdersDataPoint[]>('/admin/orders/current-shift-status', token);
-  },
-
   getOrdersPerDayThisMonth: async (token: string): Promise<DailyOrdersDataPoint[]> => {
     return callApi<DailyOrdersDataPoint[]>('/admin/orders/daily-this-month', token);
   },
@@ -1019,14 +925,6 @@ export const adminApi = {
     return callApi<PopularItemsAnalyticsData>(`/admin/analytics/popular-items${queryString}`, token);
   },
   
-  getShiftsAnalytics: async (token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<ShiftsAnalyticsData> => {
-    const queryParams = new URLSearchParams();
-    if (dateRangeDto?.startDate) queryParams.append('startDate', dateRangeDto.startDate);
-    if (dateRangeDto?.endDate) queryParams.append('endDate', dateRangeDto.endDate);
-    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
-    return callApi<ShiftsAnalyticsData>(`/admin/analytics/shifts${queryString}`, token);
-  },
-
   getHourlySalesAnalytics: async (token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<HourlySalesAnalyticsData> => {
     const queryParams = new URLSearchParams();
     if (dateRangeDto?.startDate) queryParams.append('startDate', dateRangeDto.startDate);
@@ -1067,12 +965,12 @@ export const adminApi = {
     return callApi<TablesAnalyticsData>(`/admin/analytics/tables${queryString}`, token);
   },
 
-  getWaiterRatingsAnalytics: async (token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<WaiterRatingsAnalyticsData> => {
+  getServiceAnalytics: async (token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<ServiceAnalysisData> => {
     const queryParams = new URLSearchParams();
     if (dateRangeDto?.startDate) queryParams.append('startDate', dateRangeDto.startDate);
     if (dateRangeDto?.endDate) queryParams.append('endDate', dateRangeDto.endDate);
     const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
-    return callApi<WaiterRatingsAnalyticsData>(`/admin/analytics/waiter-ratings${queryString}`, token);
+    return callApi<ServiceAnalysisData>(`/admin/analytics/service-analysis${queryString}`, token);
   },
 
   getRequestsAnalytics: async (token: string, dateRangeDto?: { startDate?: string; endDate?: string }): Promise<RequestsAnalyticsData> => {
@@ -1179,6 +1077,23 @@ export const adminApi = {
     });
   },
 
+  // Tenant OTP Authentication Methods
+  generateTenantOTP: async (emailOrPhone: string): Promise<{ message: string; email: string }> => {
+    return callPublicApi<{ message: string; email: string }>('/auth/tenant/generate-otp', 'POST', {
+      emailOrPhone,
+    });
+  },
+
+  verifyTenantOTP: async (
+    emailOrPhone: string,
+    otp: string
+  ): Promise<{ tenant: any; token: string }> => {
+    return callPublicApi<{ tenant: any; token: string }>('/auth/tenant/verify-otp', 'POST', {
+      emailOrPhone,
+      otp,
+    });
+  },
+
   // Staff Performance Analytics with LLM insights
   getStaffPerformanceAnalytics: async (
     token: string,
@@ -1213,5 +1128,22 @@ export const adminApi = {
     
     const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
     return callApi<any>(`/admin/analytics/executive-summary${queryString}`, token);
+  },
+
+  // Restaurant Management Functions
+  updateRestaurant: async (token: string, id: string, data: Partial<Restaurant>): Promise<Restaurant> => {
+    return callApi<Restaurant>(`/restaurants/${id}`, token, 'PUT', data);
+  },
+
+  activateRestaurant: async (token: string, restaurantId: string, months: number): Promise<any> => {
+    return callApi<any>(`/restaurants/${restaurantId}/activate`, token, 'POST', { months });
+  },
+
+  getRestaurantSubscription: async (token: string, restaurantId: string): Promise<RestaurantSubscription | null> => {
+    return callApi<RestaurantSubscription | null>(`/restaurants/${restaurantId}/subscription`, token);
+  },
+
+  getExpiringSoonRestaurants: async (token: string): Promise<Restaurant[]> => {
+    return callApi<Restaurant[]>('/restaurants/expiring/soon', token);
   },
 };

@@ -54,7 +54,7 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'
 import {
   StaffAnalyticsData,
   StaffPerformanceDetail,
-  WaiterRatingsAnalyticsData,
+  ServiceAnalysisData,
   RequestsAnalyticsData,
   CustomerRatingsAnalyticsData,
   MetricCardValue,
@@ -65,13 +65,13 @@ import {
 
 type AnalyticsTab = 
   | "Staff" 
-  | "Waiter Ratings" 
+  | "Service Analysis" 
   | "Requests" 
   | "Overall Sentiments";
 
 const tabs: AnalyticsTab[] = [
   "Staff", 
-  "Waiter Ratings", 
+  "Service Analysis", 
   "Requests", 
   "Overall Sentiments"
 ];
@@ -96,7 +96,7 @@ const AnalyticsComponent = () => {
   
   // Data states for each tab
   const [staffData, setStaffData] = useState<StaffAnalyticsData | null>(null);
-  const [waiterRatingsData, setWaiterRatingsData] = useState<WaiterRatingsAnalyticsData | null>(null);
+  const [serviceAnalysisData, setServiceAnalysisData] = useState<ServiceAnalysisData | null>(null);
   const [requestsData, setRequestsData] = useState<RequestsAnalyticsData | null>(null);
   const [customerRatingsData, setCustomerRatingsData] = useState<CustomerRatingsAnalyticsData | null>(null);
 
@@ -117,8 +117,8 @@ const AnalyticsComponent = () => {
         case "Staff":
           setStaffData(await adminApi.getStaffAnalytics(token, currentRange));
           break;
-        case "Waiter Ratings":
-          setWaiterRatingsData(await adminApi.getWaiterRatingsAnalytics(token, currentRange));
+        case "Service Analysis":
+          setServiceAnalysisData(await adminApi.getServiceAnalytics(token, currentRange));
           break;
         case "Requests":
           setRequestsData(await adminApi.getRequestsAnalytics(token, currentRange));
@@ -172,7 +172,7 @@ const AnalyticsComponent = () => {
 
     switch (activeTab) {
       case "Staff": return <StaffTabContent data={staffData} onViewStaff={handleOpenStaffDetail} />;
-      case "Waiter Ratings": return <WaiterRatingsTabContent data={waiterRatingsData} />;
+      case "Service Analysis": return <ServiceAnalysisTabContent data={serviceAnalysisData} />;
       case "Requests": return <RequestsTabContent data={requestsData} />;
       case "Overall Sentiments": return <CustomerRatingsTabContent data={customerRatingsData} />;
       default: return <div>Select a tab</div>;
@@ -357,8 +357,8 @@ const StaffTabContent: React.FC<{
   );
 };
 
-const WaiterRatingsTabContent: React.FC<{data: WaiterRatingsAnalyticsData | null}> = ({data}) => {
-  if (!data) return <div className="text-center p-10 text-gray-500">No waiter ratings data available.</div>;
+const ServiceAnalysisTabContent: React.FC<{data: ServiceAnalysisData | null}> = ({data}) => {
+  if (!data) return <div className="text-center p-10 text-gray-500">No service analysis data available.</div>;
   return (
     <div className="space-y-6">
       <ChartContainer title="Average Ratings Per Waiter">
@@ -1023,7 +1023,7 @@ const StaffDetailModal: React.FC<{
                 <span className="text-gray-600">Avg. Rating:</span>
                 <span className="font-semibold">
                   {staffDetailData?.requestsPerformance?.avgRating ? 
-                    `${staffDetailData.requestsPerformance.avgRating}/5` : 
+                    `${staffDetailData.requestsPerformance.avgRating}` : 
                     'Not available'
                   }
                 </span>
@@ -1032,7 +1032,7 @@ const StaffDetailModal: React.FC<{
                 <span className="text-gray-600">Highest Rating:</span>
                 <span className="font-semibold">
                   {staffDetailData?.requestsPerformance?.highestRating ? 
-                    `${staffDetailData.requestsPerformance.highestRating}/5` : 
+                    `${staffDetailData.requestsPerformance.highestRating}` : 
                     'Not available'
                   }
                 </span>
@@ -1041,7 +1041,7 @@ const StaffDetailModal: React.FC<{
                 <span className="text-gray-600">Lowest Rating:</span>
                 <span className="font-semibold">
                   {staffDetailData?.requestsPerformance?.lowestRating ? 
-                    `${staffDetailData.requestsPerformance.lowestRating}/5` : 
+                    `${staffDetailData.requestsPerformance.lowestRating}` : 
                     'Not available'
                   }
                 </span>
@@ -1063,7 +1063,7 @@ const StaffDetailModal: React.FC<{
                 <span className="text-gray-600">Avg. Rating:</span>
                 <span className="font-semibold">
                   {staffDetailData?.ordersPerformance?.avgRating ? 
-                    `${staffDetailData.ordersPerformance.avgRating}/5` : 
+                    `${staffDetailData.ordersPerformance.avgRating}` : 
                     'Not available'
                   }
                 </span>
@@ -1072,7 +1072,7 @@ const StaffDetailModal: React.FC<{
                 <span className="text-gray-600">Highest Rating:</span>
                 <span className="font-semibold">
                   {staffDetailData?.ordersPerformance?.highestRating ? 
-                    `${staffDetailData.ordersPerformance.highestRating}/5` : 
+                    `${staffDetailData.ordersPerformance.highestRating}` : 
                     'Not available'
                   }
                 </span>
@@ -1081,7 +1081,7 @@ const StaffDetailModal: React.FC<{
                 <span className="text-gray-600">Lowest Rating:</span>
                 <span className="font-semibold">
                   {staffDetailData?.ordersPerformance?.lowestRating ? 
-                    `${staffDetailData.ordersPerformance.lowestRating}/5` : 
+                    `${staffDetailData.ordersPerformance.lowestRating}` : 
                     'Not available'
                   }
                 </span>

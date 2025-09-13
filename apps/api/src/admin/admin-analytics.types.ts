@@ -133,7 +133,7 @@ export interface StaffPerformanceDetail {
   position: string;
   shiftsWorked: number;
   totalHoursWorked: number;
-  averageRating?: number; // From WaiterRatings
+  averageRating?: number; // From ServiceAnalysis
   requestsHandled?: number; // From Requests
   ordersHandled?: number; // From Orders
   // Request handling specific metrics
@@ -259,23 +259,23 @@ export interface RecentComment {
   serviceType?: string;
 }
 
-export interface WaiterRatingsBreakdown {
+export interface ServiceAnalysisBreakdown {
     waiterId: string;
     waiterName: string;
-    averageFriendliness: number;
-    averageOrderAccuracy: number;
-    averageSpeed: number;
-    averageAttentiveness: number;
-    averageKnowledge: number;
-    totalRatings: number;
+    averageRating: number;
+    totalAnalyses: number;
+    serviceTypes: {
+      request: { count: number; averageRating: number };
+      order: { count: number; averageRating: number };
+    };
 }
 
-export interface WaiterRatingsAnalyticsData {
+export interface ServiceAnalysisData {
   averageRatingsPerWaiter: WaiterAverageRating[];
   overallRatingDistribution: RatingDistributionDataPoint[]; // e.g., 1-star, 2-star counts
   ratingsTrend: RatingsOverTimeDataPoint[];
   recentComments: RecentComment[];
-  ratingsBreakdownPerWaiter: WaiterRatingsBreakdown[];
+  analysisBreakdownPerWaiter: ServiceAnalysisBreakdown[];
 }
 
 // 8. Requests Analytics
@@ -368,7 +368,7 @@ export interface FullAnalyticsDashboardData {
   hourlySales: HourlySalesAnalyticsData;
   staff: StaffAnalyticsData;
   tables: TablesAnalyticsData;
-  waiterRatings: WaiterRatingsAnalyticsData;
+  serviceAnalysis: ServiceAnalysisData;
   requests: RequestsAnalyticsData;
   customerRatings?: CustomerRatingsAnalyticsData; // Optional if not fully implemented
 }

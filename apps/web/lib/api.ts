@@ -136,14 +136,18 @@ export async function apiRequest(
   try {
     const response = await fetch(url, fetchOptions);
     
-    // If we get a 401/403, it might be a session or token issue
-    if (response.status === 401 || response.status === 403) {
-      const errorText = await response.text();
-      if (errorText.includes('token') || errorText.includes('session')) {
-        console.error('Authentication failed, clearing session and token');
-        handleSessionInvalidation();
-        throw new Error('Authentication invalid - redirecting');
-      }
+    // If we get a 401, the JWT token is expired/invalid - clear all session data
+    if (response.status === 401) {
+      console.error('Authentication failed (401) - JWT token expired or invalid, clearing session');
+      handleSessionInvalidation();
+      throw new Error('Authentication invalid - redirecting');
+    }
+
+    // Also handle 403 for completeness (forbidden)
+    if (response.status === 403) {
+      console.error('Access forbidden (403), clearing session');
+      handleSessionInvalidation();
+      throw new Error('Access forbidden - redirecting');
     }
 
     return response;

@@ -1,10 +1,13 @@
-import { UserType, Waiter } from '@prisma/client';
+import { UserType, Waiter, WaiterStatus } from '@prisma/client';
+
+// Re-export WaiterStatus for convenience
+export { WaiterStatus };
 
 /**
  * Defines possible staff positions.
  * These are used for display and selection in forms.
  */
-export const STAFF_POSITIONS = ['Waiter', 'Chef', 'Manager', 'Supervisor'] as const;
+export const STAFF_POSITIONS = ['Waiter', 'Admin'] as const;
 
 /**
  * Type representing one of the defined staff positions.
@@ -25,7 +28,7 @@ export const DEFAULT_STAFF_PASSWORD = '__new__pass';
 export interface StaffMemberWithAccessInfo extends Waiter {
   accessAccount?: {
     username: string;
-    userType: UserType;
+    userType?: UserType;
   } | null;
   /**
    * The display position of the staff member (e.g., "Waiter", "Chef").

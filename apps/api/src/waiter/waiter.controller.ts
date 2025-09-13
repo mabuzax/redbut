@@ -41,10 +41,10 @@ import {
 import { IsEnum } from 'class-validator';
 
 /**
- * DTO used for submitting a waiter rating from the client app.
+ * DTO used for submitting service analysis feedback from the client app.
  * All star-fields are required and must be integers 1-5.
  */
-class WaiterRatingDto {
+class ServiceAnalysisDto {
   @IsUUID()
   userId!: string;
 
@@ -304,8 +304,8 @@ export class WaiterController {
       },
     },
   })
-  async getReviewsSummary(): Promise<{ averageRating: number; totalReviews: number }> {
-    return this.waiterService.getReviewsSummary();
+  async getReviewsSummary(@GetUser() user: any): Promise<{ averageRating: number; totalReviews: number }> {
+    return this.waiterService.getReviewsSummary(user.id);
   }
 
   @Get('reviews')
@@ -331,10 +331,11 @@ export class WaiterController {
   })
   @UsePipes(new ValidationPipe({ transform: true }))
   async getPaginatedReviews(
+    @GetUser() user: any,
     @Query('page', new ParseIntPipe({ optional: true })) page?: number,
     @Query('pageSize', new ParseIntPipe({ optional: true })) pageSize?: number,
   ): Promise<any[]> {
-    return this.waiterService.getPaginatedReviews(page, pageSize);
+    return this.waiterService.getPaginatedReviews(user.id, page, pageSize);
   }
 
   @Get('ai/performance-today')
@@ -342,29 +343,68 @@ export class WaiterController {
   @ApiOperation({ summary: 'Get AI analysis of waiter performance for today' })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Returns structured AI analysis',
+    description: 'Returns comprehensive AI analysis with request management and customer sentiment',
     schema: {
       type: 'object',
       properties: {
-        customerSentiment: { type: 'string', example: 'Overall Positive' },
-        happinessBreakdown: {
+        requestManagement: {
           type: 'object',
           properties: {
-            'Extremely Happy': { type: 'string' },
-            'Very Happy': { type: 'string' },
-            'Just Ok': { type: 'string' },
-            'Unhappy': { type: 'string' },
-            'Horrible': { type: 'string' },
+            totalRequests: { type: 'number', example: 12 },
+            completedRequests: { type: 'number', example: 10 },
+            completionRate: { type: 'number', example: 83.3 },
+            avgResponseTime: { type: 'number', example: 4.2 },
+            avgCompletionTime: { type: 'number', example: 15.7 },
+            insights: { 
+              type: 'array', 
+              items: { type: 'string' },
+              example: ['You have a good completion rate - keep maintaining this pace', 'Your response time is excellent - customers appreciate quick acknowledgments']
+            },
+            performanceRating: { type: 'string', example: 'Good' }
           }
         },
-        improvementPoints: { type: 'array', items: { type: 'string' } },
-        overallAnalysis: { type: 'string' },
+        customerSentiment: {
+          type: 'object',
+          properties: {
+            available: { type: 'boolean', example: true },
+            overallSentiment: { type: 'string', example: 'Positive' },
+            averageRating: { type: 'number', example: 4.2 },
+            keyStrengths: { type: 'array', items: { type: 'string' } },
+            improvementAreas: { type: 'array', items: { type: 'string' } },
+            message: { type: 'string' }
+          }
+        },
+        overallAnalysis: { type: 'string', example: 'You have handled 12 requests today with great efficiency. Focus on maintaining this pace.' },
+        priorityFocus: { type: 'string', example: 'Maintain current performance level' }
       },
     },
   })
+  @ApiResponse({
+    status: HttpStatus.SERVICE_UNAVAILABLE,
+    description: 'AI analysis service is temporarily unavailable',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'AI analysis is temporarily unavailable' },
+        error: { type: 'string', example: 'Service Unavailable' },
+        statusCode: { type: 'number', example: 503 }
+      }
+    }
+  })
   async getAIAnalysis(@GetUser() user: any): Promise<any> {
-    const analysis = await this.waiterService.getAIAnalysis(user.id);
-    return analysis;
+    try {
+      const analysis = await this.waiterService.getAIAnalysis(user.id);
+      return analysis;
+    } catch (error) {
+      throw new HttpException(
+        {
+          message: error.message || 'AI analysis is temporarily unavailable',
+          error: 'Service Unavailable',
+          statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+        },
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
   }
 
   /* ---------------------------------------------------------------------
@@ -375,14 +415,14 @@ export class WaiterController {
   @ApiOperation({ summary: 'Submit a rating for a waiter' })
   @ApiBody({
     description: 'Waiter rating payload',
-    type: WaiterRatingDto,
+    type: ServiceAnalysisDto,
   })
   @ApiResponse({
     status: HttpStatus.CREATED,
     description: 'Rating stored successfully',
   })
   @UsePipes(new ValidationPipe({ transform: true }))
-  async createRating(@Body() dto: WaiterRatingDto) {
+  async createRating(@Body() dto: ServiceAnalysisDto) {
     try {
       return await this.waiterService.createRating(dto);
     } catch (e) {
@@ -489,6 +529,149 @@ export class WaiterController {
     } catch (e) {
       throw new HttpException(
         (e as Error).message || 'Failed to close session',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  @Get('profile')
+  @Roles('waiter')
+  @ApiOperation({ summary: 'Get waiter profile information' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Returns waiter profile details',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', example: 'waiter-uuid-123' },
+        name: { type: 'string', example: 'John' },
+        surname: { type: 'string', example: 'Doe' },
+        username: { type: 'string', example: 'john.doe' },
+        email: { type: 'string', example: 'john.doe@restaurant.com' },
+        phoneNumber: { type: 'string', example: '+1234567890' },
+        tag_nickname: { type: 'string', example: 'Johnny' },
+        restaurant: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            address: { type: 'string' }
+          }
+        },
+        createdAt: { type: 'string', format: 'date-time' },
+        updatedAt: { type: 'string', format: 'date-time' }
+      }
+    }
+  })
+  async getProfile(@GetUser() user: any) {
+    try {
+      return await this.waiterService.getProfile(user.id);
+    } catch (error) {
+      throw new HttpException(
+        error.message || 'Failed to get profile',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  @Get('available-waiters')
+  @Roles('waiter')
+  @ApiOperation({ summary: 'Get list of available waiters for session transfer' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Returns list of waiters from the same restaurant',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          surname: { type: 'string' },
+          tag_nickname: { type: 'string' }
+        }
+      }
+    }
+  })
+  async getAvailableWaiters(@GetUser() user: any) {
+    try {
+      return await this.waiterService.getAvailableWaiters(user.id);
+    } catch (error) {
+      throw new HttpException(
+        error.message || 'Failed to get available waiters',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  @Post('transfer-sessions')
+  @Roles('waiter')
+  @ApiOperation({ summary: 'Transfer all active sessions to another waiter' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        targetWaiterId: { type: 'string', description: 'ID of the waiter to receive the sessions' }
+      },
+      required: ['targetWaiterId']
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Sessions transferred successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+        transferredSessions: { type: 'number' }
+      }
+    }
+  })
+  async transferSessions(@GetUser() user: any, @Body() dto: { targetWaiterId: string }) {
+    try {
+      return await this.waiterService.transferSessions(user.id, dto.targetWaiterId);
+    } catch (error) {
+      throw new HttpException(
+        error.message || 'Failed to transfer sessions',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  @Post('transfer-specific-sessions')
+  @Roles('waiter')
+  @ApiOperation({ summary: 'Transfer specific sessions to another waiter' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        sessionIds: { 
+          type: 'array', 
+          items: { type: 'string' },
+          description: 'Array of session IDs to transfer' 
+        },
+        targetWaiterId: { type: 'string', description: 'ID of the waiter to receive the sessions' }
+      },
+      required: ['sessionIds', 'targetWaiterId']
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Specific sessions transferred successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+        transferredSessions: { type: 'number' }
+      }
+    }
+  })
+  async transferSpecificSessions(@GetUser() user: any, @Body() dto: { sessionIds: string[]; targetWaiterId: string }) {
+    try {
+      return await this.waiterService.transferSpecificSessions(user.id, dto.sessionIds, dto.targetWaiterId);
+    } catch (error) {
+      throw new HttpException(
+        error.message || 'Failed to transfer specific sessions',
         HttpStatus.BAD_REQUEST,
       );
     }

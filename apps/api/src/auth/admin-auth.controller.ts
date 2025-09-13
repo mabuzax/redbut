@@ -174,4 +174,59 @@ export class AdminAuthController {
       );
     }
   }
+
+  /**
+   * Refresh JWT token to extend expiry
+   */
+  @Post('refresh-token')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ 
+    summary: 'Refresh JWT token', 
+    description: 'Extends token expiry by another hour for sliding session functionality' 
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Token refreshed successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        token: { type: 'string', description: 'New JWT token with extended expiry' },
+        tenant: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            email: { type: 'string' },
+            restaurants: { type: 'array' },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Invalid or expired token',
+  })
+  async refreshToken(@Req() req: any) {
+    try {
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      if (!token) {
+        throw new HttpException('No token provided', HttpStatus.UNAUTHORIZED);
+      }
+
+      const result = await this.authService.refreshToken(token);
+      if (!result) {
+        throw new HttpException('Unable to refresh token', HttpStatus.UNAUTHORIZED);
+      }
+
+      return result;
+    } catch (e) {
+      throw new HttpException(
+        (e as Error).message || 'Failed to refresh token',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+  }
 }

@@ -1,4 +1,5 @@
 import { RequestStatus } from './types';
+import { clearRedButLocalStorage } from './redbut-localstorage';
 
 // Define interfaces for API data structures
 // These should ideally be shared from a common `packages/types` or similar
@@ -89,10 +90,51 @@ export interface ServiceAnalysisSummary {
  * AI performance analysis response.
  */
 export interface AIAnalysisResponse {
-  overall_sentiment: string;
-  happiness_breakdown: Record<string, string>;
-  improvement_points: string[];
-  overall_analysis: string;
+  requestManagement: {
+    totalRequests: number;
+    completedRequests: number;
+    completionRate: number;
+    avgResponseTime: number;
+    avgCompletionTime: number;
+    insights: string[];
+    performanceRating: string;
+  };
+  customerSentiment: {
+    available: boolean;
+    overallSentiment?: string;
+    averageRating?: number;
+    keyStrengths?: string[];
+    improvementAreas?: string[];
+    message?: string;
+  };
+  sessionManagement?: {
+    efficiencyRating: string;
+    sessionInsights: string[];
+    workloadBalance: string;
+    transferEffectiveness: string;
+  };
+  sessionActivityMetrics?: {
+    sessionsCreated: number;
+    sessionsClosed: number;
+    transfersReceived: number;
+    transfersGiven: number;
+    avgSessionDuration: number;
+    totalActiveTime: number;
+    workloadDistribution: Record<string, number>;
+    transferPatterns: {
+      peakTransferTimes: string[];
+      transferReasons: string[];
+      transferFrequency: number;
+    };
+    performanceInsights: string[];
+  };
+  overallAnalysis: string;
+  priorityFocus: string;
+  
+  // Legacy fields for backward compatibility
+  overall_sentiment?: string;
+  happiness_breakdown?: Record<string, string>;
+  improvement_points?: string[];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -193,15 +235,33 @@ async function callApi<T>(
   console.log(`Making API request to: ${url} with config:`, config);
   const response = await fetch(url, config);
 
+  // Check for new token in response headers (sliding session)
+  const newToken = response.headers.get('X-New-Token');
+  if (newToken) {
+    console.log('🔄 Received refreshed token, updating localStorage');
+    localStorage.setItem('redBut_token', newToken);
+    
+    // Update session data if it exists
+    const existingSession = localStorage.getItem('redBut_waiterSession');
+    if (existingSession) {
+      try {
+        const sessionData = JSON.parse(existingSession);
+        sessionData.token = newToken;
+        localStorage.setItem('redBut_waiterSession', JSON.stringify(sessionData));
+      } catch (error) {
+        console.error('Error updating waiter session with new token:', error);
+      }
+    }
+  }
+
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ message: response.statusText }));
     
-    // If we get a 401, the token is invalid - clear the session
+    // If we get a 401, the token is invalid - clear all session data
     if (response.status === 401) {
-      // Clear invalid auth data
-      localStorage.removeItem("redBut_waiterSession");
-      localStorage.removeItem("redBut_token");
-      // Optionally redirect to login
+      console.error('Authentication failed (401) - JWT token expired or invalid, clearing all session data');
+      clearRedButLocalStorage();
+      // Redirect to login/main page
       window.location.href = '/';
     }
     
@@ -258,6 +318,14 @@ export const waiterApi = {
    */
   changePassword: async (dto: ChangePasswordRequest): Promise<void> => {
     await callPublicApi<void>('/auth/waiter/change-password', 'POST', dto);
+  },
+
+  /**
+   * Refresh JWT token for sliding session (manual refresh).
+   * Used for explicit token refresh when needed.
+   */
+  refreshToken: async (token: string): Promise<{ token: string; tenant: any }> => {
+    return callApi<{ token: string; tenant: any }>('/auth/waiter/refresh-token', token, 'POST');
   },
 
   /**
@@ -444,24 +512,114 @@ export const waiterApi = {
   },
 
   /**
-   * Fetches allowed status transitions for a request.
-   * @param currentStatus The current status of the request.
+   * Fetches orders for a specific session.
+   * @param sessionId The session ID to get orders for.
    * @param token The JWT authentication token.
-   * @returns A promise that resolves to an array of allowed transitions.
+   * @returns A promise that resolves to an array of orders for the session.
    */
-  getRequestStatusTransitions: async (
-    currentStatus: string,
-    token: string
-  ): Promise<{ targetStatus: string; label: string }[]> => {
-    const params = new URLSearchParams({
-      currentStatus,
-      userRole: 'waiter'
-    });
-    const response = await callApi<{
-      currentStatus: string;
-      userRole: string;
-      transitions: { targetStatus: string; label: string }[];
-    }>(`/request-status-config/transitions?${params.toString()}`, token);
-    return response.transitions;
+  getOrdersBySession: async (sessionId: string, token: string): Promise<any[]> => {
+    return callApi<any[]>(`/waiter/orders/session/${sessionId}`, token);
+  },
+
+  /**
+   * Updates the status of an order.
+   * @param orderId The ID of the order to update.
+   * @param newStatus The new status for the order.
+   * @param token The JWT authentication token.
+   * @returns A promise that resolves to the updated order.
+   */
+  updateOrderStatus: async (
+    orderId: string,
+    newStatus: string,
+    token: string,
+  ): Promise<any> => {
+    return callApi<any>(
+      `/waiter/orders/${orderId}/status`,
+      token,
+      'PUT',
+      { status: newStatus },
+    );
+  },
+
+  /* ---------------------------------------------------------------------- */
+  /*  Session Management                                                     */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Fetches sessions for a specific waiter.
+   * @param waiterId The waiter ID to get sessions for.
+   * @param token JWT for authentication.
+   * @returns A promise that resolves to an array of table sessions.
+   */
+  getWaiterSessions: async (waiterId: string, token: string): Promise<any[]> => {
+    return callApi<any[]>(`/waiter/sessions/${waiterId}`, token);
+  },
+
+  /**
+   * Closes a specific session.
+   * @param sessionId The session ID to close.
+   * @param token JWT for authentication.
+   * @returns A promise that resolves to the response data.
+   */
+  closeSession: async (sessionId: string, token: string): Promise<any> => {
+    return callApi<any>('/waiter/close-session', token, 'POST', { sessionId });
+  },
+
+  /**
+   * Fetches all waiters.
+   * @param token JWT for authentication.
+   * @returns A promise that resolves to an array of waiters.
+   */
+  getAllWaiters: async (token: string): Promise<any[]> => {
+    return callApi<any[]>('/waiter/all', token);
+  },
+
+  /**
+   * Creates a new table session.
+   * @param data The session data including tableNumber, waiterId, and sessionId.
+   * @param token JWT for authentication.
+   * @returns A promise that resolves to the created session data.
+   */
+  createSession: async (data: { tableNumber: number; waiterId: string; sessionId: string }, token: string): Promise<any> => {
+    return callApi<any>('/waiter/create-session', token, 'POST', data);
+  },
+
+  /**
+   * Get waiter profile information
+   * @param token JWT for authentication.
+   * @returns A promise that resolves to waiter profile data.
+   */
+  getProfile: async (token: string): Promise<any> => {
+    return callApi<any>('/waiter/profile', token);
+  },
+
+  /**
+   * Get available waiters for session transfer
+   * @param token JWT for authentication.
+   * @returns A promise that resolves to an array of available waiters.
+   */
+  getAvailableWaiters: async (token: string): Promise<any[]> => {
+    return callApi<any[]>('/waiter/available-waiters', token);
+  },
+
+  /**
+   * Transfer sessions to another waiter
+   * @param targetWaiterId The ID of the waiter to transfer sessions to.
+   * @param token JWT for authentication.
+   * @returns A promise that resolves to transfer result.
+   */
+  transferSessions: async (targetWaiterId: string, token: string): Promise<any> => {
+    return callApi<any>('/waiter/transfer-sessions', token, 'POST', { targetWaiterId });
+  },
+
+  /**
+   * Transfer specific sessions to another waiter
+   * @param sessionIds Array of session IDs to transfer.
+   * @param targetWaiterId The ID of the waiter to transfer sessions to.
+   * @param token JWT for authentication.
+   * @returns A promise that resolves to transfer result.
+   */
+  transferSpecificSessions: async (sessionIds: string[], targetWaiterId: string, token: string): Promise<any> => {
+    return callApi<any>('/waiter/transfer-specific-sessions', token, 'POST', { sessionIds, targetWaiterId });
   },
 };

@@ -425,8 +425,7 @@ export default function Home() {
       if (Array.isArray(data)) {
         // Count active requests (not completed, cancelled, or done)
         const activeRequests = data.filter((request: any) => 
-          request.status === 'New' || 
-          request.status === 'Acknowledged' || 
+          request.status === 'New' ||
           request.status === 'InProgress' || 
           request.status === 'OnHold'
         );
@@ -789,7 +788,7 @@ export default function Home() {
       ) : (
         // Default loading state when no userData
         <div className="splash-container">
-          <div className="splash-text">Loading...</div>
+          <div className="splash-text">RedBut</div>
         </div>
       )}
 

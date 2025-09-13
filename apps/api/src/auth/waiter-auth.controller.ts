@@ -177,4 +177,63 @@ export class WaiterAuthController {
       );
     }
   }
+
+  /**
+   * Refresh JWT token for sliding session (1-hour expiry with automatic renewal).
+   * Validates current token and returns a new one with extended expiry.
+   */
+  @Post('refresh-token')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ 
+    summary: 'Refresh JWT token for sliding session',
+    description: 'Validates current token and returns a new token with 1-hour expiry. Supports sliding session functionality where tokens are refreshed automatically on API usage.'
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Token refreshed successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        token: {
+          type: 'string',
+          description: 'New JWT token with 1-hour expiry'
+        },
+        tenant: {
+          type: 'object',
+          description: 'Tenant information associated with the token'
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Current token is invalid or expired'
+  })
+  async refreshToken(@Req() req: any): Promise<{ token: string; tenant: any }> {
+    try {
+      // Extract current token from Authorization header
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        throw new HttpException('Bearer token required', HttpStatus.UNAUTHORIZED);
+      }
+
+      const currentToken = authHeader.substring(7); // Remove 'Bearer ' prefix
+      
+      // Use the generic refreshToken method from AuthService
+      const result = await this.authService.refreshToken(currentToken);
+      
+      if (!result) {
+        throw new HttpException('Unable to refresh token', HttpStatus.UNAUTHORIZED);
+      }
+
+      return result;
+    } catch (e) {
+      throw new HttpException(
+        (e as Error).message || 'Failed to refresh token',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+  }
 }

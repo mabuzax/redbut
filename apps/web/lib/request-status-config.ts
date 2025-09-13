@@ -1,25 +1,16 @@
 import { RequestStatus } from './types';
 
-import { api } from './api';
-
 // Option format for dropdown components
 interface StatusOption {
   value: string;
   label: string;
 }
 
-
 export class RequestStatusConfigService {
-
   /**
    * Get status options for dropdown components
    */
-  static async getStatusOptions(
-    currentStatus: RequestStatus,
-    userRole: string,
-    token: string
-  ): Promise<StatusOption[]> {
-
+  static getStatusOptions(currentStatus: RequestStatus): StatusOption[] {
     return this.getDefaultStatusOptions(currentStatus);
   }
 

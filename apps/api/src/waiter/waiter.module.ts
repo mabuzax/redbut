@@ -7,7 +7,6 @@ import { RequestsModule } from '../requests/requests.module';
 import { OrdersModule } from '../orders/orders.module';
 import { OrdersService } from '../orders/orders.service';
 import { UsersModule } from '../users/users.module';
-import { RequestStatusConfigService } from '../common/request-status-config.service';
 
 /**
  * Waiter Module for managing waiter-specific operations and dashboard data.
@@ -25,7 +24,6 @@ import { RequestStatusConfigService } from '../common/request-status-config.serv
     WaiterService,
     PrismaService, // Provided globally, but explicitly listed here for clarity if needed
     OrdersService,
-    RequestStatusConfigService,
   ],
   exports: [WaiterService], // Export if other modules need to inject WaiterService
 })

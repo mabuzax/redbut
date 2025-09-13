@@ -5,6 +5,7 @@ import {
   UtensilsCrossed,
   Users,
   Settings,
+  Building2,
   type LucideIcon
 } from "lucide-react";
 
@@ -12,6 +13,7 @@ export type Section =
   | "Analytics"
   | "Food Menu"
   | "Staff"
+  | "Restaurants"
   | "Owner Dashboard";
 
 export interface GridProps {
@@ -23,12 +25,13 @@ const DashboardGrid = ({ onSelect }: GridProps) => {
     { key: "Analytics", label: "Analytics", icon: BarChart2 },
     { key: "Food Menu", label: "Food Menu", icon: UtensilsCrossed },
     { key: "Staff", label: "Staff", icon: Users },
+    { key: "Restaurants", label: "Restaurants", icon: Building2 },
     { key: "Owner Dashboard", label: "Owner Dashboard", icon: Settings },
   ];
 
   return (
     <div className="flex justify-center">
-      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-8 max-w-5xl">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-8 max-w-6xl">
         {items.map(({ key, label, icon: Icon }) => (
           <button
             key={key}

@@ -187,60 +187,6 @@ async function main() {
 
   console.log('✅ Created access users:', accessUsers.length);
 
-  // Create Order Status Configurations
-  const orderStatusConfigs = [
-    { currentStatus: 'New', targetStatus: 'Acknowledged', userRole: 'admin', label: 'Acknowledge Order' },
-    { currentStatus: 'New', targetStatus: 'Cancelled', userRole: 'admin', label: 'Cancel Order' },
-    { currentStatus: 'Acknowledged', targetStatus: 'InProgress', userRole: 'kitchen', label: 'Start Preparation' },
-    { currentStatus: 'Acknowledged', targetStatus: 'Cancelled', userRole: 'admin', label: 'Cancel Order' },
-    { currentStatus: 'InProgress', targetStatus: 'Complete', userRole: 'kitchen', label: 'Mark Complete' },
-    { currentStatus: 'Complete', targetStatus: 'Delivered', userRole: 'waiter', label: 'Mark Delivered' },
-    { currentStatus: 'Delivered', targetStatus: 'Paid', userRole: 'waiter', label: 'Mark Paid' },
-    { currentStatus: 'New', targetStatus: 'Rejected', userRole: 'admin', label: 'Reject Order' },
-    { currentStatus: 'Acknowledged', targetStatus: 'Rejected', userRole: 'admin', label: 'Reject Order' }
-  ];
-
-  for (const config of orderStatusConfigs) {
-    await prisma.orderStatusConfig.upsert({
-      where: {
-        id: `${config.currentStatus}_to_${config.targetStatus}_${config.userRole}`
-      },
-      update: {},
-      create: {
-        id: `${config.currentStatus}_to_${config.targetStatus}_${config.userRole}`,
-        ...config
-      }
-    });
-  }
-
-  console.log('✅ Created order status configurations:', orderStatusConfigs.length);
-
-  // Create Request Status Configurations  
-  const requestStatusConfigs = [
-    { currentStatus: 'New', targetStatus: 'Acknowledged', userRole: 'waiter', label: 'Acknowledge Request' },
-    { currentStatus: 'Acknowledged', targetStatus: 'InProgress', userRole: 'waiter', label: 'Start Working' },
-    { currentStatus: 'InProgress', targetStatus: 'Completed', userRole: 'waiter', label: 'Mark Completed' },
-    { currentStatus: 'New', targetStatus: 'Cancelled', userRole: 'waiter', label: 'Cancel Request' },
-    { currentStatus: 'Acknowledged', targetStatus: 'Cancelled', userRole: 'waiter', label: 'Cancel Request' },
-    { currentStatus: 'InProgress', targetStatus: 'OnHold', userRole: 'waiter', label: 'Put On Hold' },
-    { currentStatus: 'OnHold', targetStatus: 'InProgress', userRole: 'waiter', label: 'Resume Work' }
-  ];
-
-  for (const config of requestStatusConfigs) {
-    await prisma.requestStatusConfig.upsert({
-      where: {
-        id: `${config.currentStatus}_to_${config.targetStatus}_${config.userRole}`
-      },
-      update: {},
-      create: {
-        id: `${config.currentStatus}_to_${config.targetStatus}_${config.userRole}`,
-        ...config
-      }
-    });
-  }
-
-  console.log('✅ Created request status configurations:', requestStatusConfigs.length);
-
   console.log('🎉 Seeding completed successfully!');
 }
 

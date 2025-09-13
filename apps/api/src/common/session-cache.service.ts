@@ -202,6 +202,101 @@ export class SessionCacheService {
   }
 
   /**
+   * Cache active sessions list for a waiter with shorter TTL
+   * @param waiterId Waiter ID
+   * @param sessions Array of active sessions
+   * @param ttlMinutes Optional TTL override (default: 5 minutes for frequently changing data)
+   */
+  async setActiveSessions(waiterId: string, sessions: any[], ttlMinutes: number = 5): Promise<void> {
+    try {
+      const cacheKey = `active_sessions:${waiterId}`;
+      const ttlMs = ttlMinutes * 60 * 1000;
+      await this.cacheManager.set(cacheKey, sessions, ttlMs);
+      this.logger.debug(`Cached ${sessions.length} active sessions for waiter ${waiterId} (${ttlMinutes}min TTL)`);
+    } catch (error) {
+      this.logger.error(`Error caching active sessions for waiter ${waiterId}: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get cached active sessions for a waiter
+   * @param waiterId Waiter ID
+   * @returns Cached sessions array or null if not found/expired
+   */
+  async getActiveSessions(waiterId: string): Promise<any[] | null> {
+    try {
+      const cached = await this.cacheManager.get<any[]>(`active_sessions:${waiterId}`);
+      if (cached) {
+        this.logger.debug(`Cache hit for active sessions - waiter ${waiterId} (${cached.length} sessions)`);
+        return cached;
+      }
+      return null;
+    } catch (error) {
+      this.logger.error(`Error getting cached active sessions for waiter ${waiterId}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Invalidate cached active sessions for a waiter (call when sessions change)
+   * @param waiterId Waiter ID
+   */
+  async invalidateActiveSessions(waiterId: string): Promise<void> {
+    try {
+      await this.cacheManager.del(`active_sessions:${waiterId}`);
+      this.logger.debug(`Invalidated active sessions cache for waiter ${waiterId}`);
+    } catch (error) {
+      this.logger.error(`Error invalidating active sessions cache for waiter ${waiterId}: ${error.message}`);
+    }
+  }
+
+  /**
+   * Cache all active sessions with shorter TTL (admin/overview data)
+   * @param sessions Array of all active sessions
+   * @param ttlMinutes Optional TTL override (default: 2 minutes for admin data)
+   */
+  async setAllActiveSessions(sessions: any[], ttlMinutes: number = 2): Promise<void> {
+    try {
+      const cacheKey = 'all_active_sessions';
+      const ttlMs = ttlMinutes * 60 * 1000;
+      await this.cacheManager.set(cacheKey, sessions, ttlMs);
+      this.logger.debug(`Cached ${sessions.length} total active sessions (${ttlMinutes}min TTL)`);
+    } catch (error) {
+      this.logger.error(`Error caching all active sessions: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get cached all active sessions
+   * @returns Cached sessions array or null if not found/expired
+   */
+  async getAllActiveSessions(): Promise<any[] | null> {
+    try {
+      const cached = await this.cacheManager.get<any[]>('all_active_sessions');
+      if (cached) {
+        this.logger.debug(`Cache hit for all active sessions (${cached.length} sessions)`);
+        return cached;
+      }
+      return null;
+    } catch (error) {
+      this.logger.error(`Error getting cached all active sessions: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Invalidate all active sessions cache (call when any session changes)
+   */
+  async invalidateAllActiveSessions(): Promise<void> {
+    try {
+      await this.cacheManager.del('all_active_sessions');
+      this.logger.debug('Invalidated all active sessions cache');
+    } catch (error) {
+      this.logger.error(`Error invalidating all active sessions cache: ${error.message}`);
+    }
+  }
+
+  /**
    * Increment the session counter
    */
   private async incrementSessionCount(): Promise<void> {

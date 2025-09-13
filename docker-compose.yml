@@ -10,6 +10,8 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: redbut
+      TZ: Africa/Johannesburg
+      PGTZ: Africa/Johannesburg
     ports:
       - "5433:5432"
     volumes:
@@ -47,6 +49,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3001
+      TZ: Africa/Johannesburg
       DATABASE_URL: postgres://postgres:postgres@db:5432/redbut?schema=public
       JWT_SECRET: change_me_in_prod
       OPENAI_API_KEY: ${OPENAI_API_KEY-}
@@ -70,6 +73,7 @@ services:
     environment:
       NODE_ENV: development
       NEXT_PUBLIC_API_URL: http://localhost:3001
+      TZ: Africa/Johannesburg
     depends_on:
       - api
     ports:
@@ -85,6 +89,7 @@ services:
     environment:
       NODE_ENV: development
       NEXT_PUBLIC_API_URL: http://localhost:3001
+      TZ: Africa/Johannesburg
     depends_on:
       - api
     ports:
@@ -100,6 +105,7 @@ services:
     environment:
       NODE_ENV: development
       NEXT_PUBLIC_API_URL: http://localhost:3001
+      TZ: Africa/Johannesburg
     depends_on:
       - api
     ports:

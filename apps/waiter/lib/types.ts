@@ -3,7 +3,6 @@
 
 export enum RequestStatus {
   New = 'New',
-  Acknowledged = 'Acknowledged',
   InProgress = 'InProgress',
   Completed = 'Completed',
   OnHold = 'OnHold',
@@ -13,10 +12,8 @@ export enum RequestStatus {
 
 export enum OrderStatus {
   New = 'New',
-  Acknowledged = 'Acknowledged',
   InProgress = 'InProgress',
   Delivered = 'Delivered',
-  Completed = 'Completed',
   Cancelled = 'Cancelled'
 }
 

@@ -17,16 +17,36 @@ export class UsersService {
    * @param data Object containing tableNumber and sessionId
    * @returns Created user object
    */
-  async createAnonymousUser(data: { tableNumber: number; sessionId: string }): Promise<User> {
-    const { tableNumber, sessionId } = data;
+  async createAnonymousUser(data: {
+    tableNumber: number;
+    sessionId: string;
+    restaurantId?: string;
+  }): Promise<User> {
+    const { tableNumber, sessionId, restaurantId } = data;
 
     this.logger.log(`Creating anonymous user for table ${tableNumber} with session ${sessionId}`);
-    
+
     try {
+      // If no restaurantId provided, get the first available restaurant
+      let targetRestaurantId = restaurantId;
+      if (!targetRestaurantId) {
+        const defaultRestaurant = await this.prisma.restaurant.findFirst({
+          where: { status: 'Active' },
+          select: { id: true },
+        });
+
+        if (!defaultRestaurant) {
+          throw new Error('No active restaurant found');
+        }
+
+        targetRestaurantId = defaultRestaurant.id;
+      }
+
       return await this.prisma.user.create({
         data: {
           tableNumber,
           sessionId,
+          restaurantId: targetRestaurantId,
         },
       });
     } catch (error) {
@@ -42,7 +62,7 @@ export class UsersService {
    */
   async findById(id: string): Promise<User | null> {
     this.logger.debug(`Finding user by ID: ${id}`);
-    
+
     try {
       const user = await this.prisma.user.findUnique({
         where: { id },
@@ -68,7 +88,7 @@ export class UsersService {
    */
   async findBySessionId(sessionId: string): Promise<User> {
     this.logger.debug(`Finding user by session ID: ${sessionId}`);
-    
+
     try {
       const user = await this.prisma.user.findFirst({
         where: { sessionId },
@@ -84,7 +104,7 @@ export class UsersService {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      
+
       this.logger.error(`Error finding user by session ID: ${error.message}`);
       throw new NotFoundException(`Error finding user: ${error.message}`);
     }
@@ -97,7 +117,7 @@ export class UsersService {
    */
   async findByTableNumber(tableNumber: number): Promise<User[]> {
     this.logger.debug(`Finding users at table ${tableNumber}`);
-    
+
     try {
       return await this.prisma.user.findMany({
         where: { tableNumber },
