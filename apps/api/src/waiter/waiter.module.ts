@@ -7,10 +7,11 @@ import { RequestsModule } from '../requests/requests.module';
 import { OrdersModule } from '../orders/orders.module';
 import { OrdersService } from '../orders/orders.service';
 import { UsersModule } from '../users/users.module';
+import { SSEModule } from '../sse/sse.module';
 
 /**
  * Waiter Module for managing waiter-specific operations and dashboard data.
- * Integrates with authentication, requests, orders, and user services.
+ * Integrates with authentication, requests, orders, user services, and SSE notifications.
  */
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { UsersModule } from '../users/users.module';
     RequestsModule, // For managing requests
     OrdersModule, // For managing orders and bills
     UsersModule, // For user-related data (e.g., fetching user details for requests)
+    SSEModule, // For real-time notifications
   ],
   controllers: [WaiterController],
   providers: [

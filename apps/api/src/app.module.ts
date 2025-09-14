@@ -22,6 +22,7 @@ import { MenuModule } from './menu/menu.module';
 import { ServiceAnalysisModule } from './service-analysis/service-analysis.module';
 import { RestaurantModule } from './restaurant/restaurant.module';
 import { TokenRefreshInterceptor } from './auth/interceptors/token-refresh.interceptor';
+import { SSEModule } from './sse/sse.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { TokenRefreshInterceptor } from './auth/interceptors/token-refresh.inter
     MenuModule, // Public menu endpoints
     ServiceAnalysisModule, // Service feedback analysis
     RestaurantModule, // Restaurant management & subscriptions
+    SSEModule, // Server-Sent Events for real-time notifications
   ],
   controllers: [HealthController, HelloController, CacheController],
   providers: [

@@ -8,6 +8,8 @@ import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
 import { z } from 'zod';
 import { DateUtil } from '../common/utils/date.util';
+import { NotificationService } from '../sse/notification.service';
+import { CacheRefreshService } from '../sse/cache-refresh.service';
 
 @Injectable()
 export class WaiterService {
@@ -18,6 +20,8 @@ export class WaiterService {
     private readonly ordersService: OrdersService,
     private readonly sessionCache: SessionCacheService,
     private readonly configService: ConfigService,
+    private readonly notificationService: NotificationService,
+    private readonly cacheRefreshService: CacheRefreshService,
   ) {}
 
   /**
@@ -205,6 +209,7 @@ export class WaiterService {
               select: {
                 id: true,
                 name: true,
+                waiterId: true,
               },
             },
           },
@@ -221,6 +226,36 @@ export class WaiterService {
 
         return updated;
       });
+
+      // Emit SSE notifications for request status update
+      if (updatedRequest.user?.id && updatedRequest.user?.waiterId) {
+        const sessionId = updatedRequest.user.id;
+        const waiterId = updatedRequest.user.waiterId;
+        
+        this.notificationService.notifyRequestUpdate({
+          sessionId,
+          waiterId,
+          requestId: id,
+          tableNumber: updatedRequest.tableNumber || 0,
+          status: targetStatus,
+          previousStatus: currentStatus,
+          requestType: updatedRequest.content, // Use 'content' field
+          metadata: {
+            userId: updatedRequest.user.id,
+            userName: updatedRequest.user.name,
+            updatedAt: updatedRequest.updatedAt,
+          },
+        });
+
+        // Trigger cache refresh for analytics
+        this.cacheRefreshService.triggerRequestsRefresh({
+          sessionId,
+          waiterId,
+          requestIds: [id],
+          reason: `Request ${id} status changed to ${targetStatus}`,
+          priority: 'high',
+        });
+      }
 
       return updatedRequest;
     } catch (error) {
@@ -833,14 +868,67 @@ export class WaiterService {
     try {
       const order = await this.prisma.order.findUnique({
         where: { id },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              waiterId: true,
+              tableNumber: true,
+            },
+          },
+          orderItems: {
+            select: {
+              id: true,
+              quantity: true,
+            },
+          },
+        },
       });
 
       if (!order) {
         throw new NotFoundException(`Order with ID ${id} not found`);
       }
 
+      const previousStatus = order.status;
       const userRole = this.getUserRole();
-      return this.ordersService.updateOrderStatus(id, status, userRole);
+      
+      // Update order status using the orders service
+      const updatedOrder = await this.ordersService.updateOrderStatus(id, status, userRole);
+
+      // Emit SSE notifications for order status update
+      if (order.user?.id && order.user?.waiterId) {
+        const sessionId = order.user.id;
+        const waiterId = order.user.waiterId;
+        const itemCount = order.orderItems?.length || 0;
+        
+        this.notificationService.notifyOrderUpdate({
+          sessionId,
+          waiterId,
+          orderId: id,
+          tableNumber: order.user.tableNumber || order.tableNumber,
+          status: status,
+          previousStatus: previousStatus,
+          totalAmount: 0, // Calculate from orderItems if needed
+          itemCount,
+          metadata: {
+            userId: order.user.id,
+            userName: order.user.name,
+            updatedAt: new Date(),
+          },
+        });
+
+        // Trigger cache refresh for analytics
+        this.cacheRefreshService.triggerOrdersRefresh({
+          sessionId,
+          waiterId,
+          orderIds: [id],
+          reason: `Order ${id} status changed to ${status}`,
+          priority: 'high',
+        });
+      }
+
+      return updatedOrder;
     } catch (error) {
       this.logger.error(`Error updating order status: ${error.message}`, error.stack);
       throw error;
@@ -2507,6 +2595,30 @@ IMPORTANT GUIDELINES:
         this.sessionCache.invalidateActiveSessions(toWaiterId),
         this.sessionCache.invalidateAllActiveSessions(),
       ]);
+
+      // Emit SSE notifications for session transfers
+      for (const session of activeSessions) {
+        this.notificationService.notifySessionTransfer({
+          sessionId: session.sessionId,
+          previousWaiterId: fromWaiterId,
+          newWaiterId: toWaiterId,
+          tableNumber: session.tableNumber,
+          transferReason: 'Waiter reassignment',
+          metadata: {
+            fromWaiterName: `${fromWaiter.name} ${fromWaiter.surname}`,
+            toWaiterName: `${toWaiter.name} ${toWaiter.surname}`,
+            sessionCount: result,
+          },
+        });
+
+        // Trigger cache refresh for session transfer
+        this.cacheRefreshService.triggerSessionTransferRefresh({
+          sessionId: session.sessionId,
+          previousWaiterId: fromWaiterId,
+          newWaiterId: toWaiterId,
+          reason: `Session ${session.sessionId} transferred from ${fromWaiter.name} to ${toWaiter.name}`,
+        });
+      }
 
       this.logger.log(
         `Transferred ${result} sessions from waiter ${fromWaiter.name} ${fromWaiter.surname} to ${toWaiter.name} ${toWaiter.surname}`

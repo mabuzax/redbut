@@ -13,6 +13,9 @@ import MyBill from "../components/bill/MyBill";
 import FoodMenu from "../components/menu/FoodMenu";
 import MyOrders from "../components/orders/MyOrders";
 import TableSessionGuard from "../components/auth/TableSessionGuard";
+import { useSSENotifications } from "../hooks/useSSENotifications";
+import { useSSENotificationManager } from "../hooks/useSSENotificationManager";
+import SSENotification from "../components/notifications/SSENotification";
 
 // Define the OrderItem interface for cart items
 interface OrderItem {
@@ -70,6 +73,53 @@ export default function Home() {
   const [activeRequestsCount, setActiveRequestsCount] = useState(0);
   const [activeOrdersCount, setActiveOrdersCount] = useState(0);
   const [menuSearchTerm, setMenuSearchTerm] = useState<string>("");
+
+  // Initialize custom notification manager
+  const { showNotification, hideNotification, notifications } = useSSENotificationManager();
+
+  // Initialize SSE notifications for real-time updates
+  const handleSSENotification = useCallback((notification: any) => {
+    console.log('🔍 SSE notification received in handler:', notification);
+    const title = notification.data?.title;
+    const message = notification.data?.message;
+    console.log('🔍 Notification type:', notification.type);
+    console.log('🔍 Notification title:', title);
+    console.log('🔍 Notification message:', message);
+    
+    // Show custom notification for status updates
+    if (notification.type === 'request_update' && message) {
+      console.log('🎯 Triggering request update notification');
+      showNotification({
+        title: title || 'Request Update',
+        message,
+        type: 'request_update',
+        duration: 5
+      });
+    } else if (notification.type === 'order_update' && message) {
+      console.log('🎯 Triggering order update notification');
+      showNotification({
+        title: title || 'Order Update',
+        message,
+        type: 'order_update',
+        duration: 5
+      });
+    } else {
+      console.log('❌ No notification triggered. Type:', notification.type, 'Has message:', !!message);
+    }
+    
+    // Handle cache refresh notifications
+    if (notification.type === 'cache_refresh' && notification.data?.requiresRefresh) {
+      console.log('SSE cache refresh triggered');
+      // Could trigger data refreshes here if needed
+    }
+  }, [showNotification]);
+
+  useSSENotifications({
+    sessionId: userData?.userId || undefined,
+    token: userData?.token || '',
+    enabled: !!userData?.userId && !!userData?.token,
+    onNotification: handleSSENotification,
+  });
 
   // Generate QR code data URL when userData changes
   useEffect(() => {
@@ -477,6 +527,17 @@ export default function Home() {
 
   return (
     <TableSessionGuard>
+      {/* SSE Notifications */}
+      {notifications.map(notification => (
+        <SSENotification
+          key={notification.id}
+          title={notification.title}
+          message={notification.message}
+          type={notification.type}
+          onClose={() => hideNotification(notification.id)}
+        />
+      ))}
+      
       {/* Splash Screen */}
       {stage === "splash" ? (
         <div className="splash-container">
@@ -757,7 +818,7 @@ export default function Home() {
                       animate={{ scale: [1, 1.6, 1] }}
                       transition={{ duration: 1.5, repeat: Infinity }}
                     >
-                      <span className="text-xl font-bold text-green-500">$</span>
+                      <span className="text-xs font-bold text-green-500 p-10">Pay</span>
                     </motion.button>
                   )}
                 </div>
