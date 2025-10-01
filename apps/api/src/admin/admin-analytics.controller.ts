@@ -162,10 +162,13 @@ export class AdminAnalyticsController {
   @ApiQuery({ name: 'endDate', required: false, type: String, description: 'End date (YYYY-MM-DD)' })
   @ApiResponse({ status: HttpStatus.OK, description: 'Staff analytics data retrieved successfully.'})
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
-  async getStaffAnalytics(@Query() dateRangeDto: DateRangeQueryDto): Promise<StaffAnalyticsData> {
+  async getStaffAnalytics(
+    @Query() dateRangeDto: DateRangeQueryDto,
+    @GetUser('tenantId') tenantId: string
+  ): Promise<StaffAnalyticsData> {
     try {
       const dateRange = this.getDateRangeFromDto(dateRangeDto);
-      return await this.adminAnalyticsService.getStaffAnalytics(dateRange);
+      return await this.adminAnalyticsService.getStaffAnalytics(dateRange, tenantId);
     } catch (error) {
       throw this.handleServiceError(error, 'Staff Analytics');
     }
@@ -199,11 +202,12 @@ export class AdminAnalyticsController {
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
   async getStaffPerformanceAnalytics(
     @Query() queryDto: StaffPerformanceQueryDto,
-    @GetUser('id') adminUserId: string
+    @GetUser('id') adminUserId: string,
+    @GetUser('tenantId') tenantId: string
   ): Promise<any> {
     try {
       const dateRange = this.getDateRangeFromDto(queryDto);
-      return await this.adminAnalyticsService.getStaffPerformanceAnalytics(dateRange, queryDto.waiter, queryDto.sort, adminUserId);
+      return await this.adminAnalyticsService.getStaffPerformanceAnalytics(dateRange, queryDto.waiter, queryDto.sort, adminUserId, tenantId);
     } catch (error) {
       throw this.handleServiceError(error, 'Staff Performance Analytics');
     }
@@ -230,10 +234,13 @@ export class AdminAnalyticsController {
   @ApiQuery({ name: 'endDate', required: false, type: String, description: 'End date (YYYY-MM-DD)' })
   @ApiResponse({ status: HttpStatus.OK, description: 'Service analysis data retrieved successfully.'})
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
-  async getServiceAnalytics(@Query() dateRangeDto: DateRangeQueryDto): Promise<ServiceAnalysisData> {
+  async getServiceAnalytics(
+    @Query() dateRangeDto: DateRangeQueryDto,
+    @GetUser('tenantId') tenantId: string
+  ): Promise<ServiceAnalysisData> {
     try {
       const dateRange = this.getDateRangeFromDto(dateRangeDto);
-      return await this.adminAnalyticsService.getServiceAnalyticsFromServiceAnalysis(dateRange);
+      return await this.adminAnalyticsService.getServiceAnalyticsFromServiceAnalysis(dateRange, tenantId);
     } catch (error) {
       throw this.handleServiceError(error, 'Service Analysis');
     }
@@ -245,10 +252,13 @@ export class AdminAnalyticsController {
   @ApiQuery({ name: 'endDate', required: false, type: String, description: 'End date (YYYY-MM-DD)' })
   @ApiResponse({ status: HttpStatus.OK, description: 'Requests analytics data retrieved successfully.'})
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
-  async getRequestsAnalytics(@Query() dateRangeDto: DateRangeQueryDto): Promise<RequestsAnalyticsData> {
+  async getRequestsAnalytics(
+    @Query() dateRangeDto: DateRangeQueryDto,
+    @GetUser('tenantId') tenantId: string
+  ): Promise<RequestsAnalyticsData> {
     try {
       const dateRange = this.getDateRangeFromDto(dateRangeDto);
-      return await this.adminAnalyticsService.getRequestsAnalytics(dateRange);
+      return await this.adminAnalyticsService.getRequestsAnalytics(dateRange, tenantId);
     } catch (error) {
       throw this.handleServiceError(error, 'Requests Analytics');
     }
@@ -262,11 +272,11 @@ export class AdminAnalyticsController {
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
   async getCustomerRatingsAnalytics(
     @Query() dateRangeDto: DateRangeQueryDto,
-    @GetUser('id') adminUserId: string
+    @GetUser('tenantId') tenantId: string
   ): Promise<CustomerRatingsAnalyticsData> {
     try {
       const dateRange = this.getDateRangeFromDto(dateRangeDto);
-      return await this.adminAnalyticsService.getCustomerRatingsAnalytics(dateRange, adminUserId);
+      return await this.adminAnalyticsService.getCustomerRatingsAnalytics(dateRange, tenantId);
     } catch (error) {
       throw this.handleServiceError(error, 'Customer Ratings Analytics');
     }
@@ -298,11 +308,12 @@ export class AdminAnalyticsController {
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
   async getExecutiveSummaryAnalytics(
     @Query() dateRangeDto: DateRangeQueryDto,
-    @GetUser('id') adminUserId: string
+    @GetUser('id') adminUserId: string,
+    @GetUser('tenantId') tenantId: string
   ): Promise<any> {
     try {
       const dateRange = this.getDateRangeFromDto(dateRangeDto);
-      return await this.adminAnalyticsService.getExecutiveSummaryAnalytics(dateRange, adminUserId);
+      return await this.adminAnalyticsService.getExecutiveSummaryAnalytics(dateRange, adminUserId, tenantId);
     } catch (error) {
       throw this.handleServiceError(error, 'Executive Summary Analytics');
     }
@@ -316,11 +327,12 @@ export class AdminAnalyticsController {
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
   async getAIInsights(
     @Query() dateRangeDto: DateRangeQueryDto,
-    @GetUser('id') adminUserId: string
+    @GetUser('id') adminUserId: string,
+    @GetUser('restaurantId') tenantId: string
   ): Promise<any> {
     try {
       const dateRange = this.getDateRangeFromDto(dateRangeDto);
-      return await this.adminAnalyticsService.getAIInsights(dateRange, adminUserId);
+      return await this.adminAnalyticsService.getAIInsights(dateRange, adminUserId, tenantId);
     } catch (error) {
       throw this.handleServiceError(error, 'AI Insights');
     }

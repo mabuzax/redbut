@@ -119,44 +119,19 @@ const ExecutiveSummaryTab: React.FC<ExecutiveSummaryTabProps> = ({ data, dateRan
         throw new Error("No auth token");
       }
       
-      // Use the same function as StaffPerformanceTab
-      const result = await adminApi.getStaffPerformanceAnalytics(token, {
+      // Use the dedicated Executive Summary API endpoint
+      const result = await adminApi.getExecutiveSummaryAnalytics(token, {
         startDate: dateRange.startDate,
         endDate: dateRange.endDate
       });
       
       setStaffData(result);
       
-      // Generate executive insights using LLM if available
-      if (!result.llmUnavailable && result.insights) {
-        // Generate executive-specific insights from the staff performance data
-        const totalRequestsFromStaff = result.staffRankings.reduce((sum, w) => sum + w.totalRequests, 0);
-        const avgCompletionFromStaff = result.staffRankings.length > 0 
-          ? result.staffRankings.reduce((sum, w) => sum + w.completionRate, 0) / result.staffRankings.length 
-          : 0;
-
-        const executiveSummary = {
-          summary: result.insights.summary || "Operational performance data analyzed successfully.",
-          keyInsights: [
-            `${result.overview.avgCompletionRate.toFixed(2)}% average completion rate ${result.overview.avgCompletionRate >= 85 ? 'exceeds' : 'below'} industry standards`,
-            `Average response time of ${result.overview.avgResponseTime} minutes ${result.overview.avgResponseTime <= 15 ? 'meets' : 'exceeds'} service targets`,
-            `${result.overview.totalStaff} staff members handling ${totalRequestsFromStaff} total requests`,
-            `Top performer ${result.overview.topPerformer} demonstrates excellence in service delivery`
-          ],
-          recommendations: [
-            result.overview.avgCompletionRate < 85 ? "Implement staff training programs to improve completion rates" : "Maintain current service excellence standards",
-            result.overview.avgResponseTime > 15 ? "Optimize response workflows to reduce average response time" : "Continue efficient response time management",
-            "Consider staff recognition programs to maintain high performance levels",
-            "Implement real-time monitoring for proactive service management"
-          ],
-          alerts: [
-            ...(result.overview.avgCompletionRate < 75 ? ["Low completion rate requires immediate attention"] : []),
-            ...(result.overview.avgResponseTime > 30 ? ["Response time significantly above target"] : []),
-            ...(result.staffRankings.some(w => w.completionRate < 60) ? ["Some staff members showing poor performance"] : [])
-          ]
-        };
-        
-        setExecutiveInsights(executiveSummary);
+      // Use insights from the API response directly
+      if (result.insights) {
+        setExecutiveInsights(result.insights);
+      } else {
+        setExecutiveInsights(null);
       }
       
     } catch (error) {
@@ -210,11 +185,11 @@ const ExecutiveSummaryTab: React.FC<ExecutiveSummaryTabProps> = ({ data, dateRan
     );
   }
 
-  // Calculate metrics from staffData
-  const totalRequestsFromStaff = staffData.staffRankings.reduce((sum: number, w: any) => sum + w.totalRequests, 0);
-  const avgCompletionRate = staffData.overview.avgCompletionRate;
-  const avgResponseTime = staffData.overview.avgResponseTime;
-  const totalStaff = staffData.overview.totalStaff;
+  // Calculate metrics from staffData (now from Executive Summary API)
+  const totalRequests = staffData.overview?.totalRequests || 0;
+  const avgCompletionRate = staffData.overview?.requestCompletionRate || 0;
+  const avgResponseTime = staffData.overview?.avgRequestResponseTime || 0;
+  const totalStaff = staffData.overview?.totalStaff || 0;
 
   return (
     <div className="space-y-8">
@@ -222,12 +197,12 @@ const ExecutiveSummaryTab: React.FC<ExecutiveSummaryTabProps> = ({ data, dateRan
       <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg p-6 text-white">
         <h2 className="text-2xl font-bold mb-2">Executive Summary</h2>
         <p className="text-blue-100">
-          AI-powered operational insights for {dateRange.startDate} to {dateRange.endDate}
+          Operational insights for {dateRange.startDate} to {dateRange.endDate}
         </p>
         <div className="mt-4 flex items-center space-x-6">
           <div className="flex items-center space-x-2">
             <Brain className="h-5 w-5" />
-            <span className="text-sm">LLM-Powered Analysis</span>
+            <span className="text-sm">AI-Powered Analysis</span>
           </div>
           <div className="flex items-center space-x-2">
             <BarChart3 className="h-5 w-5" />
@@ -240,7 +215,7 @@ const ExecutiveSummaryTab: React.FC<ExecutiveSummaryTabProps> = ({ data, dateRan
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
           title="Total Requests"
-          value={totalRequestsFromStaff}
+          value={totalRequests}
           icon={<MessageSquare className="h-5 w-5" />}
           color="blue"
           description="Customer service requests"
@@ -288,13 +263,13 @@ const ExecutiveSummaryTab: React.FC<ExecutiveSummaryTabProps> = ({ data, dateRan
                 <span className="text-xs text-yellow-500">{avgResponseTime.toFixed(1)} min</span>
               </div>
             )}
-            {staffData.staffRankings.some((w: any) => w.completionRate < 60) && (
+            {staffData.waiterPerformance && staffData.waiterPerformance.some((w: any) => w.requestCompletionRate < 60) && (
               <div className="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
                 <span className="text-sm text-orange-700">Staff performance concerns</span>
                 <span className="text-xs text-orange-500">Monitor</span>
               </div>
             )}
-            {avgCompletionRate >= 75 && avgResponseTime <= 30 && !staffData.staffRankings.some((w: any) => w.completionRate < 60) && (
+            {avgCompletionRate >= 75 && avgResponseTime <= 30 && staffData.waiterPerformance && !staffData.waiterPerformance.some((w: any) => w.requestCompletionRate < 60) && (
               <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
                 <span className="text-sm text-green-700">All Systems Normal</span>
                 <CheckCircle className="h-4 w-4 text-green-500" />
@@ -352,7 +327,7 @@ const ExecutiveSummaryTab: React.FC<ExecutiveSummaryTabProps> = ({ data, dateRan
       </div>
 
       {/* LLM Insights Section */}
-      {executiveInsights && (
+      {executiveInsights ? (
         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
           <div className="flex items-center gap-2 mb-4">
             <Brain className="h-5 w-5 text-purple-600" />
@@ -367,11 +342,11 @@ const ExecutiveSummaryTab: React.FC<ExecutiveSummaryTabProps> = ({ data, dateRan
               </div>
             )}
             
-            {executiveInsights.keyInsights && executiveInsights.keyInsights.length > 0 && (
+            {executiveInsights.keyFindings && executiveInsights.keyFindings.length > 0 && (
               <div>
                 <h4 className="text-sm font-medium text-gray-700 mb-2">Key Insights</h4>
                 <ul className="space-y-1">
-                  {executiveInsights.keyInsights.map((insight: string, index: number) => (
+                  {executiveInsights.keyFindings.map((insight: string, index: number) => (
                     <li key={index} className="text-sm text-gray-600 flex items-start gap-2">
                       <Target className="h-4 w-4 mt-0.5 flex-shrink-0 text-blue-600" />
                       {insight}
@@ -410,34 +385,48 @@ const ExecutiveSummaryTab: React.FC<ExecutiveSummaryTabProps> = ({ data, dateRan
             )}
           </div>
         </div>
+      ) : (
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="flex items-center gap-2 mb-4">
+            <Brain className="h-5 w-5 text-gray-400" />
+            <h3 className="text-lg font-semibold text-gray-900">AI Executive Insights</h3>
+          </div>
+          <div className="text-center py-8">
+            <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <h4 className="text-lg font-medium text-gray-900 mb-2">AI Analysis Unavailable</h4>
+            <p className="text-gray-500">
+              LLM analysis service is currently unavailable. Please contact administrator to configure OpenAI API key.
+            </p>
+          </div>
+        </div>
       )}
 
       {/* Staff Performance Summary */}
-      {staffData.staffRankings && staffData.staffRankings.length > 0 && (
+      {staffData.waiterPerformance && staffData.waiterPerformance.length > 0 && (
         <div className="bg-white rounded-lg border border-gray-200">
           <div className="p-6 border-b border-gray-200">
             <h3 className="text-lg font-medium text-gray-900">Staff Performance Overview</h3>
           </div>
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {staffData.staffRankings.slice(0, 6).map((waiter: any, index: number) => (
+              {staffData.waiterPerformance.slice(0, 6).map((waiter: any, index: number) => (
                 <div key={waiter.waiterId} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
                   <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-semibold text-gray-900">{waiter.waiterName}</h4>
+                    <h4 className="font-semibold text-gray-900">{waiter.name}</h4>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      waiter.completionRate >= 90 ? 'bg-green-100 text-green-800' :
-                      waiter.completionRate >= 75 ? 'bg-blue-100 text-blue-800' :
-                      waiter.completionRate >= 60 ? 'bg-yellow-100 text-yellow-800' :
+                      waiter.requestCompletionRate >= 90 ? 'bg-green-100 text-green-800' :
+                      waiter.requestCompletionRate >= 75 ? 'bg-blue-100 text-blue-800' :
+                      waiter.requestCompletionRate >= 60 ? 'bg-yellow-100 text-yellow-800' :
                       'bg-red-100 text-red-800'
                     }`}>
-                      {waiter.completionRate >= 90 ? 'Excellent' :
-                       waiter.completionRate >= 75 ? 'Good' :
-                       waiter.completionRate >= 60 ? 'Average' : 'Needs Improvement'}
+                      {waiter.requestCompletionRate >= 90 ? 'Excellent' :
+                       waiter.requestCompletionRate >= 75 ? 'Good' :
+                       waiter.requestCompletionRate >= 60 ? 'Average' : 'Needs Improvement'}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-center text-sm">
                     <div>
-                      <p className="font-bold text-green-600">{waiter.completionRate.toFixed(2)}%</p>
+                      <p className="font-bold text-green-600">{waiter.requestCompletionRate.toFixed(2)}%</p>
                       <p className="text-xs text-gray-500">Completion</p>
                     </div>
                     <div>

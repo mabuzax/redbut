@@ -15,10 +15,10 @@ export class OrderLogService {
    * Log order creation with item details
    * @param orderId The order ID
    * @param orderItems Array of order items
-   * @param actor Who created the order (customer, waiter, admin)
+   * @param actor Who created the order (user, waiter, admin)
    * @param tx Optional transaction context
    */
-  async logOrderCreation(orderId: string, orderItems: any[], actor: string = 'customer', tx?: any) {
+  async logOrderCreation(orderId: string, orderItems: any[], actor: string = 'user', tx?: any) {
     try {
       const itemNames = orderItems.map(item => {
         let itemDescription = `${item.menuItem?.name || 'Unknown Item'} (x${item.quantity})`;

@@ -82,7 +82,7 @@ export class OrdersService {
         await this.orderLogService.logOrderCreation(
           order.id,
           createdOrderWithItems.orderItems,
-          'customer',
+          'user',
           tx
         );
 

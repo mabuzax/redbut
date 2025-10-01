@@ -64,12 +64,14 @@ import {
 
 
 type AnalyticsTab = 
+  | "Executive Summary"
   | "Staff" 
   | "Service Analysis" 
   | "Requests" 
   | "Overall Sentiments";
 
 const tabs: AnalyticsTab[] = [
+  "Executive Summary",
   "Staff", 
   "Service Analysis", 
   "Requests", 
@@ -83,7 +85,7 @@ const initialDateRange = {
 
 const AnalyticsComponent = () => {
   const token = typeof window !== 'undefined' ? localStorage.getItem("redBut_token") || "" : "";
-  const [activeTab, setActiveTab] = useState<AnalyticsTab>("Staff");
+  const [activeTab, setActiveTab] = useState<AnalyticsTab>("Executive Summary");
   const [dateRange, setDateRange] = useState<DateRange>(initialDateRange);
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
   const [staffDetailModal, setStaffDetailModal] = useState<{
@@ -95,6 +97,7 @@ const AnalyticsComponent = () => {
   });
   
   // Data states for each tab
+  const [executiveSummaryData, setExecutiveSummaryData] = useState<any | null>(null);
   const [staffData, setStaffData] = useState<StaffAnalyticsData | null>(null);
   const [serviceAnalysisData, setServiceAnalysisData] = useState<ServiceAnalysisData | null>(null);
   const [requestsData, setRequestsData] = useState<RequestsAnalyticsData | null>(null);
@@ -114,6 +117,9 @@ const AnalyticsComponent = () => {
 
     try {
       switch (tab) {
+        case "Executive Summary":
+          setExecutiveSummaryData(await adminApi.getExecutiveSummaryAnalytics(token, currentRange));
+          break;
         case "Staff":
           setStaffData(await adminApi.getStaffAnalytics(token, currentRange));
           break;
@@ -171,6 +177,7 @@ const AnalyticsComponent = () => {
     }
 
     switch (activeTab) {
+      case "Executive Summary": return <ExecutiveSummaryTabContent data={executiveSummaryData} />;
       case "Staff": return <StaffTabContent data={staffData} onViewStaff={handleOpenStaffDetail} />;
       case "Service Analysis": return <ServiceAnalysisTabContent data={serviceAnalysisData} />;
       case "Requests": return <RequestsTabContent data={requestsData} />;
@@ -253,6 +260,260 @@ const AnalyticsComponent = () => {
 };
 
 // Placeholder Tab Content Components (to be fleshed out later)
+const ExecutiveSummaryTabContent: React.FC<{
+  data: any | null;
+}> = ({ data }) => {
+  if (!data) return <div className="text-center p-10 text-gray-500">No executive summary data available for the selected period.</div>;
+
+  const { overview, trends, alerts, serviceQuality, insights } = data;
+
+  // Helper function to render trend indicators
+  const renderTrend = (trend: string) => {
+    switch (trend) {
+      case 'up':
+        return <TrendingUp className="h-4 w-4 text-green-500" />;
+      case 'down':
+        return <TrendingUp className="h-4 w-4 text-red-500 transform rotate-180" />;
+      case 'stable':
+        return <div className="h-4 w-4 text-yellow-500 flex items-center justify-center">→</div>;
+      default:
+        return null;
+    }
+  };
+
+  // Helper function to render alert status
+  const renderAlert = (isAlert: boolean) => {
+    return isAlert ? (
+      <AlertTriangle className="h-4 w-4 text-red-500" />
+    ) : (
+      <CheckCircle className="h-4 w-4 text-green-500" />
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Overview Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Request Metrics */}
+        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Total Requests</p>
+              <p className="text-2xl font-bold text-gray-900">{overview.totalRequests}</p>
+              <p className="text-xs text-gray-500">
+                Completed: {overview.completedRequests} | Open: {overview.openRequests}
+              </p>
+            </div>
+            <MessageSquare className="h-8 w-8 text-blue-500" />
+          </div>
+          <div className="mt-2 flex items-center space-x-2">
+            {renderTrend(trends.requestCompletionRate)}
+            <span className="text-sm text-gray-600">
+              {overview.requestCompletionRate}% completion rate
+            </span>
+          </div>
+        </div>
+
+        {/* Order Metrics */}
+        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Total Orders</p>
+              <p className="text-2xl font-bold text-gray-900">{overview.totalOrders}</p>
+              <p className="text-xs text-gray-500">
+                Completed: {overview.completedOrders}
+              </p>
+            </div>
+            <ShoppingCart className="h-8 w-8 text-green-500" />
+          </div>
+          <div className="mt-2 flex items-center space-x-2">
+            {renderTrend(trends.orderCompletionRate)}
+            <span className="text-sm text-gray-600">
+              {overview.orderCompletionRate}% completion rate
+            </span>
+          </div>
+        </div>
+
+        {/* Response Time */}
+        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Avg Response Time</p>
+              <p className="text-2xl font-bold text-gray-900">{overview.avgRequestResponseTime}m</p>
+              <p className="text-xs text-gray-500">
+                Order processing: {overview.avgOrderProcessingTime}m
+              </p>
+            </div>
+            <Clock className="h-8 w-8 text-orange-500" />
+          </div>
+          <div className="mt-2 flex items-center space-x-2">
+            {renderTrend(trends.responseTime)}
+            <span className="text-sm text-gray-600">Performance</span>
+          </div>
+        </div>
+
+        {/* Service Rating */}
+        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Service Rating</p>
+              <p className="text-2xl font-bold text-gray-900">{overview.avgServiceRating}/5</p>
+              <p className="text-xs text-gray-500">
+                {serviceQuality.totalAnalyses} analyses
+              </p>
+            </div>
+            <Star className="h-8 w-8 text-yellow-500" />
+          </div>
+          <div className="mt-2 flex items-center space-x-2">
+            {renderTrend(trends.serviceRating)}
+            <span className="text-sm text-gray-600">Customer satisfaction</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Performance Metrics Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* Cancellation Rates */}
+        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+          <h3 className="text-lg font-semibold text-gray-900 mb-3">Cancellation Rates</h3>
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600">Requests</span>
+              <span className="text-sm font-medium">{overview.requestCancelledRate}%</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600">Orders</span>
+              <span className="text-sm font-medium">{overview.orderCancelledRate}%</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Order Performance */}
+        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+          <h3 className="text-lg font-semibold text-gray-900 mb-3">Order Performance</h3>
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600">Rejection Rate</span>
+              <span className="text-sm font-medium">{overview.averageRejectionRate}%</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600">Delivery Rate</span>
+              <span className="text-sm font-medium">{overview.averageDeliveryRate}%</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Service Quality Distribution */}
+        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+          <h3 className="text-lg font-semibold text-gray-900 mb-3">Service Quality</h3>
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600">Excellent (4-5★)</span>
+              <span className="text-sm font-medium">{serviceQuality.ratingDistribution.excellent}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600">Good (3★)</span>
+              <span className="text-sm font-medium">{serviceQuality.ratingDistribution.good}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600">Poor (1-2★)</span>
+              <span className="text-sm font-medium">{serviceQuality.ratingDistribution.poor}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Alerts Section */}
+      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+          <AlertTriangle className="h-5 w-5 text-red-500 mr-2" />
+          System Alerts
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="flex items-center space-x-2">
+            {renderAlert(alerts.openRequests)}
+            <span className="text-sm text-gray-600">Open Requests</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            {renderAlert(alerts.highCancelledRate)}
+            <span className="text-sm text-gray-600">High Cancellation Rate</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            {renderAlert(alerts.slowResponseTime)}
+            <span className="text-sm text-gray-600">Slow Response Time</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            {renderAlert(alerts.lowServiceRating)}
+            <span className="text-sm text-gray-600">Low Service Rating</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            {renderAlert(alerts.highRejectionRate)}
+            <span className="text-sm text-gray-600">High Rejection Rate</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            {renderAlert(alerts.lowDeliveryRate)}
+            <span className="text-sm text-gray-600">Low Delivery Rate</span>
+          </div>
+        </div>
+      </div>
+
+      {/* AI Insights */}
+      {insights && (
+        <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <Brain className="h-5 w-5 text-purple-500 mr-2" />
+            AI Insights
+          </h3>
+          
+          {/* Executive Summary */}
+          {insights.summary && (
+            <div className="mb-4">
+              <h4 className="text-md font-medium text-gray-800 mb-2">Executive Summary</h4>
+              <p className="text-sm text-gray-600">{insights.summary}</p>
+            </div>
+          )}
+          
+          {/* Key Findings */}
+          {insights.keyFindings && insights.keyFindings.length > 0 && (
+            <div className="mb-4">
+              <h4 className="text-md font-medium text-gray-800 mb-2">Key Findings</h4>
+              <ul className="list-disc list-inside space-y-1">
+                {insights.keyFindings.map((finding: string, index: number) => (
+                  <li key={index} className="text-sm text-gray-600">{finding}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          
+          {/* Recommendations */}
+          {insights.recommendations && insights.recommendations.length > 0 && (
+            <div className="mb-4">
+              <h4 className="text-md font-medium text-gray-800 mb-2">Recommendations</h4>
+              <ul className="list-disc list-inside space-y-1">
+                {insights.recommendations.map((recommendation: string, index: number) => (
+                  <li key={index} className="text-sm text-gray-600">{recommendation}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          
+          {/* Critical Alerts */}
+          {insights.alerts && insights.alerts.length > 0 && (
+            <div>
+              <h4 className="text-md font-medium text-gray-800 mb-2">Critical Alerts</h4>
+              <ul className="list-disc list-inside space-y-1">
+                {insights.alerts.map((alert: string, index: number) => (
+                  <li key={index} className="text-sm text-red-600 font-medium">{alert}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const StaffTabContent: React.FC<{
   data: StaffAnalyticsData | null; 
   onViewStaff: (staffMember: StaffPerformanceDetail) => void;

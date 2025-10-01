@@ -25,7 +25,6 @@ export class RequestStatusConfigService {
         return [
           { value: 'New', label: 'New' },
           { value: 'InProgress', label: 'In Progress' },
-          { value: 'Completed', label: 'Completed' },
           { value: 'Cancelled', label: 'Cancel' },
         ];
       case 'OnHold':
@@ -37,10 +36,9 @@ export class RequestStatusConfigService {
       case 'InProgress':
         return [
           { value: 'InProgress', label: 'In Progress2' },
-          { value: 'Completed', label: 'Completed' },
+          { value: 'Done', label: 'Done' },
           { value: 'Cancelled', label: 'Cancel' },
         ];
-      case 'Completed':
       case 'Cancelled':
       case 'Done':
       default:

@@ -29,7 +29,7 @@ export class RequestStatusConfigService {
       case 'OnHold':
         return [
           { value: 'OnHold', label: 'On Hold' },
-          { value: 'New', label: 'Activate' },
+          { value: 'New', label: 'ReOpen' },
           { value: 'Cancelled', label: 'Cancel' },
         ];
       case 'Acknowledged':
@@ -38,11 +38,10 @@ export class RequestStatusConfigService {
           { value: 'OnHold', label: 'Hold' },
           { value: 'Cancelled', label: 'Cancel' },
         ];
-      case 'Completed':
+      case 'Done':
         return [
-          { value: 'Completed', label: 'Completed' },
-          { value: 'New', label: 'Activate' },
           { value: 'Done', label: 'Done' },
+          { value: 'New', label: 'ReOpen' }
         ];
       case 'Cancelled':
       case 'Done':

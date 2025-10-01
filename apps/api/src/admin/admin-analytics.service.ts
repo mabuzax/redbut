@@ -72,12 +72,26 @@ export class AdminAnalyticsService {
     return DateUtil.getTodayDateRange();
   }
 
+  /**
+   * Convert start date string to proper Date object (start of day)
+   */
+  private getStartDate(dateString: string): Date {
+    return DateUtil.startOfDayUTC(new Date(dateString));
+  }
+
+  /**
+   * Convert end date string to proper Date object (end of day to include full day until midnight)
+   */
+  private getEndDate(dateString: string): Date {
+    return DateUtil.endOfDayUTC(new Date(dateString));
+  }
+
   async getSalesAnalytics(dateRange?: DateRange): Promise<SalesAnalyticsData> {
     const { startDate, endDate } = dateRange || this.getDefaultDateRange(30);
     this.logger.log(`Fetching sales analytics from ${startDate} to ${endDate}`);
 
     const orders = await this.prisma.order.findMany({
-      where: { createdAt: { gte: new Date(startDate), lte: new Date(endDate) } },
+      where: { createdAt: { gte: this.getStartDate(startDate), lte: this.getEndDate(endDate) } },
       include: { orderItems: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -122,7 +136,7 @@ export class AdminAnalyticsService {
     this.logger.log(`Fetching popular items analytics from ${startDate} to ${endDate}`);
 
     const orderItems = await this.prisma.orderItem.findMany({
-      where: { order: { createdAt: { gte: new Date(startDate), lte: new Date(endDate) } } },
+      where: { order: { createdAt: { gte: this.getStartDate(startDate), lte: this.getEndDate(endDate) } } },
       include: { menuItem: { select: { id: true, name: true } } },
     });
 
@@ -162,7 +176,7 @@ export class AdminAnalyticsService {
     this.logger.log(`Fetching hourly sales analytics from ${startDate} to ${endDate}`);
 
     const orders = await this.prisma.order.findMany({
-      where: { createdAt: { gte: new Date(startDate), lte: new Date(endDate) } },
+      where: { createdAt: { gte: this.getStartDate(startDate), lte: this.getEndDate(endDate) } },
       include: { orderItems: true },
     });
 
@@ -195,14 +209,29 @@ export class AdminAnalyticsService {
     return { salesTodayByHour, averageOrderValueByHour };
   }
 
-  async getStaffAnalytics(dateRange?: DateRange): Promise<StaffAnalyticsData> {
+  async getStaffAnalytics(dateRange?: DateRange, tenantId?: string): Promise<StaffAnalyticsData> {
     const { startDate, endDate } = dateRange || this.getDefaultDateRange(30);
-    this.logger.log(`Fetching staff analytics from ${startDate} to ${endDate}`);
+    this.logger.log(`Fetching staff analytics from ${startDate} to ${endDate} for tenant: ${tenantId || 'all'}`);
+    
+    // Base filter for waiters - include tenant filtering if tenantId provided
+    const waiterFilter: any = {};
+    if (tenantId) {
+      // First get all restaurants for this tenant
+      const tenantRestaurants = await this.prisma.restaurant.findMany({
+        where: { tenantId },
+        select: { id: true }
+      });
+      const restaurantIds = tenantRestaurants.map(r => r.id);
+      
+      // Filter waiters to only those belonging to tenant's restaurants
+      waiterFilter.restaurantId = { in: restaurantIds };
+    }
     
     const waiters = await this.prisma.waiter.findMany({ 
+        where: waiterFilter,
         include: { 
             accessAccount: { select: { userType: true }}, 
-            serviceAnalysis: { where: { createdAt: { gte: new Date(startDate), lte: new Date(endDate) } } },
+            serviceAnalysis: { where: { createdAt: { gte: this.getStartDate(startDate), lte: this.getEndDate(endDate) } } },
         }
     });
 
@@ -215,39 +244,82 @@ export class AdminAnalyticsService {
         let totalSales = 0;
         let totalOrders = 0;
         let itemsSoldCount = 0; 
+        let requestsHandled = 0;
         
-        // Get all user sessions for this waiter
+        // Use session-aware approach: Get all sessions where this waiter had activity within the date range
+        const waiterSessionActivity = await this.prisma.userSessionLog.findMany({
+            where: {
+                actorId: waiter.id,
+                actorType: 'waiter',
+                dateTime: {
+                    gte: this.getStartDate(startDate),
+                    lte: this.getEndDate(endDate),
+                }
+            },
+            select: { sessionId: true },
+            distinct: ['sessionId']
+        });
+
+        const sessionIdsFromActivity = waiterSessionActivity.map(activity => activity.sessionId);
+        
+        // Also get current active sessions for this waiter
         const waiterSessions = await this.prisma.user.findMany({
             where: { 
                 waiterId: waiter.id,
-                createdAt: { gte: new Date(startDate), lte: new Date(endDate) }
+                sessionId: { not: { startsWith: 'CLOSED_' } } // Exclude closed sessions
             },
-            select: { id: true, tableNumber: true }
+            select: { sessionId: true },
         });
+        const currentSessionIds = waiterSessions.map(session => session.sessionId);
+
+        // Combine session IDs from both sources
+        const allRelevantSessionIds = [...new Set([...sessionIdsFromActivity, ...currentSessionIds])];
         
-        const sessionIds = waiterSessions.map(session => session.id);
-        
-        // Get orders from these sessions
-        const ordersFromSessions = await this.prisma.order.findMany({
-            where: {
-                userId: { in: sessionIds },
-                createdAt: { gte: new Date(startDate), lte: new Date(endDate) }
-            },
-            include: { orderItems: true }
-        });
-        
-        // Calculate totals from orders
-        ordersFromSessions.forEach(order => {
-            let orderValue = 0;
-            let orderItemCount = 0;
-            order.orderItems.forEach(item => {
-                orderValue += item.price.toNumber() * item.quantity;
-                orderItemCount += item.quantity;
+        if (allRelevantSessionIds.length > 0) {
+            // Get all requests from these sessions
+            const allRequests = await this.prisma.request.findMany({
+                where: {
+                    sessionId: { in: allRelevantSessionIds }
+                },
+                orderBy: { createdAt: 'asc' }
             });
-            totalSales += orderValue;
-            itemsSoldCount += orderItemCount;
-            totalOrders += 1;
-        });
+
+            // Get all orders from these sessions
+            const allOrders = await this.prisma.order.findMany({
+                where: {
+                    sessionId: { in: allRelevantSessionIds }
+                },
+                include: { orderItems: true },
+                orderBy: { createdAt: 'asc' }
+            });
+
+            // Now filter requests and orders based on session timeline responsibility
+            const sessionTimelines = await Promise.all(
+                allRelevantSessionIds.map(sessionId => this.reconstructSessionTimeline(sessionId, this.getStartDate(startDate), this.getEndDate(endDate)))
+            );
+
+            // Count requests that occurred during waiter's responsibility period
+            for (const request of allRequests) {
+                if (this.isWaiterResponsibleAtTime(waiter.id, request.sessionId, request.createdAt, sessionTimelines)) {
+                    requestsHandled++;
+                }
+            }
+
+            // Count orders and calculate sales that occurred during waiter's responsibility period
+            for (const order of allOrders) {
+                if (this.isWaiterResponsibleAtTime(waiter.id, order.sessionId, order.createdAt, sessionTimelines)) {
+                    let orderValue = 0;
+                    let orderItemCount = 0;
+                    order.orderItems.forEach(item => {
+                        orderValue += item.price.toNumber() * item.quantity;
+                        orderItemCount += item.quantity;
+                    });
+                    totalSales += orderValue;
+                    itemsSoldCount += orderItemCount;
+                    totalOrders += 1;
+                }
+            }
+        }
 
         salesPerformance.push({
             staffId: waiter.id,
@@ -262,14 +334,6 @@ export class AdminAnalyticsService {
         const avgRating = waiter.serviceAnalysis.length > 0 
             ? waiter.serviceAnalysis.reduce((sum: number, analysis: any) => sum + analysis.rating, 0) / waiter.serviceAnalysis.length
             : 0;
-
-        // Get requests handled by this waiter based on sessions they were involved in
-        const requestsHandled = await this.prisma.request.count({
-            where: { 
-                userId: { in: sessionIds },
-                createdAt: { gte: new Date(startDate), lte: new Date(endDate) }
-            }
-        });
 
         performanceDetails.push({
             staffId: waiter.id,
@@ -299,7 +363,7 @@ export class AdminAnalyticsService {
       where: { id: staffId },
       include: { 
         accessAccount: { select: { userType: true }},
-        serviceAnalysis: { where: { createdAt: { gte: new Date(startDate), lte: new Date(endDate) } } },
+        serviceAnalysis: { where: { createdAt: { gte: this.getStartDate(startDate), lte: this.getEndDate(endDate) } } },
       }
     });
 
@@ -311,7 +375,7 @@ export class AdminAnalyticsService {
     const waiterSessions = await this.prisma.user.findMany({
       where: { 
         waiterId: waiter.id,
-        createdAt: { gte: new Date(startDate), lte: new Date(endDate) }
+        createdAt: { gte: this.getStartDate(startDate), lte: this.getEndDate(endDate) }
       },
       select: { sessionId: true, createdAt: true }
     });
@@ -322,7 +386,7 @@ export class AdminAnalyticsService {
     const requests = await this.prisma.request.findMany({
       where: { 
         sessionId: { in: sessionIds },
-        createdAt: { gte: new Date(startDate), lte: new Date(endDate) }
+        createdAt: { gte: this.getStartDate(startDate), lte: this.getEndDate(endDate) }
       },
       select: { 
         id: true, 
@@ -338,7 +402,7 @@ export class AdminAnalyticsService {
       where: {
         waiterId: waiter.id,
         serviceType: 'request',
-        createdAt: { gte: new Date(startDate), lte: new Date(endDate) }
+        createdAt: { gte: this.getStartDate(startDate), lte: this.getEndDate(endDate) }
       },
       select: { rating: true, createdAt: true }
     });
@@ -347,7 +411,7 @@ export class AdminAnalyticsService {
     const orders = await this.prisma.order.findMany({
       where: { 
         sessionId: { in: sessionIds },
-        createdAt: { gte: new Date(startDate), lte: new Date(endDate) }
+        createdAt: { gte: this.getStartDate(startDate), lte: this.getEndDate(endDate) }
       },
       select: { 
         id: true, 
@@ -363,7 +427,7 @@ export class AdminAnalyticsService {
       where: {
         waiterId: waiter.id,
         serviceType: 'order',
-        createdAt: { gte: new Date(startDate), lte: new Date(endDate) }
+        createdAt: { gte: this.getStartDate(startDate), lte: this.getEndDate(endDate) }
       },
       select: { rating: true, createdAt: true }
     });
@@ -402,7 +466,7 @@ export class AdminAnalyticsService {
     const allServiceAnalysis = await this.prisma.serviceAnalysis.findMany({
       where: {
         waiterId: waiter.id,
-        createdAt: { gte: new Date(startDate), lte: new Date(endDate) }
+        createdAt: { gte: this.getStartDate(startDate), lte: this.getEndDate(endDate) }
       },
       select: { 
         serviceType: true, 
@@ -451,8 +515,8 @@ export class AdminAnalyticsService {
       where: {
         waiterId: staffId,
         createdAt: {
-          gte: new Date(startDate),
-          lte: new Date(endDate),
+          gte: this.getStartDate(startDate),
+          lte: this.getEndDate(endDate),
         },
       },
       include: {
@@ -634,7 +698,7 @@ Analyze patterns in the feedback and provide insights that would be valuable for
     this.logger.log(`Fetching tables analytics from ${startDate} to ${endDate}`);
 
     const orders = await this.prisma.order.findMany({
-      where: { createdAt: { gte: new Date(startDate), lte: new Date(endDate) } },
+      where: { createdAt: { gte: this.getStartDate(startDate), lte: this.getEndDate(endDate) } },
       include: { orderItems: true }
     });
 
@@ -667,13 +731,28 @@ Analyze patterns in the feedback and provide insights that would be valuable for
     return { utilization, revenueByTable };
   }
 
-  async getServiceAnalyticsFromServiceAnalysis(dateRange?: DateRange): Promise<ServiceAnalysisData> {
+  async getServiceAnalyticsFromServiceAnalysis(dateRange?: DateRange, tenantId?: string): Promise<ServiceAnalysisData> {
     const { startDate, endDate } = dateRange || this.getDefaultDateRange(30);
-    this.logger.log(`Fetching waiter ratings analytics from service analysis from ${startDate} to ${endDate}`);
+    this.logger.log(`Fetching waiter ratings analytics from service analysis from ${startDate} to ${endDate} for tenant: ${tenantId || 'all'}`);
 
     try {
-      // Get all waiters
+      // Base filter for waiters - include tenant filtering if tenantId provided
+      const waiterFilter: any = {};
+      if (tenantId) {
+        // First get all restaurants for this tenant
+        const tenantRestaurants = await this.prisma.restaurant.findMany({
+          where: { tenantId },
+          select: { id: true }
+        });
+        const restaurantIds = tenantRestaurants.map(r => r.id);
+        
+        // Filter waiters to only those belonging to tenant's restaurants
+        waiterFilter.restaurantId = { in: restaurantIds };
+      }
+
+      // Get all waiters filtered by tenant
       const waiters = await this.prisma.waiter.findMany({
+        where: waiterFilter,
         select: {
           id: true,
           name: true,
@@ -682,10 +761,13 @@ Analyze patterns in the feedback and provide insights that would be valuable for
         }
       });
 
-      // Get all service analysis data for the period
-      const serviceAnalyses = await this.prisma.serviceAnalysis.findMany({
+      const waiterIds = waiters.map(w => w.id);
+
+      // Get all service analysis data for the period using session-aware approach
+      // First, get all service analyses in the date range
+      const allServiceAnalyses = await this.prisma.serviceAnalysis.findMany({
         where: {
-          createdAt: { gte: new Date(startDate), lte: new Date(endDate) }
+          createdAt: { gte: this.getStartDate(startDate), lte: this.getEndDate(endDate) }
         },
         include: {
           waiter: {
@@ -699,6 +781,50 @@ Analyze patterns in the feedback and provide insights that would be valuable for
         },
         orderBy: { createdAt: 'desc' }
       });
+
+      // Filter service analyses based on session responsibility using timeline reconstruction
+      const serviceAnalyses: any[] = [];
+      
+      // Group service analyses by session for efficient timeline reconstruction
+      const serviceAnalysesBySession = new Map<string, any[]>();
+      allServiceAnalyses.forEach(sa => {
+        if (sa.sessionId) {
+          if (!serviceAnalysesBySession.has(sa.sessionId)) {
+            serviceAnalysesBySession.set(sa.sessionId, []);
+          }
+          serviceAnalysesBySession.get(sa.sessionId)!.push(sa);
+        }
+      });
+
+      // Process each session's service analyses
+      for (const [sessionId, sessionServiceAnalyses] of serviceAnalysesBySession) {
+        // Reconstruct timeline for this session
+        const sessionTimeline = await this.reconstructSessionTimeline(sessionId, this.getStartDate(startDate), this.getEndDate(endDate));
+        
+        // Check each service analysis against session responsibility
+        for (const sa of sessionServiceAnalyses) {
+          // Find which waiter was responsible at the time of service analysis
+          const responsibleWaiterId = this.findResponsibleWaiterAtTime(sessionId, sa.createdAt, [sessionTimeline]);
+          
+          // Only include if the responsible waiter is in our tenant's waiters
+          if (responsibleWaiterId && waiterIds.includes(responsibleWaiterId)) {
+            // Update the waiter info to reflect the responsible waiter, not the stored waiterId
+            const responsibleWaiter = waiters.find(w => w.id === responsibleWaiterId);
+            if (responsibleWaiter) {
+              serviceAnalyses.push({
+                ...sa,
+                waiterId: responsibleWaiterId,
+                waiter: {
+                  id: responsibleWaiter.id,
+                  name: responsibleWaiter.name,
+                  surname: responsibleWaiter.surname,
+                  tag_nickname: responsibleWaiter.tag_nickname
+                }
+              });
+            }
+          }
+        }
+      }
 
       // Calculate average ratings per waiter using service analysis ratings
       const averageRatingsPerWaiter: WaiterAverageRating[] = waiters.map(waiter => {
@@ -802,18 +928,213 @@ Analyze patterns in the feedback and provide insights that would be valuable for
     }
   }
 
-  async getRequestsAnalytics(dateRange?: DateRange): Promise<RequestsAnalyticsData> {
+  async getRequestsAnalytics(dateRange?: DateRange, tenantId?: string): Promise<RequestsAnalyticsData> {
     const { startDate, endDate } = dateRange || this.getDefaultDateRange(7);
-    this.logger.log(`Fetching requests analytics from ${startDate} to ${endDate}`);
+    
+    // Fix date range to include full end day
+    const adjustedEndDate = this.getEndDate(endDate);
+    adjustedEndDate.setHours(23, 59, 59, 999); // Set to end of day
+    const adjustedEndDateStr = adjustedEndDate.toISOString().split('T')[0];
+    
+    this.logger.log(`Fetching requests analytics from ${startDate} to ${endDate} (adjusted to ${adjustedEndDateStr}) for tenant: ${tenantId || 'all'}`);
 
-    // Fetch all requests within the date range with their logs
+    // Base filter for requests - include tenant filtering if tenantId provided
+    const requestFilter: any = {
+      createdAt: { gte: this.getStartDate(startDate), lte: adjustedEndDate }
+    };
+    
+    if (tenantId) {
+      // Step 1: Get all restaurants for this tenant
+      const tenantRestaurants = await this.prisma.restaurant.findMany({
+        where: { tenantId },
+        select: { id: true }
+      });
+      const restaurantIds = tenantRestaurants.map(r => r.id);
+      this.logger.log(`Found ${tenantRestaurants.length} restaurants for tenant ${tenantId}: ${restaurantIds}`);
+      
+      // Step 2: Get all waiters belonging to tenant's restaurants
+      const tenantWaiters = await this.prisma.waiter.findMany({
+        where: { restaurantId: { in: restaurantIds } },
+        select: { id: true }
+      });
+      const waiterIds = tenantWaiters.map(w => w.id);
+      this.logger.log(`Found ${tenantWaiters.length} waiters for tenant restaurants: ${waiterIds}`);
+
+      // Step 3: Get all sessions from users table where restaurant_id matches tenant restaurants
+      // This matches your working SQL query approach
+      // Debug: Let's check what fields are available in the users table first
+      const sampleUser = await this.prisma.user.findFirst({
+        select: { 
+          sessionId: true, 
+          waiterId: true, 
+          restaurantId: true,
+          // Add other potential field names to check what's available
+        }
+      });
+      this.logger.log(`Sample user record fields: ${JSON.stringify(sampleUser)}`);
+      
+      const userSessions = await this.prisma.user.findMany({
+        where: { 
+          restaurantId: { in: restaurantIds }  // Filter by restaurant_id, not waiterId
+        },
+        select: { sessionId: true, waiterId: true, restaurantId: true },
+        distinct: ['sessionId']
+      });
+      this.logger.log(`Found ${userSessions.length} sessions for tenant restaurants (using restaurant_id): ${userSessions.map(s => s.sessionId).slice(0, 5)}${userSessions.length > 5 ? '...' : ''}`);
+      this.logger.log(`Session details: ${JSON.stringify(userSessions.slice(0, 3))}`);
+      
+      const sessionIds = userSessions.map(session => session.sessionId);
+
+      // Debug: Let's also run a raw SQL query to match your working query exactly
+      const rawSqlResult = await this.prisma.$queryRaw`
+        SELECT COUNT(*) as count FROM requests 
+        WHERE session_id IN (
+          SELECT session_id FROM users 
+          WHERE restaurant_id IN (
+            SELECT id FROM restaurants 
+            WHERE tenant_id = ${tenantId}
+          )
+        ) 
+        AND created_at >= ${this.getStartDate(startDate)} 
+        AND created_at <= ${adjustedEndDate}
+      ` as any[];
+      const count = rawSqlResult[0]?.count ? Number(rawSqlResult[0].count) : 0;
+      this.logger.log(`Raw SQL query result: ${count} requests found`);
+
+      // Debug: Let's also check what restaurant_id the sessions with requests belong to
+      const sessionsWithRequestsDetails = await this.prisma.$queryRaw`
+        SELECT DISTINCT u.session_id, u.restaurant_id, r.tenant_id 
+        FROM users u
+        JOIN restaurants r ON u.restaurant_id = r.id
+        WHERE u.session_id IN (
+          SELECT DISTINCT session_id FROM requests 
+          WHERE created_at >= ${this.getStartDate(startDate)} 
+          AND created_at <= ${adjustedEndDate}
+        )
+      ` as any[];
+      this.logger.log(`Sessions with requests and their restaurant details: ${JSON.stringify(sessionsWithRequestsDetails.map(s => ({
+        sessionId: s.session_id,
+        restaurantId: s.restaurant_id, 
+        tenantId: s.tenant_id
+      })))}`);
+
+      if (sessionIds.length > 0) {
+        requestFilter.sessionId = { in: sessionIds };
+      } else {
+        // No sessions found for this tenant - return empty result
+        this.logger.log(`No sessions found for tenant ${tenantId} - returning empty results`);
+        requestFilter.id = { equals: 'NO_RESULTS' }; // This will return no results
+      }
+    }
+
+    // Fetch all requests within the date range with their logs, filtered by tenant
     const requests = await this.prisma.request.findMany({
-      where: { createdAt: { gte: new Date(startDate), lte: new Date(endDate) } },
+      where: requestFilter,
       include: { 
         logs: { orderBy: { dateTime: 'asc' } },
         user: { include: { waiter: true } }
       },
     });
+
+    this.logger.log(`Found ${requests.length} requests for tenant ${tenantId || 'all'} in date range ${startDate} to ${endDate}`);
+
+    // Debug: Check total requests in database for this date range
+    const totalRequestsInDateRange = await this.prisma.request.count({
+      where: {
+        createdAt: { gte: this.getStartDate(startDate), lte: adjustedEndDate }
+      }
+    });
+    this.logger.log(`Total requests in database for date range: ${totalRequestsInDateRange}`);
+
+    // Debug: Let's check if there are requests for Xolani MABUZA specifically
+    if (tenantId) {
+      // First, find Xolani MABUZA's waiter record
+      const xolaniWaiter = await this.prisma.waiter.findFirst({
+        where: {
+          OR: [
+            { name: { contains: 'Xolani', mode: 'insensitive' } },
+            { surname: { contains: 'MABUZA', mode: 'insensitive' } },
+            { tag_nickname: { contains: 'xxx', mode: 'insensitive' } }
+          ]
+        },
+        select: { id: true, name: true, surname: true, tag_nickname: true }
+      });
+      
+      if (xolaniWaiter) {
+        this.logger.log(`Found Xolani waiter: ${xolaniWaiter.name} ${xolaniWaiter.surname} (${xolaniWaiter.tag_nickname}) - ID: ${xolaniWaiter.id}`);
+        
+        // Check if this waiter has any sessions
+        const xolaniSessions = await this.prisma.user.findMany({
+          where: { waiterId: xolaniWaiter.id },
+          select: { sessionId: true }
+        });
+        this.logger.log(`Xolani's current sessions: ${xolaniSessions.map(s => s.sessionId).join(', ')}`);
+        
+        // Check historical sessions for Xolani
+        const xolaniHistoricalSessions = await this.prisma.userSessionLog.findMany({
+          where: { 
+            actorId: xolaniWaiter.id,
+            actorType: 'waiter'
+          },
+          select: { sessionId: true },
+          distinct: ['sessionId']
+        });
+        this.logger.log(`Xolani's historical sessions: ${xolaniHistoricalSessions.map(s => s.sessionId).join(', ')}`);
+        
+        // Check if any of these sessions have requests
+        const allXolaniSessions = [...new Set([
+          ...xolaniSessions.map(s => s.sessionId),
+          ...xolaniHistoricalSessions.map(s => s.sessionId)
+        ])];
+        
+        const requestsInXolaniSessions = await this.prisma.request.findMany({
+          where: {
+            sessionId: { in: allXolaniSessions },
+            createdAt: { gte: this.getStartDate(startDate), lte: adjustedEndDate }
+          },
+          select: { id: true, sessionId: true, createdAt: true, status: true }
+        });
+        
+        this.logger.log(`Requests in Xolani's sessions: ${requestsInXolaniSessions.length} requests`);
+        requestsInXolaniSessions.forEach(req => {
+          this.logger.log(`  Request ${req.id} in session ${req.sessionId} on ${req.createdAt} - status: ${req.status}`);
+        });
+
+        // Debug: Let's also check ALL requests in Xolani's sessions without date filter
+        const allRequestsInXolaniSessions = await this.prisma.request.findMany({
+          where: {
+            sessionId: { in: allXolaniSessions }
+          },
+          select: { id: true, sessionId: true, createdAt: true, status: true }
+        });
+        
+        this.logger.log(`ALL requests in Xolani's sessions (no date filter): ${allRequestsInXolaniSessions.length} requests`);
+        this.logger.log(`Date range: ${startDate} to ${endDate}`);
+        this.logger.log(`Date range boundaries: ${this.getStartDate(startDate)} to ${this.getEndDate(endDate)}`);
+        allRequestsInXolaniSessions.forEach(req => {
+          const withinRange = req.createdAt >= this.getStartDate(startDate) && req.createdAt <= adjustedEndDate;
+          this.logger.log(`  Request ${req.id} on ${req.createdAt} - within range? ${withinRange}`);
+          this.logger.log(`    startDate check: ${req.createdAt} >= ${this.getStartDate(startDate)} = ${req.createdAt >= this.getStartDate(startDate)}`);
+          this.logger.log(`    endDate check: ${req.createdAt} <= ${adjustedEndDate} = ${req.createdAt <= adjustedEndDate}`);
+        });
+      } else {
+        this.logger.log(`Could not find Xolani MABUZA waiter record`);
+      }
+      
+      const requestsWithSessions = await this.prisma.request.findMany({
+        where: {
+          createdAt: { gte: this.getStartDate(startDate), lte: this.getEndDate(endDate) }
+        },
+        select: { sessionId: true, id: true, createdAt: true }
+      });
+      const sessionIdsWithRequests = requestsWithSessions.map(r => r.sessionId);
+      this.logger.log(`Sessions that have requests in date range: ${sessionIdsWithRequests.join(', ')}`);
+      
+      // Check if our tenant sessions match the sessions with requests
+      const tenantSessionIds = Array.isArray(requestFilter.sessionId?.in) ? requestFilter.sessionId.in : [];
+      const matchingSessions = sessionIdsWithRequests.filter(sessionId => tenantSessionIds.includes(sessionId));
+      this.logger.log(`Matching sessions between tenant and actual requests: ${matchingSessions.join(', ')}`);
+    }
 
     // Calculate metrics using requests_log data
     let totalCompletionTimeSum = 0;
@@ -930,7 +1251,7 @@ Analyze patterns in the feedback and provide insights that would be valuable for
     const statusCounts = await this.prisma.request.groupBy({
       by: ['status'],
       _count: { id: true },
-      where: { createdAt: { gte: new Date(startDate), lte: new Date(endDate) } },
+      where: requestFilter, // Use the same tenant filter as the main request query
     });
     const statusDistribution: RequestStatusDistribution[] = statusCounts.map(s => ({ 
       name: s.status.toString(), 
@@ -939,7 +1260,7 @@ Analyze patterns in the feedback and provide insights that would be valuable for
 
     // Requests over time
     const requestsOverTimeMap = new Map<string, { newRequests: number; resolvedRequests: number }>();
-    eachDayOfInterval({ start: new Date(startDate), end: new Date(endDate) }).forEach(day => {
+    eachDayOfInterval({ start: this.getStartDate(startDate), end: this.getEndDate(endDate) }).forEach(day => {
       requestsOverTimeMap.set(format(day, 'yyyy-MM-dd'), { newRequests: 0, resolvedRequests: 0 });
     });
     
@@ -988,55 +1309,124 @@ Analyze patterns in the feedback and provide insights that would be valuable for
     };
   }
 
-  async getCustomerRatingsAnalytics(dateRange?: DateRange, adminSessionId?: string): Promise<CustomerRatingsAnalyticsData> {
+  async getCustomerRatingsAnalytics(dateRange?: DateRange, tenantId?: string): Promise<CustomerRatingsAnalyticsData> {
     const methodStartTime = Date.now();
-    this.logger.log(`[CACHE] Starting getCustomerRatingsAnalytics for admin: ${adminSessionId || 'unknown'}, dateRange: ${JSON.stringify(dateRange)}`);
+    this.logger.log(`[CACHE] Starting getCustomerRatingsAnalytics for tenant: ${tenantId || 'unknown'}, dateRange: ${JSON.stringify(dateRange)}`);
     
-    // Check cache first if adminSessionId is provided
-    if (adminSessionId) {
-      const cacheKey = `getCustomerRatingsAnalytics_${adminSessionId}_${JSON.stringify(dateRange)}`;
+    // Check cache first if tenantId is provided
+    if (tenantId) {
+      const cacheKey = `getCustomerRatingsAnalytics_${tenantId}_${JSON.stringify(dateRange)}`;
       this.logger.log(`[CACHE] Checking cache with key: ${cacheKey}`);
       const cachedResult = this.cacheService.get(cacheKey);
       if (cachedResult) {
         const cacheTime = Date.now() - methodStartTime;
-        this.logger.log(`[CACHE HIT] ✅ Returning cached customer ratings analytics for admin ${adminSessionId} in ${cacheTime}ms - NO LLM CALL MADE`);
+        this.logger.log(`[CACHE HIT] ✅ Returning cached customer ratings analytics for tenant ${tenantId} in ${cacheTime}ms - NO LLM CALL MADE`);
         return cachedResult;
       } else {
-        this.logger.log(`[CACHE MISS] ❌ No cached data found for admin ${adminSessionId} - will fetch fresh data and call LLM`);
+        this.logger.log(`[CACHE MISS] ❌ No cached data found for tenant ${tenantId} - will fetch fresh data and call LLM`);
       }
     } else {
-      this.logger.log(`[CACHE] No admin user ID provided - skipping cache check`);
+      this.logger.log(`[CACHE] No tenant ID provided - skipping cache check`);
     }
 
     const { startDate, endDate } = dateRange || this.getDefaultDateRange(30);
-    this.logger.log(`[DATA FETCH] Fetching overall sentiments analytics from ${startDate} to ${endDate}`);
+    
+    // Adjust endDate to include end-of-day timestamps
+    const adjustedEndDate = this.getEndDate(endDate);
+    adjustedEndDate.setHours(23, 59, 59, 999);
+    
+    this.logger.log(`[DATA FETCH] Fetching overall sentiments analytics from ${startDate} to ${adjustedEndDate} for tenant: ${tenantId || 'all'}`);
 
     try {
-      // Fetch request logs for request resolution analysis
-      const requestLogs = await this.prisma.requestLog.findMany({
-        where: { 
-          dateTime: { gte: new Date(startDate), lte: new Date(endDate) }
-        },
-        include: {
-          request: {
+      let requestLogs: any[] = [];
+      
+      if (tenantId) {
+        // Get tenant's restaurants first
+        const tenantRestaurants = await this.prisma.restaurant.findMany({
+          where: { tenantId },
+          select: { id: true }
+        });
+        
+        const restaurantIds = tenantRestaurants.map(r => r.id);
+        this.logger.log(`[TENANT FILTER] Found ${restaurantIds.length} restaurants for tenant ${tenantId}`);
+        
+        if (restaurantIds.length > 0) {
+          // Fetch request logs using session-based tenant filtering
+          requestLogs = await this.prisma.requestLog.findMany({
+            where: { 
+              dateTime: { gte: this.getStartDate(startDate), lte: adjustedEndDate },
+              request: {
+                user: {
+                  restaurantId: { in: restaurantIds }
+                }
+              }
+            },
             include: {
-              user: {
+              request: {
                 include: {
-                  waiter: true
+                  user: {
+                    include: {
+                      waiter: true
+                    }
+                  }
+                }
+              }
+            },
+            orderBy: { dateTime: 'asc' }
+          });
+        }
+      } else {
+        // Fetch all request logs if no tenant filtering
+        requestLogs = await this.prisma.requestLog.findMany({
+          where: { 
+            dateTime: { gte: this.getStartDate(startDate), lte: adjustedEndDate }
+          },
+          include: {
+            request: {
+              include: {
+                user: {
+                  include: {
+                    waiter: true
+                  }
                 }
               }
             }
-          }
-        },
-        orderBy: { dateTime: 'asc' }
-      });
+          },
+          orderBy: { dateTime: 'asc' }
+        });
+      }
 
-    // Fetch service analysis data for request-type feedback
+      this.logger.log(`[DATA FETCH] Found ${requestLogs.length} request logs`);
+
+    // Base filter for service analysis - include tenant filtering if tenantId provided
+    const serviceAnalysisFilter: any = {
+      serviceType: 'request',
+      createdAt: { gte: this.getStartDate(startDate), lte: adjustedEndDate }
+    };
+    
+    if (tenantId) {
+      // Get tenant's restaurants first
+      const tenantRestaurants = await this.prisma.restaurant.findMany({
+        where: { tenantId },
+        select: { id: true }
+      });
+      
+      const restaurantIds = tenantRestaurants.map(r => r.id);
+      
+      if (restaurantIds.length > 0) {
+        // Filter service analysis using session-based tenant filtering
+        serviceAnalysisFilter.user = {
+          restaurantId: { in: restaurantIds }
+        };
+      } else {
+        // If no restaurants found for tenant, return empty results
+        serviceAnalysisFilter.id = { in: [] };
+      }
+    }
+
+    // Fetch service analysis data for request-type feedback, filtered by tenant
     const serviceAnalysis = await this.prisma.serviceAnalysis.findMany({
-      where: {
-        serviceType: 'request',
-        createdAt: { gte: new Date(startDate), lte: new Date(endDate) }
-      },
+      where: serviceAnalysisFilter,
       include: {
         user: {
           include: {
@@ -1046,6 +1436,8 @@ Analyze patterns in the feedback and provide insights that would be valuable for
       },
       orderBy: { createdAt: 'desc' }
     });
+
+    this.logger.log(`[DATA FETCH] Found ${serviceAnalysis.length} service analysis records`);
 
     // Prepare data for AI analysis
     const analysisData = {
@@ -1112,15 +1504,15 @@ Analyze patterns in the feedback and provide insights that would be valuable for
       rawDataSummary
     };
 
-    // Cache the result if adminSessionId is provided
-    if (adminSessionId) {
-      const cacheKey = `getCustomerRatingsAnalytics_${adminSessionId}_${JSON.stringify(dateRange)}`;
+    // Cache the result if tenantId is provided
+    if (tenantId) {
+      const cacheKey = `getCustomerRatingsAnalytics_${tenantId}_${JSON.stringify(dateRange)}`;
       this.cacheService.set(cacheKey, result);
       const totalTime = Date.now() - methodStartTime;
-      this.logger.log(`[CACHE STORE] 💾 Cached customer ratings analytics for admin ${adminSessionId} (total method time: ${totalTime}ms)`);
+      this.logger.log(`[CACHE STORE] 💾 Cached customer ratings analytics for tenant ${tenantId} (total method time: ${totalTime}ms)`);
     } else {
       const totalTime = Date.now() - methodStartTime;
-      this.logger.log(`[NO CACHE] Result not cached (no admin user ID) - total method time: ${totalTime}ms`);
+      this.logger.log(`[NO CACHE] Result not cached (no tenant ID) - total method time: ${totalTime}ms`);
     }
 
     return result;
@@ -1344,7 +1736,8 @@ Focus on:
     dateRange?: DateRange,
     waiterId?: string,
     sortBy?: string,
-    adminSessionId?: string
+    adminSessionId?: string,
+    tenantId?: string
   ): Promise<StaffPerformanceAnalytics> {
     // Check cache first if adminSessionId is provided
     if (adminSessionId) {
@@ -1362,8 +1755,26 @@ Focus on:
     try {
       this.logger.log(`Fetching staff performance analytics from ${startDate.toISOString()} to ${endDate.toISOString()}`);
 
-      // Get all waiters
+      // Get all waiters with tenant filtering if provided
+      let waiterFilter: any = {};
+      if (tenantId) {
+        // Get tenant's restaurants for filtering
+        const tenantRestaurants = await this.prisma.restaurant.findMany({
+          where: { tenantId },
+          select: { id: true }
+        });
+        const restaurantIds = tenantRestaurants.map(r => r.id);
+        
+        if (restaurantIds.length > 0) {
+          waiterFilter.restaurantId = { in: restaurantIds };
+        } else {
+          // If no restaurants found for tenant, return empty results
+          waiterFilter.id = { in: [] };
+        }
+      }
+
       const waiters = await this.prisma.waiter.findMany({
+        where: waiterFilter,
         select: {
           id: true,
           name: true,
@@ -1377,7 +1788,7 @@ Focus on:
       }
 
       // Gather raw data for LLM analysis
-      const rawAnalysisData = await this.gatherRawStaffDataForLLM(waiters, startDate, endDate, waiterId);
+      const rawAnalysisData = await this.gatherRawStaffDataForLLM(waiters, startDate, endDate, waiterId, tenantId);
       
       // Use LLM to analyze the data and generate insights
       let llmAnalysis;
@@ -1724,43 +2135,168 @@ Focus on:
   /**
    * Gather raw data from all relevant tables for LLM analysis
    */
-  private async gatherRawStaffDataForLLM(waiters: any[], startDate: Date, endDate: Date, waiterId?: string) {
+  private async gatherRawStaffDataForLLM(waiters: any[], startDate: Date, endDate: Date, waiterId?: string, tenantId?: string) {
     const waiterIds = waiterId && waiterId !== 'all' ? [waiterId] : waiters.map(w => w.id);
 
-    // Get all user sessions assigned to these waiters
+    // Adjust endDate to include end-of-day timestamps for comprehensive data collection
+    const adjustedEndDate = new Date(endDate);
+    adjustedEndDate.setHours(23, 59, 59, 999);
+
+    this.logger.log(`[COMPREHENSIVE DATA] Gathering comprehensive data from ${startDate} to ${adjustedEndDate} for ${waiterIds.length} waiters`);
+
+    let restaurantIds: string[] = [];
+    if (tenantId) {
+      // Get tenant's restaurants for filtering
+      const tenantRestaurants = await this.prisma.restaurant.findMany({
+        where: { tenantId },
+        select: { id: true }
+      });
+      restaurantIds = tenantRestaurants.map(r => r.id);
+      this.logger.log(`[TENANT FILTER] Found ${restaurantIds.length} restaurants for tenant ${tenantId}`);
+    }
+
+    // Build comprehensive filter for user sessions (session-aware approach)
+    const userSessionFilter: any = {
+      waiterId: { in: waiterIds },
+      createdAt: { gte: startDate, lte: adjustedEndDate }
+    };
+    
+    if (tenantId && restaurantIds.length > 0) {
+      userSessionFilter.restaurantId = { in: restaurantIds };
+    }
+
+    // Get all user sessions assigned to these waiters with comprehensive includes
     const userSessions = await this.prisma.user.findMany({
-      where: {
-        waiterId: { in: waiterIds },
-        createdAt: { gte: startDate, lte: endDate }
-      },
+      where: userSessionFilter,
       include: {
         requests: {
           include: {
             logs: { orderBy: { dateTime: 'asc' } }
           }
         },
+        orders: {
+          include: {
+            orderItems: {
+              include: {
+                menuItem: true
+              }
+            },
+            logs: { orderBy: { dateTime: 'asc' } }
+          }
+        },
         chatMessages: true,
         serviceAnalysis: true,
+        waiter: {
+          select: {
+            id: true,
+            name: true,
+            surname: true,
+            tag_nickname: true
+          }
+        }
       }
     });
 
-    // Get service analysis instead of waiter ratings
+    // Get service analysis with session-based tenant filtering
+    const serviceAnalysisFilter: any = {
+      waiterId: { in: waiterIds },
+      createdAt: { gte: startDate, lte: adjustedEndDate }
+    };
+
+    if (tenantId && restaurantIds.length > 0) {
+      serviceAnalysisFilter.user = {
+        restaurantId: { in: restaurantIds }
+      };
+    }
+
     const serviceAnalyses = await this.prisma.serviceAnalysis.findMany({
-      where: {
-        waiterId: { in: waiterIds },
-        createdAt: { gte: startDate, lte: endDate }
-      },
+      where: serviceAnalysisFilter,
       include: {
-        user: true,
+        user: {
+          include: {
+            waiter: true
+          }
+        },
         waiter: true,
       }
     });
+
+    // Get user session logs for activity tracking
+    const userSessionLogFilter: any = {
+      actorId: { in: waiterIds },
+      actorType: 'waiter',
+      dateTime: { gte: startDate, lte: adjustedEndDate }
+    };
+
+    const userSessionLogs = await this.prisma.userSessionLog.findMany({
+      where: userSessionLogFilter,
+      orderBy: { dateTime: 'asc' }
+    });
+
+    // Get additional order data that might not be captured through user sessions
+    const orderFilter: any = {
+      createdAt: { gte: startDate, lte: adjustedEndDate }
+    };
+
+    if (tenantId && restaurantIds.length > 0) {
+      // Filter orders through user sessions belonging to tenant restaurants
+      orderFilter.user = {
+        restaurantId: { in: restaurantIds }
+      };
+    }
+
+    const additionalOrders = await this.prisma.order.findMany({
+      where: orderFilter,
+      include: {
+        orderItems: {
+          include: {
+            menuItem: true
+          }
+        },
+        logs: { orderBy: { dateTime: 'asc' } },
+        user: {
+          include: {
+            waiter: true
+          }
+        }
+      }
+    });
+
+    // Get additional request data for comprehensive analysis
+    const requestFilter: any = {
+      createdAt: { gte: startDate, lte: adjustedEndDate }
+    };
+
+    if (tenantId && restaurantIds.length > 0) {
+      requestFilter.user = {
+        restaurantId: { in: restaurantIds }
+      };
+    }
+
+    const additionalRequests = await this.prisma.request.findMany({
+      where: requestFilter,
+      include: {
+        logs: { orderBy: { dateTime: 'asc' } },
+        user: {
+          include: {
+            waiter: true
+          }
+        }
+      }
+    });
+
+    this.logger.log(`[DATA SUMMARY] Collected: ${userSessions.length} sessions, ${serviceAnalyses.length} service analyses, ${userSessionLogs.length} session logs, ${additionalOrders.length} orders, ${additionalRequests.length} requests`);
 
     return {
       waiters,
       userSessions,
       serviceAnalyses,
-      dateRange: { startDate, endDate }
+      userSessionLogs,
+      additionalOrders,
+      additionalRequests,
+      dateRange: { startDate, endDate: adjustedEndDate },
+      tenantId,
+      restaurantIds
     };
   }
 
@@ -1769,43 +2305,98 @@ Focus on:
    */
   private async generateLLMStaffAnalysis(rawData: any): Promise<any> {
     try {
-      const totalRequests = rawData.userSessions.reduce((sum: number, session: any) => sum + session.requests.length, 0);
+      // Calculate comprehensive metrics from all data sources
+      const totalRequests = rawData.userSessions.reduce((sum: number, session: any) => sum + session.requests.length, 0) + 
+        (rawData.additionalRequests?.length || 0);
       const totalCompletedRequests = rawData.userSessions.reduce((sum: number, session: any) => 
-        sum + session.requests.filter((r: any) => r.status === 'Completed' || r.status === 'Done').length, 0);
+        sum + session.requests.filter((r: any) => r.status === 'Completed' || r.status === 'Done').length, 0) + 
+        (rawData.additionalRequests?.filter((r: any) => r.status === 'Completed' || r.status === 'Done')?.length || 0);
+      
+      const totalOrders = rawData.userSessions.reduce((sum: number, session: any) => sum + session.orders.length, 0) + 
+        (rawData.additionalOrders?.length || 0);
+      const totalCompletedOrders = rawData.userSessions.reduce((sum: number, session: any) => 
+        sum + session.orders.filter((o: any) => o.status === 'Complete' || o.status === 'Delivered').length, 0) + 
+        (rawData.additionalOrders?.filter((o: any) => o.status === 'Complete' || o.status === 'Delivered')?.length || 0);
+      
       const totalRatings = rawData.serviceAnalyses.length;
       const avgRating = totalRatings > 0 ? 
         rawData.serviceAnalyses.reduce((sum: number, r: any) => sum + r.rating, 0) / totalRatings : 0;
 
-      const analysisPrompt = `Analyze the following restaurant staff performance data and provide insights:
+      const totalChatMessages = rawData.userSessions.reduce((sum: number, session: any) => sum + session.chatMessages.length, 0);
+      const totalSessionActivities = rawData.userSessionLogs?.length || 0;
 
-STAFF DATA SUMMARY:
+      // Calculate revenue from orders
+      const totalRevenue = [...(rawData.userSessions || []), ...(rawData.additionalOrders || [])]
+        .reduce((sum: number, orderOrSession: any) => {
+          const orders = orderOrSession.orders || [orderOrSession];
+          return sum + orders.reduce((orderSum: number, order: any) => {
+            return orderSum + (order.orderItems || []).reduce((itemSum: number, item: any) => {
+              return itemSum + (item.price * item.quantity);
+            }, 0);
+          }, 0);
+        }, 0);
+
+      const analysisPrompt = `Analyze the following comprehensive restaurant staff performance data and provide insights:
+
+COMPREHENSIVE DATA SUMMARY:
+- Analysis Period: ${rawData.dateRange.startDate} to ${rawData.dateRange.endDate}
+- Tenant Filter: ${rawData.tenantId ? `Applied (${rawData.restaurantIds?.length || 0} restaurants)` : 'None (all data)'}
 - Total Waiters: ${rawData.waiters.length}
-- Total Requests: ${totalRequests}
-- Completed Requests: ${totalCompletedRequests}
-- Completion Rate: ${totalRequests > 0 ? ((totalCompletedRequests / totalRequests) * 100).toFixed(1) : 0}%
-- Total Ratings: ${totalRatings}
-- Average Rating: ${avgRating.toFixed(2)}
+- Total Requests: ${totalRequests} (Completed: ${totalCompletedRequests}, Rate: ${totalRequests > 0 ? ((totalCompletedRequests / totalRequests) * 100).toFixed(1) : 0}%)
+- Total Orders: ${totalOrders} (Completed: ${totalCompletedOrders}, Rate: ${totalOrders > 0 ? ((totalCompletedOrders / totalOrders) * 100).toFixed(1) : 0}%)
+- Total Revenue: $${totalRevenue.toFixed(2)}
+- Total Service Ratings: ${totalRatings} (Average: ${avgRating.toFixed(2)}/5)
+- Total Chat Messages: ${totalChatMessages}
+- Total Session Activities: ${totalSessionActivities}
 
-DETAILED WAITER DATA:
+DETAILED WAITER PERFORMANCE DATA:
 ${rawData.waiters.map((waiter: any) => {
   const waiterSessions = rawData.userSessions.filter((s: any) => s.waiterId === waiter.id);
   const waiterRequests = waiterSessions.reduce((sum: number, s: any) => sum + s.requests.length, 0);
-  const waiterCompleted = waiterSessions.reduce((sum: number, s: any) => 
+  const waiterCompletedRequests = waiterSessions.reduce((sum: number, s: any) => 
     sum + s.requests.filter((r: any) => r.status === 'Completed' || r.status === 'Done').length, 0);
+  const waiterOrders = waiterSessions.reduce((sum: number, s: any) => sum + s.orders.length, 0);
+  const waiterCompletedOrders = waiterSessions.reduce((sum: number, s: any) => 
+    sum + s.orders.filter((o: any) => o.status === 'Complete' || o.status === 'Delivered').length, 0);
   const waiterServiceAnalyses = rawData.serviceAnalyses.filter((r: any) => r.waiterId === waiter.id);
   const waiterAvgRating = waiterServiceAnalyses.length > 0 ? 
     waiterServiceAnalyses.reduce((sum: number, r: any) => sum + r.rating, 0) / waiterServiceAnalyses.length : 0;
+  const waiterChatMessages = waiterSessions.reduce((sum: number, s: any) => sum + s.chatMessages.length, 0);
+  const waiterSessionActivities = rawData.userSessionLogs?.filter((l: any) => l.actorId === waiter.id)?.length || 0;
+  
+  // Calculate revenue for this waiter
+  const waiterRevenue = waiterSessions.reduce((sum: number, session: any) => {
+    return sum + session.orders.reduce((orderSum: number, order: any) => {
+      return orderSum + (order.orderItems || []).reduce((itemSum: number, item: any) => {
+        return itemSum + (item.price * item.quantity);
+      }, 0);
+    }, 0);
+  }, 0);
 
-  return `${waiter.name} ${waiter.surname}: ${waiterRequests} requests, ${waiterCompleted} completed (${waiterRequests > 0 ? ((waiterCompleted / waiterRequests) * 100).toFixed(1) : 0}%), Rating: ${waiterAvgRating.toFixed(2)}`;
+  return `${waiter.name} ${waiter.surname}:
+  - Requests: ${waiterRequests} total, ${waiterCompletedRequests} completed (${waiterRequests > 0 ? ((waiterCompletedRequests / waiterRequests) * 100).toFixed(1) : 0}%)
+  - Orders: ${waiterOrders} total, ${waiterCompletedOrders} completed (${waiterOrders > 0 ? ((waiterCompletedOrders / waiterOrders) * 100).toFixed(1) : 0}%)
+  - Revenue Generated: $${waiterRevenue.toFixed(2)}
+  - Service Rating: ${waiterAvgRating.toFixed(2)}/5 (${waiterServiceAnalyses.length} ratings)
+  - Chat Messages: ${waiterChatMessages}
+  - Session Activities: ${waiterSessionActivities}`;
 }).join('\n')}
 
-Please analyze this data and provide insights on:
-1. Performance trends for each waiter (up/down/stable based on completion rates and ratings)
-2. Team productivity insights
-3. Service quality assessment
-4. Overall performance growth assessment
+RECENT SERVICE ANALYSIS INSIGHTS:
+${rawData.serviceAnalyses.slice(0, 10).map((analysis: any, idx: number) => 
+  `${idx + 1}. Waiter: ${analysis.waiter?.name}, Rating: ${analysis.rating}/5, Type: ${analysis.serviceType}, Comments: ${JSON.stringify(analysis.analysis).substring(0, 100)}...`
+).join('\n')}
 
-Respond in JSON format with structured insights.`;
+Please analyze this comprehensive data and provide insights on:
+1. Individual waiter performance trends (up/down/stable based on completion rates, ratings, revenue contribution)
+2. Team productivity and efficiency insights
+3. Service quality assessment across all touchpoints
+4. Revenue performance by staff member
+5. Communication patterns and customer engagement
+6. Overall operational effectiveness
+7. Specific areas for improvement and growth opportunities
+
+Respond in JSON format with structured insights that include specific metrics and actionable recommendations.`;
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -1880,10 +2471,10 @@ Respond in JSON format with structured insights.`;
     }
   }
 
-  async getExecutiveSummaryAnalytics(dateRange?: DateRange, adminSessionId?: string): Promise<any> {
+  async getExecutiveSummaryAnalytics(dateRange?: DateRange, adminSessionId?: string, tenantId?: string): Promise<any> {
     // Check cache first if adminSessionId is provided
     if (adminSessionId) {
-      const cacheKey = `getExecutiveSummaryAnalytics_${adminSessionId}_${JSON.stringify(dateRange)}`;
+      const cacheKey = `getExecutiveSummaryAnalytics_${adminSessionId}_${JSON.stringify(dateRange)}_${tenantId || 'all'}`;
       const cachedResult = this.cacheService.get(cacheKey);
       if (cachedResult) {
         this.logger.log(`Returning cached executive summary analytics for admin ${adminSessionId}`);
@@ -1892,18 +2483,43 @@ Respond in JSON format with structured insights.`;
     }
 
     const { startDate, endDate } = dateRange || this.getDefaultDateRange(7);
-    this.logger.log(`Fetching executive summary analytics from ${startDate} to ${endDate}`);
+    
+    // Adjust endDate to include end-of-day timestamps for comprehensive data collection
+    const adjustedEndDate = this.getEndDate(endDate);
+    adjustedEndDate.setHours(23, 59, 59, 999);
+    
+    this.logger.log(`Fetching executive summary analytics from ${startDate} to ${adjustedEndDate} for tenant: ${tenantId || 'all'}`);
 
     try {
-      // Fetch data from the specified tables: requests, requests_log, service_analysis, chat_messages
-      const [requests, requestsLog, serviceAnalysis, chatMessages] = await Promise.all([
-        // Requests data
+      let restaurantIds: string[] = [];
+      if (tenantId) {
+        // Get tenant's restaurants for filtering
+        const tenantRestaurants = await this.prisma.restaurant.findMany({
+          where: { tenantId },
+          select: { id: true }
+        });
+        restaurantIds = tenantRestaurants.map(r => r.id);
+        this.logger.log(`[TENANT FILTER] Found ${restaurantIds.length} restaurants for tenant ${tenantId}`);
+      }
+
+      // Build comprehensive filters for all data sources
+      const baseTimeFilter = {
+        gte: this.getStartDate(startDate),
+        lte: adjustedEndDate
+      };
+
+      const sessionFilter: any = tenantId && restaurantIds.length > 0 ? 
+        { restaurantId: { in: restaurantIds } } : {};
+
+      // Fetch comprehensive data from all relevant tables with tenant filtering
+      const [requests, requestsLog, serviceAnalysis, chatMessages, orders, orderLogs, userSessionLogs, userSessions] = await Promise.all([
+        // Requests data with session-based tenant filtering
         this.prisma.request.findMany({
           where: {
-            createdAt: {
-              gte: new Date(startDate),
-              lte: new Date(endDate)
-            }
+            createdAt: baseTimeFilter,
+            ...(tenantId && restaurantIds.length > 0 && {
+              user: { restaurantId: { in: restaurantIds } }
+            })
           },
           include: {
             user: {
@@ -1916,13 +2532,15 @@ Respond in JSON format with structured insights.`;
           orderBy: { createdAt: 'desc' }
         }),
 
-        // Requests log data
+        // Requests log data with session-based tenant filtering
         this.prisma.requestLog.findMany({
           where: {
-            dateTime: {
-              gte: new Date(startDate),
-              lte: new Date(endDate)
-            }
+            dateTime: baseTimeFilter,
+            ...(tenantId && restaurantIds.length > 0 && {
+              request: {
+                user: { restaurantId: { in: restaurantIds } }
+              }
+            })
           },
           include: {
             request: {
@@ -1938,28 +2556,32 @@ Respond in JSON format with structured insights.`;
           orderBy: { dateTime: 'desc' }
         }),
 
-        // Service analysis data
+        // Service analysis data with session-based tenant filtering
         this.prisma.serviceAnalysis.findMany({
           where: {
-            createdAt: {
-              gte: new Date(startDate),
-              lte: new Date(endDate)
-            }
+            createdAt: baseTimeFilter,
+            ...(tenantId && restaurantIds.length > 0 && {
+              user: { restaurantId: { in: restaurantIds } }
+            })
           },
           include: {
-            user: true,
+            user: {
+              include: {
+                waiter: true
+              }
+            },
             waiter: true
           },
           orderBy: { createdAt: 'desc' }
         }),
 
-        // Chat messages data
+        // Chat messages data with session-based tenant filtering
         this.prisma.chatMessage.findMany({
           where: {
-            createdAt: {
-              gte: new Date(startDate),
-              lte: new Date(endDate)
-            }
+            createdAt: baseTimeFilter,
+            ...(tenantId && restaurantIds.length > 0 && {
+              user: { restaurantId: { in: restaurantIds } }
+            })
           },
           include: {
             user: {
@@ -1969,67 +2591,262 @@ Respond in JSON format with structured insights.`;
             }
           },
           orderBy: { createdAt: 'desc' }
+        }),
+
+        // Orders data with session-based tenant filtering
+        this.prisma.order.findMany({
+          where: {
+            createdAt: baseTimeFilter,
+            ...(tenantId && restaurantIds.length > 0 && {
+              user: { restaurantId: { in: restaurantIds } }
+            })
+          },
+          include: {
+            orderItems: {
+              include: {
+                menuItem: true
+              }
+            },
+            logs: true,
+            user: {
+              include: {
+                waiter: true
+              }
+            }
+          },
+          orderBy: { createdAt: 'desc' }
+        }),
+
+        // Order logs data
+        this.prisma.orderLog.findMany({
+          where: {
+            dateTime: baseTimeFilter,
+            ...(tenantId && restaurantIds.length > 0 && {
+              order: {
+                user: { restaurantId: { in: restaurantIds } }
+              }
+            })
+          },
+          include: {
+            order: {
+              include: {
+                user: {
+                  include: {
+                    waiter: true
+                  }
+                }
+              }
+            }
+          },
+          orderBy: { dateTime: 'desc' }
+        }),
+
+        // User session logs for waiter activity tracking
+        this.prisma.userSessionLog.findMany({
+          where: {
+            dateTime: baseTimeFilter,
+            actorType: 'waiter'
+          },
+          orderBy: { dateTime: 'desc' }
+        }),
+
+        // User sessions for comprehensive session data
+        this.prisma.user.findMany({
+          where: {
+            createdAt: baseTimeFilter,
+            ...sessionFilter
+          },
+          include: {
+            waiter: true,
+            requests: {
+              include: {
+                logs: true
+              }
+            },
+            orders: {
+              include: {
+                orderItems: {
+                  include: {
+                    menuItem: true
+                  }
+                },
+                logs: true
+              }
+            },
+            chatMessages: true,
+            serviceAnalysis: true
+          }
         })
       ]);
 
-      // Calculate basic metrics from the fetched data
+      this.logger.log(`[COMPREHENSIVE DATA] Collected: ${requests.length} requests, ${orders.length} orders, ${serviceAnalysis.length} service analyses, ${chatMessages.length} chat messages, ${userSessions.length} sessions, ${userSessionLogs.length} session logs`);
+
+      // Log all returned requests in detail
+      this.logger.log(`[DETAILED DATA] Total requests found: ${requests.length}`);
+      requests.forEach((request, index) => {
+        this.logger.log(`[REQUEST ${index + 1}] ID: ${request.id}, Status: ${request.status}, Created: ${request.createdAt}, User: ${request.userId}, Waiter: ${request.user?.waiter?.name || 'Unassigned'}, Content: ${request.content?.substring(0, 100) || 'No content'}...`);
+      });
+      // Calculate comprehensive metrics from all data sources
       const totalRequests = requests.length;
-      const completedRequests = requests.filter(r => r.status === 'Completed').length;
+      const completedRequests = requests.filter(r => r.status === 'Done').length;
       const openRequests = requests.filter(r => r.status === 'New' || r.status === 'Acknowledged' || r.status === 'InProgress').length;
       const cancelledRequests = requests.filter(r => r.status === 'Cancelled').length;
       
-      const completionRate = totalRequests > 0 ? (completedRequests / totalRequests) * 100 : 0;
-      const cancelledRate = totalRequests > 0 ? (cancelledRequests / totalRequests) * 100 : 0;
+      const totalOrders = orders.length;
+      const completedOrders = orders.filter(o => o.status === 'Paid').length;
+      const openOrders = orders.filter(o => o.status === 'New' || o.status === 'Acknowledged' || o.status === 'InProgress').length;
+      const cancelledOrders = orders.filter(o => o.status === 'Cancelled').length;
+      const rejectedOrders = orders.filter(o => o.status === 'Rejected').length;
+      const deliveredOrders = orders.filter(o => o.status === 'Delivered').length;
 
-      // Calculate average response time from requests_log
-      const responseTimeLogs = requestsLog.filter(log => 
-        log.action.includes('status_change') && log.request?.status === 'Completed'
-      );
+      // Completion rates
+      const requestCompletionRate = totalRequests > 0 ? (completedRequests / totalRequests) * 100 : 0;
+      const orderCompletionRate = totalOrders > 0 ? (completedOrders / totalOrders) * 100 : 0;
+
+      // Cancellation rates
+      const requestCancelledRate = totalRequests > 0 ? (cancelledRequests / totalRequests) * 100 : 0;
+      const orderCancelledRate = totalOrders > 0 ? (cancelledOrders / totalOrders) * 100 : 0;
+
+      // Rejection rates
+      const orderRejectionRate = totalOrders > 0 ? (rejectedOrders / totalOrders) * 100 : 0;
       
-      const avgResponseTime = responseTimeLogs.length > 0 
-        ? responseTimeLogs.reduce((sum, log) => {
-            const responseTime = new Date(log.dateTime).getTime() - new Date(log.request.createdAt).getTime();
-            return sum + (responseTime / (1000 * 60)); // Convert to minutes
-          }, 0) / responseTimeLogs.length
+      // Delivery rates
+      const orderDeliveryRate = totalOrders > 0 ? (deliveredOrders / totalOrders) * 100 : 0;      
+
+      // Calculate overall user-to-waiter response time analysis
+      // Group logs by request_id for analysis
+      const logsByRequestId = new Map<string, any[]>();
+      
+      // Collect all logs for each request
+      requestsLog.forEach(log => {
+        if (!log.requestId) return;
+        
+        if (!logsByRequestId.has(log.requestId)) {
+          logsByRequestId.set(log.requestId, []);
+        }
+        logsByRequestId.get(log.requestId)!.push(log);
+      });
+
+      this.logger.log(`[RESPONSE TIME ANALYSIS] Processing ${logsByRequestId.size} unique requests for overall response time calculation`);
+
+      const requestAverages: number[] = [];
+
+      // Process each request individually
+      logsByRequestId.forEach((requestLogs, requestId) => {
+        // Sort logs by dateTime to get proper sequence
+        const sortedLogs = requestLogs.sort((a, b) => 
+          new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()
+        );
+
+        const responseTimes: number[] = [];
+        let lastUserActionTime: Date | null = null;
+
+        sortedLogs.forEach((log) => {
+          const logTime = new Date(log.dateTime);
+          
+          if (log.actor === 'user') {
+            // User action - update last user action time (overwrites if user acts multiple times)
+            lastUserActionTime = logTime;
+            
+            this.logger.debug(`[REQ ${requestId}] User action at ${logTime.toISOString()}`);
+          } 
+          else if (log.actor === 'waiter' && lastUserActionTime) {
+            // Waiter action - calculate response time from last user action
+            const responseTime = logTime.getTime() - lastUserActionTime.getTime();
+            const responseTimeMinutes = responseTime / (1000 * 60);
+            
+            responseTimes.push(responseTimeMinutes);
+            
+            this.logger.debug(`[REQ ${requestId}] Waiter responded in ${responseTimeMinutes.toFixed(2)} minutes`);
+            
+            // Reset for next cycle
+            lastUserActionTime = null;
+          }
+        });
+
+        // Calculate average response time for this request
+        if (responseTimes.length > 0) {
+          const avgResponseTimeForRequest = responseTimes.reduce((sum, time) => sum + time, 0) / responseTimes.length;
+          requestAverages.push(avgResponseTimeForRequest);
+          
+          this.logger.debug(`[REQ ${requestId}] Average response time: ${avgResponseTimeForRequest.toFixed(2)} minutes from ${responseTimes.length} interactions`);
+        }
+      });
+
+      // Calculate final average of all request averages
+      const avgRequestResponseTime = requestAverages.length > 0 
+        ? requestAverages.reduce((sum, avg) => sum + avg, 0) / requestAverages.length 
         : 0;
 
-      // Get waiter performance metrics
-      const waiterStats = new Map();
-      requests.forEach(request => {
-        const waiter = request.user?.waiter;
-        if (waiter) {
-          const waiterId = waiter.id;
-          if (!waiterStats.has(waiterId)) {
-            waiterStats.set(waiterId, {
-              name: waiter.name,
-              totalRequests: 0,
-              completedRequests: 0,
-              responseTime: 0,
-              responseCount: 0
-            });
-          }
+      this.logger.log(`[RESPONSE TIME ANALYSIS] Final overall average response time: ${avgRequestResponseTime.toFixed(2)} minutes from ${requestAverages.length} requests with valid interactions`);
+
+      // Calculate overall user-to-waiter response time analysis for orders
+      // Group order logs by order_id for analysis
+      const orderLogsByOrderId = new Map<string, any[]>();
+      
+      // Collect all logs for each order
+      orderLogs.forEach(log => {
+        if (!log.orderId) return;
+        
+        if (!orderLogsByOrderId.has(log.orderId)) {
+          orderLogsByOrderId.set(log.orderId, []);
+        }
+        orderLogsByOrderId.get(log.orderId)!.push(log);
+      });
+
+      this.logger.log(`[ORDER RESPONSE TIME ANALYSIS] Processing ${orderLogsByOrderId.size} unique orders for overall response time calculation`);
+
+      const orderAverages: number[] = [];
+
+      // Process each order individually
+      orderLogsByOrderId.forEach((orderLogs, orderId) => {
+        // Sort logs by dateTime to get proper sequence
+        const sortedLogs = orderLogs.sort((a, b) => 
+          new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()
+        );
+
+        const responseTimes: number[] = [];
+        let lastUserActionTime: Date | null = null;
+
+        sortedLogs.forEach((log) => {
+          const logTime = new Date(log.dateTime);
           
-          const stats = waiterStats.get(waiterId);
-          stats.totalRequests++;
-          if (request.status === 'Completed') {
-            stats.completedRequests++;
+          if (log.actor === 'user') {
+            // User action - update last user action time (overwrites if user acts multiple times)
+            lastUserActionTime = logTime;
+            
+            this.logger.debug(`[ORDER ${orderId}] User action at ${logTime.toISOString()}`);
+          } 
+          else if (log.actor === 'waiter' && lastUserActionTime) {
+            // Waiter action - calculate response time from last user action
+            const responseTime = logTime.getTime() - lastUserActionTime.getTime();
+            const responseTimeMinutes = responseTime / (1000 * 60);
+            
+            responseTimes.push(responseTimeMinutes);
+            
+            this.logger.debug(`[ORDER ${orderId}] Waiter responded in ${responseTimeMinutes.toFixed(2)} minutes`);
+            
+            // Reset for next cycle
+            lastUserActionTime = null;
           }
+        });
+
+        // Calculate average response time for this order
+        if (responseTimes.length > 0) {
+          const avgResponseTimeForOrder = responseTimes.reduce((sum, time) => sum + time, 0) / responseTimes.length;
+          orderAverages.push(avgResponseTimeForOrder);
+          
+          this.logger.debug(`[ORDER ${orderId}] Average response time: ${avgResponseTimeForOrder.toFixed(2)} minutes from ${responseTimes.length} interactions`);
         }
       });
 
-      // Calculate response times per waiter from logs
-      requestsLog.forEach(log => {
-        const waiter = log.request?.user?.waiter;
-        if (waiter && log.action.includes('status_change')) {
-          const waiterId = waiter.id;
-          const stats = waiterStats.get(waiterId);
-          if (stats) {
-            const responseTime = new Date(log.dateTime).getTime() - new Date(log.request.createdAt).getTime();
-            stats.responseTime += (responseTime / (1000 * 60));
-            stats.responseCount++;
-          }
-        }
-      });
+      // Calculate final average of all order averages
+      const avgOrderProcessingTime = orderAverages.length > 0 
+        ? orderAverages.reduce((sum, avg) => sum + avg, 0) / orderAverages.length 
+        : 0;
+
+      this.logger.log(`[ORDER RESPONSE TIME ANALYSIS] Final overall average order response time: ${avgOrderProcessingTime.toFixed(2)} minutes from ${orderAverages.length} orders with valid interactions`);
+      
 
       // Calculate service analysis insights
       const serviceInsights = serviceAnalysis.map(analysis => ({
@@ -2044,49 +2861,33 @@ Respond in JSON format with structured insights.`;
       const avgServiceRating = serviceInsights.length > 0
         ? serviceInsights.reduce((sum, insight) => sum + insight.rating, 0) / serviceInsights.length
         : 0;
+     
 
-      // Analyze chat messages for communication patterns
-      const chatStats = {
-        totalMessages: chatMessages.length,
-        waiterMessages: chatMessages.filter(msg => msg.user?.waiter).length,
-        avgMessagesPerRequest: totalRequests > 0 ? chatMessages.length / totalRequests : 0,
-        messagesByWaiter: new Map()
-      };
-
-      // Group chat messages by waiter
-      chatMessages.forEach(msg => {
-        const waiter = msg.user?.waiter;
-        if (waiter) {
-          const waiterId = waiter.id;
-          if (!chatStats.messagesByWaiter.has(waiterId)) {
-            chatStats.messagesByWaiter.set(waiterId, {
-              name: waiter.name,
-              messageCount: 0
-            });
-          }
-          chatStats.messagesByWaiter.get(waiterId).messageCount++;
-        }
-      });
-
-      // Prepare data for LLM analysis
+      // Prepare comprehensive data for LLM analysis
       const executiveDataForLLM = {
-        dateRange: { startDate, endDate },
-        totalRequests,
-        completedRequests,
-        openRequests,
-        cancelledRequests,
-        completionRate: Math.round(completionRate * 100) / 100,
-        cancelledRate: Math.round(cancelledRate * 100) / 100,
-        avgResponseTime: Math.round(avgResponseTime * 100) / 100,
+        dateRange: { startDate, endDate: adjustedEndDate },
+        tenantFilter: tenantId ? `Applied (${restaurantIds.length} restaurants)` : 'None (all data)',
+        requestMetrics: {
+          totalRequests,
+          completedRequests,
+          openRequests,
+          cancelledRequests,
+          completionRate: Math.round(requestCompletionRate * 100) / 100,
+          cancelledRate: Math.round(requestCancelledRate * 100) / 100
+          
+        },
+        orderMetrics: {
+          totalOrders,
+          completedOrders,
+          openOrders,
+          cancelledOrders,
+          completionRate: Math.round(orderCompletionRate * 100) / 100,
+          cancelledRate: Math.round(orderCancelledRate * 100) / 100,
+          avgProcessingTime: Math.round(avgOrderProcessingTime * 100) / 100,          
+          rejectionRate: Math.round(orderRejectionRate * 100) / 100,
+          deliveryRate: Math.round(orderDeliveryRate * 100) / 100,
+        },
         avgServiceRating: Math.round(avgServiceRating * 100) / 100,
-        waiterPerformance: Array.from(waiterStats.entries()).map(([waiterId, stats]) => ({
-          waiterId,
-          name: stats.name,
-          totalRequests: stats.totalRequests,
-          completedRequests: stats.completedRequests,
-          completionRate: stats.totalRequests > 0 ? Math.round((stats.completedRequests / stats.totalRequests) * 10000) / 100 : 0,
-          avgResponseTime: stats.responseCount > 0 ? Math.round((stats.responseTime / stats.responseCount) * 100) / 100 : 0
-        })),
         serviceInsights: {
           totalAnalyses: serviceInsights.length,
           avgServiceRating,
@@ -2096,25 +2897,10 @@ Respond in JSON format with structured insights.`;
             poor: serviceInsights.filter(s => s.rating <= 2).length
           }
         },
-        chatStats: {
-          totalMessages: chatStats.totalMessages,
-          waiterMessages: chatStats.waiterMessages,
-          avgMessagesPerRequest: Math.round(chatStats.avgMessagesPerRequest * 100) / 100,
-          waiterCommunication: Array.from(chatStats.messagesByWaiter.entries()).map(([waiterId, data]) => ({
-            waiterId,
-            name: data.name,
-            messageCount: data.messageCount
-          }))
+        sessionActivityMetrics: {
+          totalSessionLogs: userSessionLogs.length,
+          totalUserSessions: userSessions.length,
         },
-        keyMetrics: {
-          topPerformer: Array.from(waiterStats.entries())
-            .sort(([,a], [,b]) => {
-              const aRate = a.totalRequests > 0 ? a.completedRequests / a.totalRequests : 0;
-              const bRate = b.totalRequests > 0 ? b.completedRequests / b.totalRequests : 0;
-              return bRate - aRate;
-            })[0]?.[1]?.name || 'N/A',
-          totalStaff: waiterStats.size
-        }
       };
 
       // Generate LLM analysis
@@ -2125,24 +2911,32 @@ Respond in JSON format with structured insights.`;
           totalRequests,
           completedRequests,
           openRequests,
-          completionRate: Math.round(completionRate * 100) / 100,
-          avgResponseTime: Math.round(avgResponseTime * 100) / 100,
+          totalOrders,
+          completedOrders,
+          requestCompletionRate: Math.round(requestCompletionRate * 100) / 100,
+          orderCompletionRate: Math.round(orderCompletionRate * 100) / 100,
+          requestCancelledRate: Math.round(requestCancelledRate * 100) / 100,
+          orderCancelledRate: Math.round(orderCancelledRate * 100) / 100,
+          averageRejectionRate: Math.round(orderRejectionRate * 100) / 100,
+          averageDeliveryRate: Math.round(orderDeliveryRate * 100) / 100,
+          avgRequestResponseTime: Math.round(avgRequestResponseTime * 100) / 100,
+          avgOrderProcessingTime: Math.round(avgOrderProcessingTime * 100) / 100,
           avgServiceRating: Math.round(avgServiceRating * 100) / 100,
-          topPerformer: executiveDataForLLM.keyMetrics.topPerformer,
-          totalStaff: executiveDataForLLM.keyMetrics.totalStaff
         },
         trends: {
-          completionRate: completionRate > 80 ? 'up' : completionRate > 60 ? 'stable' : 'down',
-          responseTime: avgResponseTime < 10 ? 'up' : avgResponseTime < 20 ? 'stable' : 'down',
+          requestCompletionRate: requestCompletionRate > 80 ? 'up' : requestCompletionRate > 60 ? 'stable' : 'down',
+          orderCompletionRate: orderCompletionRate > 80 ? 'up' : orderCompletionRate > 60 ? 'stable' : 'down',
+          responseTime: avgRequestResponseTime < 10 ? 'up' : avgRequestResponseTime < 20 ? 'stable' : 'down',
           serviceRating: avgServiceRating > 4 ? 'up' : avgServiceRating > 3 ? 'stable' : 'down'
         },
         alerts: {
-          openRequests: openRequests > 0,
-          highCancelledRate: cancelledRate > 10,
-          slowResponseTime: avgResponseTime > 20,
-          lowServiceRating: avgServiceRating < 3
-        },
-        waiterPerformance: executiveDataForLLM.waiterPerformance,
+          openRequests: openRequests > 10,
+          highCancelledRate: requestCancelledRate > 10,
+          slowResponseTime: avgRequestResponseTime > 20,
+          lowServiceRating: avgServiceRating < 3,
+          highRejectionRate: orderRejectionRate > 10,
+          lowDeliveryRate: orderDeliveryRate < 70,
+        },       
         serviceQuality: {
           avgServiceRating,
           ratingDistribution: executiveDataForLLM.serviceInsights.ratingDistribution,
@@ -2167,13 +2961,8 @@ Respond in JSON format with structured insights.`;
 
   private async generateExecutiveSummaryWithLLM(data: any): Promise<any> {
     if (!process.env.OPENAI_API_KEY) {
-      this.logger.warn('OpenAI API key not configured, returning default insights');
-      return {
-        summary: 'AI analysis is currently unavailable. Please configure OpenAI API key.',
-        keyFindings: [],
-        recommendations: [],
-        alerts: []
-      };
+      this.logger.warn('OpenAI API key not configured');
+      throw new Error('LLM analysis service is currently unavailable.');
     }
 
     try {
@@ -2181,31 +2970,55 @@ Respond in JSON format with structured insights.`;
 
 DATA SUMMARY:
 Period: ${data.dateRange.startDate} to ${data.dateRange.endDate}
+Tenant Filter: ${data.tenantFilter}
 
-OPERATIONAL METRICS:
-- Total Requests: ${data.totalRequests}
-- Completion Rate: ${data.completionRate}%
-- Average Response Time: ${data.avgResponseTime} minutes
-- Customer Satisfaction: ${data.avgSatisfactionScore}
-- Staff Count: ${data.keyMetrics.totalStaff}
-- Top Performer: ${data.keyMetrics.topPerformer}
+REQUEST METRICS:
+- Total Requests: ${data.requestMetrics.totalRequests}
+- Completed: ${data.requestMetrics.completedRequests}
+- Open: ${data.requestMetrics.openRequests}
+- Cancelled: ${data.requestMetrics.cancelledRequests}
+- Completion Rate: ${data.requestMetrics.completionRate}%
+- Cancelled Rate: ${data.requestMetrics.cancelledRate}%
 
-STAFF PERFORMANCE:
-${data.waiterPerformance.map((w: any) => `- ${w.name}: ${w.completedRequests}/${w.totalRequests} requests (${w.completionRate}%), ${w.avgResponseTime}min avg response`).join('\n')}
+ORDER METRICS:
+- Total Orders: ${data.orderMetrics.totalOrders}
+- Completed: ${data.orderMetrics.completedOrders}
+- Open: ${data.orderMetrics.openOrders}
+- Cancelled: ${data.orderMetrics.cancelledOrders}
+- Completion Rate: ${data.orderMetrics.completionRate}%
+- Cancelled Rate: ${data.orderMetrics.cancelledRate}%
+- Rejection Rate: ${data.orderMetrics.rejectionRate}%
+- Delivery Rate: ${data.orderMetrics.deliveryRate}%
+- Average Processing Time: ${data.orderMetrics.avgProcessingTime} minutes
 
 SERVICE QUALITY:
+- Average Service Rating: ${data.avgServiceRating}/5
 - Total Service Analyses: ${data.serviceInsights.totalAnalyses}
-- Sentiment Distribution: ${data.serviceInsights.sentimentDistribution.positive} positive, ${data.serviceInsights.sentimentDistribution.neutral} neutral, ${data.serviceInsights.sentimentDistribution.negative} negative
+- Rating Distribution: ${data.serviceInsights.ratingDistribution.excellent} excellent, ${data.serviceInsights.ratingDistribution.good} good, ${data.serviceInsights.ratingDistribution.poor} poor
 
-COMMUNICATION:
-- Total Chat Messages: ${data.chatStats.totalMessages}
-- Messages per Request: ${data.chatStats.avgMessagesPerRequest}
+SESSION ACTIVITY METRICS:
+- Total Session Logs: ${data.sessionActivityMetrics.totalSessionLogs}
+- Total User Sessions: ${data.sessionActivityMetrics.totalUserSessions}
+
+OPERATIONAL INSIGHTS:
+Analyze the following comprehensive metrics to identify:
+1. Service efficiency trends (completion vs cancellation vs rejection rates)
+2. Quality patterns (service ratings distribution and processing times)
+3. Operational bottlenecks (high rejection/cancellation rates)
+4. Performance opportunities (session activity vs outcomes)
+
+CRITICAL THRESHOLDS TO EVALUATE:
+- Request completion rate below 80%
+- Order rejection rate above 15%
+- Service rating below 3.5/5
+- High cancellation rates (>10%)
+- Low delivery rate (<70%)
 
 Please provide:
-1. Executive summary (2-3 sentences)
-2. Key performance findings (3-5 bullet points)
-3. Strategic recommendations (3-5 actionable items)
-4. Critical alerts (if any performance issues detected)
+1. Executive summary (2-3 sentences focusing on overall operational health)
+2. Key performance findings (3-5 bullet points highlighting critical metrics)
+3. Strategic recommendations (3-5 actionable items addressing identified issues)
+4. Critical alerts (any performance issues requiring immediate attention)
 
 Format as JSON with keys: summary, keyFindings, recommendations, alerts`;
 
@@ -2298,10 +3111,10 @@ Format as JSON with keys: summary, keyFindings, recommendations, alerts`;
     }
   }
 
-  async getAIInsights(dateRange?: DateRange, adminSessionId?: string): Promise<any> {
+  async getAIInsights(dateRange?: DateRange, adminSessionId?: string, tenantId?: string): Promise<any> {
     // Check cache first if adminSessionId is provided
     if (adminSessionId) {
-      const cacheKey = `getAIInsights_${adminSessionId}_${JSON.stringify(dateRange)}`;
+      const cacheKey = `getAIInsights_${adminSessionId}_${JSON.stringify(dateRange)}_${tenantId || 'all'}`;
       const cachedResult = this.cacheService.get(cacheKey);
       if (cachedResult) {
         this.logger.log(`Returning cached AI insights for admin ${adminSessionId}`);
@@ -2311,7 +3124,7 @@ Format as JSON with keys: summary, keyFindings, recommendations, alerts`;
 
     try {
       // Fetch the same data as staff performance and executive summary
-      const staffData = await this.getStaffPerformanceAnalytics(dateRange, undefined, undefined, adminSessionId);
+      const staffData = await this.getStaffPerformanceAnalytics(dateRange, undefined, undefined, adminSessionId, tenantId);
       
       if (!staffData.overview || !staffData.staffRankings) {
         throw new Error('Unable to retrieve performance data for AI analysis');
@@ -2325,8 +3138,8 @@ Format as JSON with keys: summary, keyFindings, recommendations, alerts`;
       const serviceAnalysis = await this.prisma.serviceAnalysis.findMany({
         where: {
           createdAt: { 
-            gte: new Date(startDate), 
-            lte: new Date(endDate) 
+            gte: this.getStartDate(startDate), 
+            lte: this.getEndDate(endDate) 
           }
         },
         include: {
@@ -2349,7 +3162,7 @@ Format as JSON with keys: summary, keyFindings, recommendations, alerts`;
       // Get request logs for additional sentiment context
       const requestLogs = await this.prisma.requestLog.findMany({
         where: { 
-          dateTime: { gte: new Date(startDate), lte: new Date(endDate) }
+          dateTime: { gte: this.getStartDate(startDate), lte: this.getEndDate(endDate) }
         },
         include: {
           request: {
@@ -2376,8 +3189,8 @@ Format as JSON with keys: summary, keyFindings, recommendations, alerts`;
       const additionalServiceAnalysis = await this.prisma.serviceAnalysis.findMany({
         where: {
           createdAt: {
-            gte: new Date(startDate),
-            lte: new Date(endDate)
+            gte: this.getStartDate(startDate),
+            lte: this.getEndDate(endDate)
           }
         },
         include: {
@@ -2716,7 +3529,7 @@ Focus on data-driven insights using the actual sentiment data provided. Calculat
 
       // Cache the result if adminSessionId is provided
       if (adminSessionId) {
-        const cacheKey = `getAIInsights_${adminSessionId}_${JSON.stringify(dateRange)}`;
+        const cacheKey = `getAIInsights_${adminSessionId}_${JSON.stringify(dateRange)}_${tenantId || 'all'}`;
         this.cacheService.set(cacheKey, result);
       }
 
@@ -2738,5 +3551,166 @@ Focus on data-driven insights using the actual sentiment data provided. Calculat
         }
       };
     }
+  }
+
+  /**
+   * Reconstruct session timeline to determine waiter responsibility periods
+   * @param sessionId The session ID to reconstruct timeline for
+   * @param startDate Analysis start date
+   * @param endDate Analysis end date
+   * @returns Array of responsibility periods with waiter and time ranges
+   */
+  private async reconstructSessionTimeline(sessionId: string, startDate: Date, endDate: Date): Promise<any[]> {
+    try {
+      // Get all session activity logs for this session within the date range
+      const sessionLogs = await this.prisma.userSessionLog.findMany({
+        where: {
+          sessionId: sessionId,
+          dateTime: {
+            gte: startDate,
+            lte: endDate,
+          },
+          action: {
+            in: ['session_created', 'transferred_session_from', 'transferred_session_to', 'session_closed']
+          }
+        },
+        orderBy: {
+          dateTime: 'asc'
+        }
+      });
+
+      if (sessionLogs.length === 0) {
+        // If no logs, check if the user exists for this session and assume responsibility from session start
+        const user = await this.prisma.user.findFirst({
+          where: { sessionId: sessionId },
+          select: { waiterId: true, createdAt: true }
+        });
+        
+        if (user && user.waiterId) {
+          return [{
+            waiterId: user.waiterId,
+            startTime: user.createdAt,
+            endTime: endDate, // Assume responsibility until end of analysis period
+            duration: endDate.getTime() - user.createdAt.getTime()
+          }];
+        }
+        return [];
+      }
+
+      const timeline: any[] = [];
+      let currentWaiter: string | null = null;
+      let periodStart: Date | null = null;
+
+      for (const log of sessionLogs) {
+        if (log.action === 'session_created') {
+          currentWaiter = log.actorId;
+          periodStart = log.dateTime;
+        } else if (log.action === 'transferred_session_from') {
+          // End current period for transferring waiter
+          if (currentWaiter && periodStart) {
+            timeline.push({
+              waiterId: currentWaiter,
+              startTime: periodStart,
+              endTime: log.dateTime,
+              duration: log.dateTime.getTime() - periodStart.getTime()
+            });
+          }
+          currentWaiter = null;
+          periodStart = null;
+        } else if (log.action === 'transferred_session_to') {
+          // Start new period for receiving waiter
+          currentWaiter = log.actorId;
+          periodStart = log.dateTime;
+        } else if (log.action === 'session_closed') {
+          // End current period
+          if (currentWaiter && periodStart) {
+            timeline.push({
+              waiterId: currentWaiter,
+              startTime: periodStart,
+              endTime: log.dateTime,
+              duration: log.dateTime.getTime() - periodStart.getTime()
+            });
+          }
+          currentWaiter = null;
+          periodStart = null;
+        }
+      }
+
+      // If there's an ongoing period at the end of the analysis window
+      if (currentWaiter && periodStart) {
+        timeline.push({
+          waiterId: currentWaiter,
+          startTime: periodStart,
+          endTime: endDate,
+          duration: endDate.getTime() - periodStart.getTime()
+        });
+      }
+
+      return timeline;
+    } catch (error) {
+      this.logger.error(`Failed to reconstruct session timeline for ${sessionId}: ${error.message}`, error.stack);
+      return [];
+    }
+  }
+
+  /**
+   * Find which waiter was responsible for a session at a specific time
+   * @param sessionId The session ID
+   * @param eventTime The time of the event
+   * @param sessionTimelines All session timelines for the analysis period
+   * @returns The waiter ID who was responsible at that time, or null if none
+   */
+  private findResponsibleWaiterAtTime(sessionId: string, eventTime: Date, sessionTimelines: any[][]): string | null {
+    // Find the timeline for this specific session
+    const sessionTimeline = sessionTimelines.find(timeline => 
+      timeline.length > 0 && timeline.some(period => period.sessionId === sessionId)
+    );
+    
+    if (!sessionTimeline) {
+      // No timeline found
+      return null;
+    }
+
+    // Check which waiter was responsible at the event time
+    for (const period of sessionTimeline) {
+      if (eventTime >= period.startTime && eventTime <= period.endTime) {
+        return period.waiterId;
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Check if a waiter was responsible for a session at a specific time
+   * @param waiterId The waiter ID to check
+   * @param sessionId The session ID
+   * @param eventTime The time of the event (request/order creation)
+   * @param sessionTimelines All session timelines for the analysis period
+   * @returns True if the waiter was responsible at that time
+   */
+  private isWaiterResponsibleAtTime(waiterId: string, sessionId: string, eventTime: Date, sessionTimelines: any[][]): boolean {
+    // Find the timeline for this specific session
+    const sessionTimelineIndex = sessionTimelines.findIndex(timeline => 
+      timeline.length > 0 && timeline[0].sessionId === sessionId
+    );
+    
+    if (sessionTimelineIndex === -1) {
+      // No timeline found, use fallback logic
+      return true; // Conservative approach - assume responsibility
+    }
+
+    const sessionTimeline = sessionTimelines[sessionTimelineIndex];
+    
+    // Check if the waiter was responsible at the event time
+    for (const period of sessionTimeline) {
+      if (period.waiterId === waiterId && 
+          eventTime >= period.startTime && 
+          eventTime <= period.endTime) {
+        return true;
+      }
+    }
+    
+    return false;
   }
 }
